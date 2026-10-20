@@ -6,7 +6,7 @@ const { subscriptionNames } = require("./armClient");
 
 // Findings carry subscription IDs; add the names so people can read them.
 // A failed lookup only costs the names, never the scan.
-async function addSubscriptionNames(toolId, findings) {
+async function addSubscriptionNames(toolId, findings, { quiet = false } = {}) {
   if (!findings.some((f) => f.subscriptionId && !f.subscriptionName)) return;
   try {
     const names = await subscriptionNames(toolId);
@@ -14,7 +14,7 @@ async function addSubscriptionNames(toolId, findings) {
       if (f.subscriptionId && !f.subscriptionName) f.subscriptionName = names.get(f.subscriptionId) || null;
     }
   } catch (err) {
-    log.record({ tool: toolId, level: "error", message: `could not look up subscription names: ${err.message}` });
+    if (!quiet) log.record({ tool: toolId, level: "error", message: `could not look up subscription names: ${err.message}` });
   }
 }
 
@@ -38,8 +38,12 @@ function registerScanTool(app, tool) {
     execute();
   });
 
-  app.get(`/api/tools/${tool.id}/findings`, (req, res) => {
-    res.json(findingsStore.read(tool.id));
+  // Names are added again on read, so results saved before a name existed
+  // (or by an older version) still show it.
+  app.get(`/api/tools/${tool.id}/findings`, async (req, res) => {
+    const data = findingsStore.read(tool.id);
+    await addSubscriptionNames(tool.id, data.findings || [], { quiet: true });
+    res.json(data);
   });
 
   if (tool.schedule) {

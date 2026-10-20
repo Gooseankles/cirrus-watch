@@ -290,6 +290,16 @@
       return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
+    // The subscription is its own column; show the scope below it, readable.
+    function shortScope(scope) {
+      const s = scope || "";
+      if (/^\/subscriptions\/[^/]+\/?$/i.test(s)) return "whole subscription";
+      const mg = s.match(/\/managementGroups\/([^/]+)$/i);
+      if (mg) return `management group ${mg[1]}`;
+      if (s === "/") return "tenant root";
+      return s.replace(/^\/subscriptions\/[^/]+/i, "").replace(/^\/resourceGroups\//i, "rg ").replace(/\/providers\//i, " / ");
+    }
+
     const ACCESS_REVIEW_BODY = `
       <div class="ar-summary" id="ar-summary"></div>
       <div class="toolbar ar-filters">
@@ -590,7 +600,7 @@
             <thead><tr><th>Via</th><th>Role</th><th>Subscription</th><th>Scope</th></tr></thead>
             <tbody>
               ${data.assignments.map((a) => `
-                <tr><td>${a.via}</td><td>${a.role}</td><td>${a.subscriptionName ? `${esc(a.subscriptionName)}<div class="ar-sub"><code>${esc(a.subscriptionId)}</code></div>` : `<code>${esc(a.subscriptionId || "")}</code>`}</td><td>${a.scope}</td></tr>
+                <tr><td>${a.via}</td><td>${a.role}</td><td>${a.subscriptionName ? `${esc(a.subscriptionName)}<div class="ar-sub"><code>${esc(a.subscriptionId)}</code></div>` : `<code>${esc(a.subscriptionId || "")}</code>`}</td><td>${esc(shortScope(a.scope))}</td></tr>
               `).join("")}
             </tbody>
           </table>

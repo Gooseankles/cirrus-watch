@@ -1,4 +1,4 @@
-const { armPost } = require("../armClient");
+const { armPost, subscriptionLabel } = require("../armClient");
 const { addWorkNote } = require("../servicenow");
 const log = require("../log");
 
@@ -39,14 +39,15 @@ function registerRoutes(app) {
       return res.status(400).json({ error: `checklist incomplete, missing: ${missing.join(", ")}` });
     }
 
-    log.record({ tool: "subscription-decommission", level: "info", ticketNumber, message: `decommissioning ${subscriptionId}` });
     res.status(202).json({ status: "accepted", ticketNumber });
+    const label = await subscriptionLabel(subscriptionId, "subscription-decommission");
+    log.record({ tool: "subscription-decommission", level: "info", ticketNumber, message: `decommissioning ${label}` });
 
     try {
       await cancelSubscription(subscriptionId);
-      log.record({ tool: "subscription-decommission", level: "success", ticketNumber, message: `cancelled ${subscriptionId}` });
+      log.record({ tool: "subscription-decommission", level: "success", ticketNumber, message: `cancelled ${label}` });
       if (table && sysId) {
-        await addWorkNote(table, sysId, `Azure subscription ${subscriptionId} has been cancelled.`);
+        await addWorkNote(table, sysId, `Azure subscription ${label} has been cancelled.`);
       }
     } catch (err) {
       log.record({ tool: "subscription-decommission", level: "error", ticketNumber, message: err.message });

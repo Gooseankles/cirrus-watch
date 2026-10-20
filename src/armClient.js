@@ -106,17 +106,37 @@ async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
   return rows;
 }
 
-// Subscription ID -> display name, for every subscription the identity can see.
+// Subscription ID -> display name, for every subscription the identity can
+// see. Cached per identity for a while: pages ask for it on every load.
+const SUB_NAME_TTL_MS = 15 * 60 * 1000;
+const subNameCache = new Map(); // toolId -> { at, names }
+
 async function subscriptionNames(toolId) {
+  const key = toolId || "";
+  const hit = subNameCache.get(key);
+  if (hit && Date.now() - hit.at < SUB_NAME_TTL_MS) return hit.names;
   const rows = await resourceGraphQuery(
     `ResourceContainers | where type == 'microsoft.resources/subscriptions' | project subscriptionId, name`,
-    { toolId }
+    { toolId, subscriptions: [] }
   );
-  return new Map(rows.map((r) => [r.subscriptionId, r.name]));
+  const names = new Map(rows.map((r) => [r.subscriptionId, r.name]));
+  subNameCache.set(key, { at: Date.now(), names });
+  return names;
+}
+
+// "Name (id)" when the name is known, else the id; never throws.
+async function subscriptionLabel(subscriptionId, toolId) {
+  try {
+    const name = (await subscriptionNames(toolId)).get(subscriptionId);
+    return name ? `${name} (${subscriptionId})` : subscriptionId;
+  } catch {
+    return subscriptionId;
+  }
 }
 
 module.exports = {
   subscriptionNames,
+  subscriptionLabel,
   getArmToken,
   armGet,
   armPut,

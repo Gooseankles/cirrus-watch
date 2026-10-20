@@ -1,0 +1,26 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+name            = "contoso-azure-tools" # becomes https://contoso-azure-tools.azurewebsites.net
+location        = "norwayeast"
+
+# Reader + Cost Management Reader for the scan identity. The tenant root
+# management group's ID is the tenant ID.
+scan_scopes = [
+  "/providers/Microsoft.Management/managementGroups/00000000-0000-0000-0000-000000000000",
+]
+
+# Users or groups (object IDs) allowed to sign in.
+admin_principal_ids = ["00000000-0000-0000-0000-000000000000"]
+user_principal_ids  = []
+
+# Break-glass local login; leave blank once SSO works.
+# admin_password = "a-long-random-password"
+
+# extra_app_settings = {
+#   WEBHOOK_SHARED_SECRET = "..."
+#   SNOW_INSTANCE_URL     = "https://example.service-now.com"
+#   SNOW_API_USER         = "svc.azure.automation"
+#   SNOW_API_PASSWORD     = "..."
+#   AZURE_REQUIRED_TAGS   = "CostCenter,Owner,Environment"
+# }

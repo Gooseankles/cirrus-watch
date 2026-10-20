@@ -27,6 +27,19 @@ async function graphGet(path, toolId) {
   return response.data;
 }
 
+async function graphPost(path, body, toolId) {
+  const token = await getGraphToken(toolId);
+  const url = path.startsWith("http") ? path : `${GRAPH_ROOT}${path}`;
+  const response = await axios.post(url, body, {
+    headers: { Authorization: `Bearer ${token}` },
+    validateStatus: () => true,
+  });
+  if (response.status >= 300) {
+    throw new Error(`Graph POST ${url} failed (${response.status}): ${JSON.stringify(response.data)}`);
+  }
+  return response.data;
+}
+
 // Follows @odata.nextLink until exhausted; Graph pages most list endpoints.
 async function graphGetAll(path, toolId) {
   let results = [];
@@ -39,4 +52,4 @@ async function graphGetAll(path, toolId) {
   return results;
 }
 
-module.exports = { getGraphToken, graphGet, graphGetAll };
+module.exports = { getGraphToken, graphGet, graphGetAll, graphPost };

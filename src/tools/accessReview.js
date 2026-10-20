@@ -1,5 +1,7 @@
 const { resourceGraphQuery } = require("../armClient");
+const { graphPost } = require("../graphClient");
 const settings = require("../settings");
+const log = require("../log");
 
 const TOOL_ID = "access-review";
 
@@ -15,6 +17,26 @@ const KNOWN_ROLES = {
 
 function staleDays() {
   return Number(settings.get("AZURE_ACCESS_REVIEW_STALE_DAYS")) || 365;
+}
+
+// Object ID -> "Display Name (upn)". Needs Graph User.Read.All (or
+// Directory.Read.All) as an Application permission; without it the scan
+// still runs and shows object IDs.
+async function resolveUserNames(ids) {
+  const names = new Map();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 1000) {
+    const page = await graphPost(
+      "/directoryObjects/getByIds?$select=id,displayName,userPrincipalName",
+      { ids: unique.slice(i, i + 1000), types: ["user"] },
+      TOOL_ID
+    );
+    for (const u of page.value || []) {
+      const upn = u.userPrincipalName ? ` (${u.userPrincipalName})` : "";
+      names.set(u.id, `${u.displayName || u.id}${upn}`);
+    }
+  }
+  return names;
 }
 
 async function run() {
@@ -46,10 +68,28 @@ async function run() {
       kind: "stale-direct-assignment",
       id: r.id,
       name: r.principalId,
+      principalId: r.principalId,
       resourceGroup: null,
       subscriptionId: r.subscriptionId,
       detail: `${roleName} directly on a user since ${createdOn.toISOString().slice(0, 10)} (scope: ${r.scope})`,
     });
+  }
+
+  if (findings.length) {
+    try {
+      const names = await resolveUserNames(findings.map((f) => f.principalId));
+      for (const f of findings) {
+        const name = names.get(f.principalId);
+        if (name) f.name = name;
+        else f.detail += ` (user ${f.principalId} not found in Entra; deleted?)`;
+      }
+    } catch (err) {
+      log.record({
+        tool: TOOL_ID,
+        level: "error",
+        message: `showing object IDs, could not look up user names (needs Graph User.Read.All): ${err.message}`,
+      });
+    }
   }
   return findings;
 }

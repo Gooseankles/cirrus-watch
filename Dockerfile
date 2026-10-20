@@ -15,5 +15,7 @@ COPY public ./public
 ENV PORT=7070
 EXPOSE 7070
 
+RUN mkdir -p /app/data /app/logs /home/data && chown node:node /app/data /app/logs /home/data
+
 USER node
 CMD ["node", "server.js"]

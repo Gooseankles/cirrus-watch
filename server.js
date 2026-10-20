@@ -8,16 +8,27 @@ const log = require("./src/log");
 const auth = require("./src/auth");
 const settings = require("./src/settings");
 const { testSpn } = require("./src/credentials");
+const { FileSessionStore } = require("./src/sessionStore");
 const { registerScanTool, registerActionTool } = require("./src/toolRegistry");
 
 const app = express();
 app.use(express.json());
 // App Service ends HTTPS at its front end and forwards plain HTTP, so trust
 // its X-Forwarded-Proto to allow Secure cookies.
-const httpsSite = (process.env.DASHBOARD_REDIRECT_URI || "").startsWith("https://");
+function sessionStore() {
+  try {
+    return new FileSessionStore();
+  } catch (err) {
+    console.warn(`Sign-ins kept in memory only (lost on restart): cannot use the sessions folder: ${err.message}`);
+    return undefined;
+  }
+}
+
+const httpsSite =(process.env.DASHBOARD_REDIRECT_URI || "").startsWith("https://");
 if (httpsSite) app.set("trust proxy", 1);
 app.use(
   session({
+    store: sessionStore(),
     secret: process.env.SESSION_SECRET || "dev-only-change-me",
     resave: false,
     saveUninitialized: false,

@@ -223,6 +223,14 @@
   </main>
 
   <script>
+    // A 401 means the server no longer knows this browser's sign-in.
+    const rawFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const res = await rawFetch(...args);
+      if (res.status === 401) window.location.href = "/login.html";
+      return res;
+    };
+
     const ICONS = {
       "subscription-create": "🧾",
       "subscription-decommission": "🗑️",

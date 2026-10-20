@@ -183,6 +183,21 @@
     .role-owner { color: var(--danger); border-color: rgba(255, 93, 122, 0.4); background: rgba(255, 93, 122, 0.1); }
     .role-user { color: #f5b14c; border-color: rgba(245, 177, 76, 0.4); background: rgba(245, 177, 76, 0.1); }
     .role-contributor { color: var(--accent); border-color: rgba(108, 123, 255, 0.4); background: rgba(108, 123, 255, 0.1); }
+
+    /* --- History --- */
+    .new-badge { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 0.72rem; color: var(--accent-2); border: 1px solid rgba(69, 227, 194, 0.4); }
+    .hist-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .hist-head h3 { margin: 0; font-size: 0.95rem; }
+    .hist-chart { width: 100%; height: 120px; margin-top: 10px; display: block; }
+    .hist-chart .bar { fill: rgba(108, 123, 255, 0.55); }
+    .hist-chart .bar:hover, .hist-chart .bar.sel { fill: var(--accent-2); cursor: pointer; }
+    .hist-chart text { fill: var(--muted); font-size: 10px; }
+    .hist-runs { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+    .hist-runs tr { cursor: pointer; }
+    .hist-runs tr.sel td { background: var(--panel-2); }
+    .delta-up { color: var(--danger); }
+    .delta-down { color: var(--ok); }
+    .hist-detail h4 { margin: 14px 0 4px; font-size: 0.85rem; color: var(--muted); font-weight: 500; }
   </style>
 </head>
 <body>
@@ -322,6 +337,24 @@
         <tbody id="ar-rows"></tbody>
       </table>`;
 
+    function historyCard(toolId) {
+      return `
+        <div class="card">
+          <div class="hist-head">
+            <h3>History</h3>
+            <span class="ranAt" data-hist-note="${toolId}"></span>
+          </div>
+          <svg class="hist-chart" data-hist-chart="${toolId}" preserveAspectRatio="none"></svg>
+          <div class="hist-runs">
+            <table>
+              <thead><tr><th>Run</th><th>Findings</th><th>New</th><th>Resolved</th></tr></thead>
+              <tbody data-hist-rows="${toolId}"></tbody>
+            </table>
+          </div>
+          <div class="hist-detail" data-hist-detail="${toolId}"></div>
+        </div>`;
+    }
+
     for (const tool of SCAN_TOOLS) {
       const section = document.createElement("section");
       section.id = `section-${tool.id}`;
@@ -337,7 +370,8 @@
             </div>
             ${ACCESS_REVIEW_BODY}
             <div class="empty" data-empty="${tool.id}" style="display:none">No findings yet — click "Run now".</div>
-          </div>`;
+          </div>
+          ${historyCard(tool.id)}`;
         scanRoot.appendChild(section);
         continue;
       }
@@ -354,6 +388,7 @@
           </table>
           <div class="empty" data-empty="${tool.id}" style="display:none">No findings yet — click "Run now".</div>
         </div>
+        ${historyCard(tool.id)}
       `;
       scanRoot.appendChild(section);
     }
@@ -552,8 +587,9 @@
       empty.style.display = data.findings.length ? "none" : "block";
       for (const f of data.findings) {
         const tr = document.createElement("tr");
+        const isNew = f.firstSeen && f.firstSeen === data.ranAt;
         tr.innerHTML = `
-          <td><span class="kind-badge">${f.kind}</span></td>
+          <td><span class="kind-badge">${f.kind}</span>${isNew ? '<span class="new-badge">new</span>' : ""}</td>
           <td>${f.name || ""}</td>
           <td>${f.subscriptionName ? `${esc(f.subscriptionName)}<div class="ar-sub"><code>${esc(f.subscriptionId)}</code></div>` : `<code>${esc(f.subscriptionId || "")}</code>`}</td>
           <td>${f.resourceGroup || ""}</td>
@@ -563,8 +599,88 @@
       }
     }
 
+    // --- History: per-run counts as bars, a run list, and what changed in a run ---
+    const histSelected = {};
+
+    function findingLine(f) {
+      const sub = f.subscriptionName || f.subscriptionId || "";
+      return `<tr><td><span class="kind-badge">${esc(f.kind)}</span></td><td>${esc(f.name || "")}</td><td>${esc(sub)}</td><td>${esc(f.detail || "")}</td></tr>`;
+    }
+
+    async function showRun(toolId, ranAt) {
+      histSelected[toolId] = ranAt;
+      document.querySelectorAll(`[data-hist-rows="${toolId}"] tr`).forEach((tr) => tr.classList.toggle("sel", tr.dataset.ranat === ranAt));
+      document.querySelectorAll(`[data-hist-chart="${toolId}"] .bar`).forEach((b) => b.classList.toggle("sel", b.dataset.ranat === ranAt));
+      const box = document.querySelector(`[data-hist-detail="${toolId}"]`);
+      box.innerHTML = `<div class="status-msg">Loading run...</div>`;
+      const res = await fetch(`/api/tools/${toolId}/history/${encodeURIComponent(ranAt)}`);
+      if (!res.ok) {
+        box.innerHTML = `<div class="status-msg level-error">That run's snapshot is no longer stored.</div>`;
+        return;
+      }
+      const run = await res.json();
+      const since = run.previousRanAt ? `since ${new Date(run.previousRanAt).toLocaleString()}` : "first stored run";
+      const table = (list) =>
+        list.length
+          ? `<table><thead><tr><th>Kind</th><th>Name</th><th>Subscription</th><th>Detail</th></tr></thead><tbody>${list.map(findingLine).join("")}</tbody></table>`
+          : `<div class="empty">None.</div>`;
+      box.innerHTML = `
+        <h4>New in the run of ${esc(new Date(run.ranAt).toLocaleString())} (${esc(since)}): ${run.added.length}</h4>${table(run.added)}
+        <h4>Resolved: ${run.resolved.length}</h4>${table(run.resolved)}`;
+    }
+
+    function drawChart(toolId, runs) {
+      const svg = document.querySelector(`[data-hist-chart="${toolId}"]`);
+      const w = svg.clientWidth || 600, h = 120, pad = 16;
+      svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      if (!runs.length) { svg.innerHTML = ""; return; }
+      const max = Math.max(1, ...runs.map((r) => r.count));
+      const step = (w - 4) / runs.length;
+      const bw = Math.max(1, Math.min(24, step - 2));
+      svg.innerHTML =
+        runs.map((r, i) => {
+          const bh = Math.max(1, ((h - pad * 2) * r.count) / max);
+          return `<rect class="bar" data-ranat="${esc(r.ranAt)}" x="${2 + i * step}" y="${h - pad - bh}" width="${bw}" height="${bh}"><title>${esc(new Date(r.ranAt).toLocaleString())}: ${r.count} finding(s), +${r.added} / -${r.resolved}</title></rect>`;
+        }).join("") +
+        `<text x="2" y="10">${max}</text>` +
+        `<text x="2" y="${h - 3}">${esc(new Date(runs[0].ranAt).toLocaleDateString())}</text>` +
+        `<text x="${w - 2}" y="${h - 3}" text-anchor="end">${esc(new Date(runs[runs.length - 1].ranAt).toLocaleDateString())}</text>`;
+      svg.querySelectorAll(".bar").forEach((b) => b.addEventListener("click", () => showRun(toolId, b.dataset.ranat)));
+    }
+
+    async function refreshHistory(toolId) {
+      const res = await fetch(`/api/tools/${toolId}/history`);
+      const note = document.querySelector(`[data-hist-note="${toolId}"]`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        note.innerHTML = `<span class="level-error">${esc(err.error || "history unavailable")}</span>`;
+        return;
+      }
+      const runs = await res.json();
+      note.textContent = runs.length
+        ? `${runs.length} run(s) since ${new Date(runs[0].ranAt).toLocaleDateString()}`
+        : "No runs stored yet.";
+      drawChart(toolId, runs);
+      const rows = document.querySelector(`[data-hist-rows="${toolId}"]`);
+      rows.innerHTML = runs
+        .slice()
+        .reverse()
+        .map((r) => `<tr data-ranat="${esc(r.ranAt)}">
+            <td>${esc(new Date(r.ranAt).toLocaleString())}</td>
+            <td>${r.count}</td>
+            <td class="${r.added ? "delta-up" : ""}">+${r.added}</td>
+            <td class="${r.resolved ? "delta-down" : ""}">-${r.resolved}</td>
+          </tr>`)
+        .join("");
+      rows.querySelectorAll("tr").forEach((tr) => tr.addEventListener("click", () => showRun(toolId, tr.dataset.ranat)));
+      if (histSelected[toolId]) {
+        rows.querySelectorAll("tr").forEach((tr) => tr.classList.toggle("sel", tr.dataset.ranat === histSelected[toolId]));
+      }
+    }
+
     for (const tool of SCAN_TOOLS) {
       refreshFindings(tool.id);
+      refreshHistory(tool.id);
       document.querySelector(`[data-run="${tool.id}"]`).addEventListener("click", async (ev) => {
         ev.target.disabled = true;
         ev.target.classList.add("running");
@@ -575,6 +691,7 @@
           await new Promise((r) => setTimeout(r, 2000));
           await refreshFindings(tool.id);
         }
+        await refreshHistory(tool.id);
         ev.target.disabled = false;
         ev.target.classList.remove("running");
         ev.target.textContent = "Run now";

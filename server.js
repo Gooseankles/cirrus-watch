@@ -101,6 +101,7 @@ const registeredTools = [
 ];
 
 app.get("/api/tools", (req, res) => res.json(registeredTools));
+app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
 function checkSecret(req, res, next) {
   const expected = process.env.WEBHOOK_SHARED_SECRET;

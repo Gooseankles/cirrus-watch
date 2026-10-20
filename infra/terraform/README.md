@@ -9,6 +9,10 @@ Creates everything the dashboard needs in one `apply`:
 - **Secretless SSO**: an Entra app registration with the Admin and User roles, "assignment required" on, a
   user-assigned identity attached to the web app, and a federated credential so no client secret exists.
 - Role assignments for the users or groups in `admin_principal_ids` and `user_principal_ids`.
+- **History storage** (`create_history_storage`, on by default): a storage account with account keys off, a private
+  `dashboard` container, and Storage Blob Data Contributor for the web app's identity. Every scan run is kept there
+  (`history_retention_days`, default 730), so the dashboard shows trends and what was new or resolved in each run.
+  Off = results stay on the app's own disk (`/home/data`, 365 days by default).
 
 ## Who can run it
 

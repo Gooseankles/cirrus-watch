@@ -20,6 +20,8 @@ terraform {
 provider "azurerm" {
   features {}
   subscription_id = var.subscription_id
+  # The history storage account has account keys turned off.
+  storage_use_azuread = true
 }
 
 provider "azuread" {}

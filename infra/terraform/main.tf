@@ -80,6 +80,11 @@ resource "azurerm_linux_web_app" "this" {
     local.sso_secretless
     ? { DASHBOARD_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.sso.client_id }
     : { DASHBOARD_AZURE_CLIENT_SECRET = var.sso_client_secret },
+    var.create_history_storage ? {
+      STORAGE_ACCOUNT_URL    = azurerm_storage_account.history[0].primary_blob_endpoint
+      STORAGE_CONTAINER      = azurerm_storage_container.history[0].name
+      HISTORY_RETENTION_DAYS = tostring(var.history_retention_days)
+    } : {},
     var.admin_password != "" ? { DASHBOARD_ADMIN_PASSWORD = var.admin_password } : {},
     var.extra_app_settings,
   )
@@ -92,6 +97,54 @@ resource "azurerm_linux_web_app" "this" {
       }
     }
   }
+}
+
+# --- Scan results and run history ---
+
+resource "random_string" "storage_suffix" {
+  length  = 5
+  upper   = false
+  special = false
+}
+
+locals {
+  storage_account_name = var.storage_account_name != "" ? var.storage_account_name : substr("st${replace(lower(var.name), "/[^a-z0-9]/", "")}${random_string.storage_suffix.result}", 0, 24)
+}
+
+resource "azurerm_storage_account" "history" {
+  count                           = var.create_history_storage ? 1 : 0
+  name                            = local.storage_account_name
+  resource_group_name             = azurerm_resource_group.this.name
+  location                        = azurerm_resource_group.this.location
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
+  min_tls_version                 = "TLS1_2"
+  allow_nested_items_to_be_public = false
+  shared_access_key_enabled       = false # Entra (managed identity) only
+  default_to_oauth_authentication = true
+  tags                            = var.tags
+
+  blob_properties {
+    versioning_enabled = false
+    delete_retention_policy {
+      days = 7
+    }
+  }
+}
+
+resource "azurerm_storage_container" "history" {
+  count                 = var.create_history_storage ? 1 : 0
+  name                  = "dashboard"
+  storage_account_id    = azurerm_storage_account.history[0].id
+  container_access_type = "private"
+}
+
+resource "azurerm_role_assignment" "history_app" {
+  count                = var.create_history_storage ? 1 : 0
+  scope                = azurerm_storage_account.history[0].id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_linux_web_app.this.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # --- Scan permissions (ARM) ---

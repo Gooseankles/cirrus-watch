@@ -25,6 +25,10 @@ const FIELDS = [
   { key: "AZURE_BILLING_SCOPE", label: "Billing scope", group: "Subscription creation", hint: "EA enrollment account or MCA invoice section path" },
   { key: "AZURE_MANAGEMENT_GROUP_ID", label: "Management group ID", group: "Subscription creation" },
 
+  { key: "STORAGE_ACCOUNT_URL", label: "Storage account blob URL", group: "History storage", hint: "e.g. https://stdashboard.blob.core.windows.net; blank = keep results on the app's own disk" },
+  { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
+  { key: "HISTORY_RETENTION_DAYS", label: "Keep run history (days)", group: "History storage", hint: "Blank = 365" },
+
   { key: "AZURE_REQUIRED_TAGS", label: "Required tags", group: "Tag compliance", hint: "Comma-separated tag names" },
   { key: "AZURE_COST_ANOMALY_THRESHOLD_PCT", label: "Cost jump threshold (%)", group: "Cost anomalies" },
   { key: "AZURE_ACCESS_REVIEW_STALE_DAYS", label: "Stale direct-assignment age (days)", group: "Access review" },
@@ -46,6 +50,7 @@ const TOOL_SPNS = [
   { id: "access-review", label: "Access review" },
   { id: "secret-expiry", label: "Expiring secrets/certs" },
   { id: "access-packages", label: "Access packages" },
+  { id: "history-storage", label: "History storage" },
 ];
 
 function spnPrefix(toolId) {

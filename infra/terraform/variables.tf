@@ -64,6 +64,24 @@ variable "graph_permissions" {
   ]
 }
 
+variable "create_history_storage" {
+  description = "Create a storage account for scan results and run history (reached with the web app's managed identity, no keys). false = keep them on the app's own disk."
+  type        = bool
+  default     = true
+}
+
+variable "storage_account_name" {
+  description = "Storage account name (3-24 lowercase letters and digits, globally unique). Blank = st<name without dashes> plus a random suffix."
+  type        = string
+  default     = ""
+}
+
+variable "history_retention_days" {
+  description = "How many days of run history the dashboard keeps."
+  type        = number
+  default     = 730
+}
+
 variable "create_sso_app" {
   description = <<-EOT
     true = Terraform creates the sign-in app registration. false = the app registration comes from your own

@@ -70,7 +70,8 @@ async function testSpn(toolId) {
   let spn;
   try {
     spn = resolveSpn(toolId);
-    await getCredential(toolId).getToken("https://management.azure.com/.default");
+    const scope = toolId === "history-storage" ? "https://storage.azure.com/.default" : "https://management.azure.com/.default";
+    await getCredential(toolId).getToken(scope);
     return { ok: true, source: spn.source, authType: spn.authType, clientId: spn.clientId };
   } catch (err) {
     return {

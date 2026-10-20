@@ -26,8 +26,12 @@ function registerScanTool(app, tool) {
     try {
       const findings = await tool.run();
       await addSubscriptionNames(tool.id, findings);
-      findingsStore.write(tool.id, findings);
-      log.record({ tool: tool.id, level: "success", message: `scan complete: ${findings.length} finding(s)` });
+      const saved = await findingsStore.write(tool.id, findings);
+      log.record({
+        tool: tool.id,
+        level: "success",
+        message: `scan complete: ${findings.length} finding(s), ${saved.added} new, ${saved.resolved} resolved`,
+      });
     } catch (err) {
       log.record({ tool: tool.id, level: "error", message: err.message });
     }
@@ -41,9 +45,34 @@ function registerScanTool(app, tool) {
   // Names are added again on read, so results saved before a name existed
   // (or by an older version) still show it.
   app.get(`/api/tools/${tool.id}/findings`, async (req, res) => {
-    const data = findingsStore.read(tool.id);
-    await addSubscriptionNames(tool.id, data.findings || [], { quiet: true });
-    res.json(data);
+    try {
+      const data = await findingsStore.read(tool.id);
+      await addSubscriptionNames(tool.id, data.findings || [], { quiet: true });
+      res.json(data);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Per-run counts for the trend chart, oldest first.
+  app.get(`/api/tools/${tool.id}/history`, async (req, res) => {
+    try {
+      res.json(await findingsStore.history(tool.id));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // One past run: its findings plus what was new and what was resolved.
+  app.get(`/api/tools/${tool.id}/history/:ranAt`, async (req, res) => {
+    try {
+      const run = await findingsStore.readRun(tool.id, req.params.ranAt);
+      if (!run) return res.status(404).json({ error: "no such run" });
+      await addSubscriptionNames(tool.id, [...run.findings, ...run.added, ...run.resolved], { quiet: true });
+      res.json(run);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   if (tool.schedule) {

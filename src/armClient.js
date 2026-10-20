@@ -13,18 +13,38 @@ async function getArmToken(toolId) {
   return token.token;
 }
 
+const MAX_RETRIES = 6;
+
+// ARM and Cost Management answer 429 (and sometimes 503) when a scan over
+// hundreds of subscriptions goes too fast; they say how long to wait in a
+// Retry-After or x-ms-ratelimit-*-retry-after header.
+function retryDelayMs(response, attempt) {
+  let seconds = 0;
+  for (const [name, value] of Object.entries(response.headers || {})) {
+    if (name.toLowerCase().endsWith("retry-after")) seconds = Math.max(seconds, Number(value) || 0);
+  }
+  if (!seconds) seconds = 2 ** attempt;
+  return Math.min(seconds, 60) * 1000;
+}
+
 async function armRequest(method, url, data, toolId) {
-  const token = await getArmToken(toolId);
-  const response = await axios.request({
-    method,
-    url,
-    data,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    validateStatus: () => true,
-  });
+  let response;
+  for (let attempt = 0; ; attempt++) {
+    const token = await getArmToken(toolId);
+    response = await axios.request({
+      method,
+      url,
+      data,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      validateStatus: () => true,
+    });
+    const retryable = response.status === 429 || response.status === 503;
+    if (!retryable || attempt >= MAX_RETRIES) break;
+    await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));
+  }
   if (response.status >= 300) {
     throw new Error(`ARM request failed ${method} ${url} (${response.status}): ${JSON.stringify(response.data)}`);
   }
@@ -48,18 +68,50 @@ function configuredSubscriptionIds() {
     .filter(Boolean);
 }
 
+// Every enabled subscription the tool's identity can see (AZURE_SUBSCRIPTION_IDS
+// wins when set), for tools that call per-subscription APIs.
+async function subscriptionIdsToScan(toolId) {
+  const configured = configuredSubscriptionIds();
+  if (configured.length) return configured;
+  const ids = [];
+  let url = "https://management.azure.com/subscriptions?api-version=2022-12-01";
+  while (url) {
+    const page = await armGet(url, toolId);
+    for (const s of page.value || []) {
+      if (s.state === "Enabled") ids.push(s.subscriptionId);
+    }
+    url = page.nextLink;
+  }
+  return ids;
+}
+
 // Runs a Kusto-style query against Azure Resource Graph, scoped to
 // AZURE_SUBSCRIPTION_IDS if set, otherwise every subscription the calling
-// SPN can see.
+// identity can see. Follows $skipToken, since one page holds at most 1000 rows.
 async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
   const subs = subscriptions || configuredSubscriptionIds();
   const url = `https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=${RESOURCE_GRAPH_API_VERSION}`;
-  const body = {
-    query,
-    ...(subs.length && { subscriptions: subs }),
-  };
-  const data = await armPost(url, body, toolId);
-  return data.data || [];
+  const rows = [];
+  let skipToken;
+  do {
+    const body = {
+      query,
+      ...(subs.length && { subscriptions: subs }),
+      options: { $top: 1000, ...(skipToken && { $skipToken: skipToken }) },
+    };
+    const data = await armPost(url, body, toolId);
+    rows.push(...(data.data || []));
+    skipToken = data.$skipToken;
+  } while (skipToken);
+  return rows;
 }
 
-module.exports = { getArmToken, armGet, armPut, armPost, resourceGraphQuery, configuredSubscriptionIds };
+module.exports = {
+  getArmToken,
+  armGet,
+  armPut,
+  armPost,
+  resourceGraphQuery,
+  configuredSubscriptionIds,
+  subscriptionIdsToScan,
+};

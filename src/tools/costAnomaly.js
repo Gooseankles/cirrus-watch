@@ -1,5 +1,7 @@
-const { armPost, configuredSubscriptionIds } = require("../armClient");
+const { armPost, subscriptionIdsToScan } = require("../armClient");
 const settings = require("../settings");
+
+const TOOL_ID = "cost-anomaly";
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10);
@@ -19,8 +21,14 @@ async function costForSubscription(subscriptionId, from, to) {
       grouping: [{ type: "Dimension", name: "ResourceGroupName" }],
     },
   };
-  const data = await armPost(url, body, "cost-anomaly");
+  const data = await armPost(url, body, TOOL_ID);
   return data.properties || { columns: [], rows: [] };
+}
+
+// Cost Management returns UsageDate as a number like 20261019.
+function normalizeDay(value) {
+  const s = String(value);
+  return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s.slice(0, 10);
 }
 
 function rowsByDayAndGroup(result) {
@@ -30,7 +38,7 @@ function rowsByDayAndGroup(result) {
   const groupIdx = columns.indexOf("ResourceGroupName");
   const out = {};
   for (const row of result.rows || []) {
-    const day = String(row[dayIdx]);
+    const day = normalizeDay(row[dayIdx]);
     const group = row[groupIdx] || "(none)";
     const cost = Number(row[costIdx]) || 0;
     out[day] = out[day] || {};
@@ -39,11 +47,12 @@ function rowsByDayAndGroup(result) {
   return out;
 }
 
+// Cost Management throttles hard per tenant; a few parallel queries plus the
+// 429 retries in armClient keep a scan of hundreds of subscriptions steady.
+const CONCURRENCY = 4;
+
 async function run() {
-  const subscriptionIds = configuredSubscriptionIds();
-  if (!subscriptionIds.length) {
-    throw new Error("AZURE_SUBSCRIPTION_IDS is not set — cost anomaly scan needs at least one subscription ID");
-  }
+  const subscriptionIds = await subscriptionIdsToScan(TOOL_ID);
   const thresholdPct = Number(settings.get("AZURE_COST_ANOMALY_THRESHOLD_PCT")) || 50;
 
   const today = new Date();
@@ -53,8 +62,20 @@ async function run() {
   dayBefore.setDate(today.getDate() - 2);
 
   const findings = [];
-  for (const subscriptionId of subscriptionIds) {
-    const result = await costForSubscription(subscriptionId, dayBefore, today);
+  const failures = [];
+  const queue = [...subscriptionIds];
+  const worker = async () => {
+    while (queue.length) {
+      const subscriptionId = queue.shift();
+      try {
+        scanSubscription(subscriptionId, await costForSubscription(subscriptionId, dayBefore, today));
+      } catch (err) {
+        failures.push({ subscriptionId, message: String(err.message || err).slice(0, 300) });
+      }
+    }
+  };
+
+  function scanSubscription(subscriptionId, result) {
     const byDay = rowsByDayAndGroup(result);
     const yKey = isoDate(yesterday);
     const bKey = isoDate(dayBefore);
@@ -76,6 +97,22 @@ async function run() {
         });
       }
     }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+
+  // One subscription without Cost Management access must not hide the rest.
+  if (failures.length) {
+    if (failures.length === subscriptionIds.length) {
+      throw new Error(`Cost query failed for all ${failures.length} subscriptions, e.g. ${failures[0].message}`);
+    }
+    findings.push({
+      kind: "scan-error",
+      id: "cost-anomaly/scan-errors",
+      name: `${failures.length} of ${subscriptionIds.length} subscriptions not scanned`,
+      subscriptionId: failures[0].subscriptionId,
+      detail: failures[0].message,
+    });
   }
   return findings;
 }

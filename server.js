@@ -12,12 +12,16 @@ const { registerScanTool, registerActionTool } = require("./src/toolRegistry");
 
 const app = express();
 app.use(express.json());
+// App Service ends HTTPS at its front end and forwards plain HTTP, so trust
+// its X-Forwarded-Proto to allow Secure cookies.
+const httpsSite = (process.env.DASHBOARD_REDIRECT_URI || "").startsWith("https://");
+if (httpsSite) app.set("trust proxy", 1);
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "dev-only-change-me",
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 8 * 60 * 60 * 1000 },
+    cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: "lax", secure: httpsSite },
   })
 );
 

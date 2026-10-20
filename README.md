@@ -45,7 +45,12 @@ one is a user-facing sign-in app, not a service principal:
    "Azure tools dashboard". Add a redirect URI of platform type **Web**:
    `http://localhost:7070/auth/callback` (must match `DASHBOARD_REDIRECT_URI`
    in `.env` exactly).
-2. Certificates & secrets → new client secret.
+   On App Service use `https://<app>.azurewebsites.net/auth/callback`.
+2. Certificates & secrets → new client secret. Or, without a secret on App
+   Service: create a user-assigned managed identity, attach it to the web
+   app, then under Certificates & secrets → Federated credentials → Add →
+   scenario "Managed identity" → pick it. Set its client ID as
+   `DASHBOARD_FEDERATED_MI_CLIENT_ID` instead of `DASHBOARD_AZURE_CLIENT_SECRET`.
 3. App roles → create two:
    - `Admin` (value `Admin`, allowed member type: Users/Groups)
    - `User` (value `User`, allowed member type: Users/Groups)

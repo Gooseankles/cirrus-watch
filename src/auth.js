@@ -10,10 +10,16 @@
 //     in .env.
 const crypto = require("crypto");
 const msal = require("@azure/msal-node");
+const { ManagedIdentityCredential } = require("@azure/identity");
 
 const TENANT_ID = process.env.DASHBOARD_AZURE_TENANT_ID || process.env.AZURE_TENANT_ID;
 const CLIENT_ID = process.env.DASHBOARD_AZURE_CLIENT_ID;
 const CLIENT_SECRET = process.env.DASHBOARD_AZURE_CLIENT_SECRET;
+// Secretless option: a user-assigned managed identity that the sign-in app
+// registration trusts through a federated credential.
+const FEDERATED_MI_CLIENT_ID = process.env.DASHBOARD_FEDERATED_MI_CLIENT_ID;
+
+const cryptoProvider = new msal.CryptoProvider();
 
 function port() {
   return process.env.PORT || 7070;
@@ -25,7 +31,19 @@ function redirectUri() {
 const SCOPES = ["openid", "profile"];
 
 function ssoConfigured() {
-  return Boolean(TENANT_ID && CLIENT_ID && CLIENT_SECRET);
+  return Boolean(TENANT_ID && CLIENT_ID && (FEDERATED_MI_CLIENT_ID || CLIENT_SECRET));
+}
+
+function siteOrigin() {
+  return new URL(redirectUri()).origin;
+}
+
+function clientCredentialConfig() {
+  if (!FEDERATED_MI_CLIENT_ID) return { clientSecret: CLIENT_SECRET };
+  const mi = new ManagedIdentityCredential({ clientId: FEDERATED_MI_CLIENT_ID });
+  return {
+    clientAssertion: async () => (await mi.getToken("api://AzureADTokenExchange/.default")).token,
+  };
 }
 
 function localAdminConfigured() {
@@ -40,7 +58,7 @@ function getMsalClient() {
       auth: {
         clientId: CLIENT_ID,
         authority: `https://login.microsoftonline.com/${TENANT_ID}`,
-        clientSecret: CLIENT_SECRET,
+        ...clientCredentialConfig(),
       },
     });
   }
@@ -58,8 +76,18 @@ async function startLogin(req, res) {
   const client = getMsalClient();
   if (!client) return res.status(500).send("SSO is not configured (DASHBOARD_AZURE_* missing in .env).");
   try {
-    const url = await client.getAuthCodeUrl({ scopes: SCOPES, redirectUri: redirectUri() });
-    res.redirect(url);
+    // state ties the callback to this browser's session; PKCE ties the code to it.
+    const state = cryptoProvider.createNewGuid();
+    const { verifier, challenge } = await cryptoProvider.generatePkceCodes();
+    req.session.authFlow = { state, verifier };
+    const url = await client.getAuthCodeUrl({
+      scopes: SCOPES,
+      redirectUri: redirectUri(),
+      state,
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+    });
+    req.session.save(() => res.redirect(url));
   } catch (err) {
     res.status(500).send(`Could not start sign-in: ${err.message}`);
   }
@@ -68,21 +96,33 @@ async function startLogin(req, res) {
 async function handleCallback(req, res) {
   const client = getMsalClient();
   if (!client) return res.status(500).send("SSO is not configured (DASHBOARD_AZURE_* missing in .env).");
+  const flow = req.session.authFlow;
+  delete req.session.authFlow;
+  if (req.query.error) {
+    return res.status(403).send(`Sign-in was refused: ${String(req.query.error_description || req.query.error).slice(0, 300)}`);
+  }
+  if (!flow || typeof req.query.state !== "string" || !timingSafeEquals(req.query.state, flow.state)) {
+    return res.redirect("/login.html");
+  }
   try {
     const result = await client.acquireTokenByCode({
       code: req.query.code,
       scopes: SCOPES,
       redirectUri: redirectUri(),
+      codeVerifier: flow.verifier,
     });
     const claims = result.idTokenClaims || {};
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
-    req.session.user = {
-      name: claims.name || claims.preferred_username || "unknown",
-      upn: claims.preferred_username || null,
-      roles,
-      via: "sso",
-    };
-    res.redirect("/");
+    req.session.regenerate((err) => {
+      if (err) return res.status(500).send("Sign-in failed: could not start a session");
+      req.session.user = {
+        name: claims.name || claims.preferred_username || "unknown",
+        upn: claims.preferred_username || null,
+        roles,
+        via: "sso",
+      };
+      res.redirect("/");
+    });
   } catch (err) {
     res.status(500).send(`Sign-in failed: ${err.message}`);
   }
@@ -103,7 +143,7 @@ function handleLogout(req, res) {
   const user = req.session && req.session.user;
   req.session.destroy(() => {
     if (user && user.via === "sso" && ssoConfigured()) {
-      const postLogout = encodeURIComponent(`http://localhost:${port()}/`);
+      const postLogout = encodeURIComponent(`${siteOrigin()}/`);
       return res.redirect(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${postLogout}`);
     }
     res.redirect("/");

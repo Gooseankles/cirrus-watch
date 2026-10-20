@@ -66,6 +66,7 @@
     nav button.active { background: linear-gradient(90deg, rgba(108,123,255,0.18), rgba(108,123,255,0.02)); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
 
     .sidebar-foot { margin-top: auto; padding-top: 12px; }
+    .version { padding: 10px 10px 0; font-size: 0.72rem; color: var(--muted); opacity: 0.7; }
 
     /* --- Main --- */
     main { flex: 1; min-width: 0; padding: 26px 34px 60px; }
@@ -171,6 +172,7 @@
     </div>
     <nav id="nav"></nav>
     <div class="sidebar-foot" id="whoami"></div>
+    <div class="version" id="version"></div>
   </aside>
 
   <main>
@@ -327,6 +329,7 @@
       document.getElementById("whoami").innerHTML = me.signedIn
         ? `<div class="whoami">${me.name}<br/><span class="role">${role}</span></div><div class="whoami"><a href="/auth/logout">Sign out</a></div>`
         : "";
+      document.getElementById("version").textContent = me.version ? `v${me.version}` : "";
       buildNav();
       if (!isAdmin) {
         document.querySelectorAll("button[data-run]").forEach((b) => {

@@ -6,7 +6,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ./
+COPY server.js VERSION ./
 COPY src ./src
 COPY public ./public
 

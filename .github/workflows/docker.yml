@@ -30,6 +30,10 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Read version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Image tags
         id: meta
         uses: docker/metadata-action@v5
@@ -37,6 +41,7 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.value }},enable={{is_default_branch}}
             type=sha,format=short
             type=semver,pattern={{version}}
             type=ref,event=pr

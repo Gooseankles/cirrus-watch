@@ -37,6 +37,14 @@ app.use(
 );
 
 const PORT = process.env.PORT || 7070;
+// Shown bottom-left in the sidebar; bump VERSION by hand (major.minor.revision.package).
+const VERSION = (() => {
+  try {
+    return require("fs").readFileSync(path.join(__dirname, "VERSION"), "utf8").trim();
+  } catch {
+    return "dev";
+  }
+})();
 
 // Sign-in routes (exempt from requireAuth below) and whoami.
 app.get("/auth/login", auth.startLogin);
@@ -52,6 +60,7 @@ app.get("/api/me", (req, res) => {
     name: user ? user.name : null,
     roles: user ? user.roles : [],
     isAdmin: Boolean(user && user.roles.includes("Admin")),
+    version: VERSION,
   });
 });
 

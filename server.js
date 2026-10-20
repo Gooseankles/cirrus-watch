@@ -105,6 +105,33 @@ const registeredTools = [
 app.get("/api/tools", (req, res) => res.json(registeredTools));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
+// Cost history: every subscription's daily cost plus monthly by service and
+// resource group, kept in the history storage. Refreshed nightly.
+const costHistory = require("./src/costHistory");
+app.get("/api/cost/history", async (req, res) => {
+  try {
+    res.json({ ...(await costHistory.index()), running: costHistory.isRunning() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/cost/history/:subscriptionId", async (req, res) => {
+  try {
+    const doc = await costHistory.subscription(req.params.subscriptionId);
+    if (!doc) return res.status(404).json({ error: "no cost history for that subscription yet" });
+    res.json({ ...doc, summary: costHistory.summarize(doc) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/cost/history/refresh", auth.requireRole("Admin"), (req, res) => {
+  res.status(202).json({ status: costHistory.isRunning() ? "already running" : "started" });
+  costHistory.collectAll().catch((err) => log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` }));
+});
+require("node-cron").schedule("30 7 * * *", () => costHistory.collectAll().catch((err) =>
+  log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` })
+));
+
 function checkSecret(req, res, next) {
   const expected = process.env.WEBHOOK_SHARED_SECRET;
   if (!expected || expected === "change-me") {

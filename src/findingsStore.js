@@ -214,4 +214,12 @@ async function readRun(toolId, ranAt) {
   return { ...run, previousRanAt: before ? before.ranAt : null, added, resolved };
 }
 
-module.exports = { write, read, history, readRun, where, diff, findingKey, STORAGE_TOOL_ID };
+// Other data that belongs in the same place (e.g. cost history), by key.
+async function getDoc(key) {
+  return backend().get(key);
+}
+async function putDoc(key, obj) {
+  return backend().put(key, obj);
+}
+
+module.exports = { write, read, history, readRun, where, diff, findingKey, getDoc, putDoc, STORAGE_TOOL_ID };

@@ -1,5 +1,5 @@
 const { graphGet, graphGetAll } = require("../graphClient");
-const { resourceGraphQuery } = require("../armClient");
+const { resourceGraphQuery, subscriptionNames } = require("../armClient");
 
 const TOOL_ID = "access-lookup";
 
@@ -27,6 +27,7 @@ async function lookup(upn) {
   );
 
   const groupNameById = Object.fromEntries(groups.map((g) => [g.id, g.displayName]));
+  const subNames = await subscriptionNames(TOOL_ID).catch(() => new Map());
 
   return {
     user: { displayName: user.displayName, upn: user.userPrincipalName },
@@ -38,6 +39,7 @@ async function lookup(upn) {
         role: KNOWN_ROLES[roleGuid] || roleGuid,
         scope: r.scope,
         subscriptionId: r.subscriptionId,
+        subscriptionName: subNames.get(r.subscriptionId) || null,
       };
     }),
   };

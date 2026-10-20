@@ -159,6 +159,30 @@
     .spn-badge.own { color: var(--accent-2); border-color: rgba(69, 227, 194, 0.4); }
     .btn-test:hover { color: var(--accent-2); border-color: var(--accent-2); }
     .test-result { font-size: 0.8rem; }
+
+    /* --- Access review --- */
+    .ar-summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+    .ar-summary:empty { display: none; }
+    .ar-stat { flex: 1 1 150px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .ar-stat b { display: block; font-size: 1.25rem; }
+    .ar-stat span { color: var(--muted); font-size: 0.78rem; }
+    .ar-filters select {
+      padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font: inherit;
+    }
+    .ar-who { display: flex; gap: 8px; align-items: flex-start; }
+    .ar-icon { width: 1.3em; text-align: center; flex: none; }
+    .ar-sub { color: var(--muted); font-size: 0.78rem; }
+    .ar-actions { text-align: right; white-space: nowrap; }
+    .ar-toggle:hover { color: var(--accent-2); border-color: var(--accent-2); }
+    tr.ar-members-row td { background: var(--panel-2); }
+    .ar-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; padding: 4px 0 6px 28px; }
+    .ar-member { display: flex; gap: 6px; align-items: flex-start; font-size: 0.84rem; min-width: 0; overflow-wrap: anywhere; }
+    .ar-member.disabled { opacity: 0.55; }
+    .role-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.76rem; white-space: nowrap; border: 1px solid var(--border); }
+    .role-owner { color: var(--danger); border-color: rgba(255, 93, 122, 0.4); background: rgba(255, 93, 122, 0.1); }
+    .role-user { color: #f5b14c; border-color: rgba(245, 177, 76, 0.4); background: rgba(245, 177, 76, 0.1); }
+    .role-contributor { color: var(--accent); border-color: rgba(108, 123, 255, 0.4); background: rgba(108, 123, 255, 0.1); }
   </style>
 </head>
 <body>
@@ -262,10 +286,51 @@
     ];
 
     const scanRoot = document.getElementById("scan-sections");
+    function esc(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    const ACCESS_REVIEW_BODY = `
+      <div class="ar-summary" id="ar-summary"></div>
+      <div class="toolbar ar-filters">
+        <input type="search" id="ar-search" placeholder="Search name, UPN, member, subscription..." />
+        <select id="ar-type">
+          <option value="">Direct and groups</option>
+          <option value="User">Direct (users)</option>
+          <option value="Group">Groups</option>
+        </select>
+        <select id="ar-role">
+          <option value="">All roles</option>
+          <option>Owner</option>
+          <option>Contributor</option>
+          <option>User Access Administrator</option>
+        </select>
+        <span class="ranAt" id="ar-count"></span>
+      </div>
+      <table class="ar-table">
+        <thead><tr><th>Who</th><th>Role</th><th>Where</th><th>Assigned</th><th></th></tr></thead>
+        <tbody id="ar-rows"></tbody>
+      </table>`;
+
     for (const tool of SCAN_TOOLS) {
       const section = document.createElement("section");
       section.id = `section-${tool.id}`;
       section.dataset.id = tool.id;
+      if (tool.id === "access-review") {
+        section.innerHTML = `
+          <h2>${tool.label}</h2>
+          <div class="page-sub">Owner, Contributor and User Access Administrator assignments older than the stale-days setting, on users directly or on groups (with everyone in the group).</div>
+          <div class="card">
+            <div class="toolbar">
+              <button class="run" data-run="${tool.id}">Run now</button>
+              <span class="ranAt" data-ranat="${tool.id}"></span>
+            </div>
+            ${ACCESS_REVIEW_BODY}
+            <div class="empty" data-empty="${tool.id}" style="display:none">No findings yet — click "Run now".</div>
+          </div>`;
+        scanRoot.appendChild(section);
+        continue;
+      }
       section.innerHTML = `
         <h2>${tool.label}</h2>
         <div class="card">
@@ -364,6 +429,102 @@
       }
     }
 
+    let accessReviewData = [];
+    const arOpen = new Set(); // group rows the viewer expanded, kept across re-renders
+
+    function arWho(f) {
+      const icon = f.principalType === "Group" ? "👥" : "👤";
+      const sub = f.upn ? `<div class="ar-sub">${esc(f.upn)}</div>` : "";
+      const missing = f.missing ? `<div class="ar-sub level-error">not found in Entra (deleted?) · ${esc(f.principalId)}</div>` : "";
+      return `<div class="ar-who"><span class="ar-icon">${icon}</span><div><div>${esc(f.name)}</div>${sub}${missing}</div></div>`;
+    }
+
+    function arWhere(f) {
+      const sub = f.subscriptionName || f.subscriptionId || "";
+      const target = f.scopeTarget && f.scopeLevel !== "Subscription" ? ` / ${esc(f.scopeTarget)}` : "";
+      return `<div>${esc(sub)}${target}</div><div class="ar-sub">${esc(f.scopeLevel || "")}</div>`;
+    }
+
+    function arMatches(f, q) {
+      if (!q) return true;
+      const hay = [f.name, f.upn, f.principalId, f.subscriptionName, f.subscriptionId, f.scope, f.role]
+        .concat((f.members || []).flatMap((m) => [m.name, m.upn]))
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    }
+
+    function renderAccessReview() {
+      const q = document.getElementById("ar-search").value.trim().toLowerCase();
+      const type = document.getElementById("ar-type").value;
+      const role = document.getElementById("ar-role").value;
+      const all = accessReviewData;
+
+      const direct = all.filter((f) => f.principalType !== "Group");
+      const groups = all.filter((f) => f.principalType === "Group");
+      const viaGroups = new Set(groups.flatMap((g) => (g.members || []).filter((m) => m.type === "User").map((m) => m.id)));
+      const oldest = all.reduce((max, f) => Math.max(max, f.ageDays || 0), 0);
+      document.getElementById("ar-summary").innerHTML = all.length
+        ? `<div class="ar-stat"><b>${direct.length}</b><span>direct user assignments</span></div>
+           <div class="ar-stat"><b>${groups.length}</b><span>group assignments</span></div>
+           <div class="ar-stat"><b>${viaGroups.size}</b><span>people with access via those groups</span></div>
+           <div class="ar-stat"><b>${Math.floor(oldest / 365)}y ${oldest % 365}d</b><span>oldest assignment</span></div>`
+        : "";
+
+      const shown = all.filter((f) =>
+        (!type || (type === "Group" ? f.principalType === "Group" : f.principalType !== "Group")) &&
+        (!role || f.role === role) &&
+        arMatches(f, q)
+      );
+      document.getElementById("ar-count").textContent = all.length ? `${shown.length} of ${all.length} shown` : "";
+
+      const rows = document.getElementById("ar-rows");
+      rows.innerHTML = "";
+      for (const f of shown) {
+        const tr = document.createElement("tr");
+        const isGroup = f.principalType === "Group";
+        const memberCount = f.memberTotal != null ? f.memberTotal : null;
+        const toggle = isGroup
+          ? memberCount == null
+            ? `<span class="ar-sub">members unknown</span>`
+            : `<button type="button" class="btn-ghost ar-toggle">${arOpen.has(f.id) ? "▾" : "▸"} ${memberCount} member${memberCount === 1 ? "" : "s"}</button>`
+          : "";
+        const assigned = f.createdOn ? new Date(f.createdOn).toLocaleDateString() : "";
+        tr.innerHTML = `
+          <td>${arWho(f)}</td>
+          <td><span class="role-badge role-${esc((f.role || "").split(" ")[0].toLowerCase())}">${esc(f.role || "")}</span></td>
+          <td>${arWhere(f)}</td>
+          <td>${esc(assigned)}<div class="ar-sub">${f.ageDays != null ? `${f.ageDays} days ago` : ""}</div></td>
+          <td class="ar-actions">${toggle}</td>`;
+        rows.appendChild(tr);
+
+        if (isGroup && memberCount != null) {
+          const memberRow = document.createElement("tr");
+          memberRow.className = "ar-members-row";
+          memberRow.style.display = arOpen.has(f.id) ? "" : "none";
+          const list = (f.members || [])
+            .map((m) => `<div class="ar-member${m.enabled ? "" : " disabled"}" title="${esc(m.type)}${m.enabled ? "" : " (disabled)"}">
+                <span class="ar-icon">${m.type === "Group" ? "👥" : m.type === "App" ? "⚙️" : "👤"}</span>
+                <div><div>${esc(m.name)}${m.enabled ? "" : ' <span class="ar-sub">(disabled)</span>'}</div>${m.upn ? `<div class="ar-sub">${esc(m.upn)}</div>` : ""}</div>
+              </div>`)
+            .join("");
+          const more = memberCount > (f.members || []).length ? `<div class="ar-sub">Showing ${(f.members || []).length} of ${memberCount}.</div>` : "";
+          memberRow.innerHTML = `<td colspan="5"><div class="ar-members">${list || '<span class="ar-sub">No members.</span>'}</div>${more}</td>`;
+          rows.appendChild(memberRow);
+          tr.querySelector(".ar-toggle").addEventListener("click", (ev) => {
+            const open = memberRow.style.display === "none";
+            memberRow.style.display = open ? "" : "none";
+            if (open) arOpen.add(f.id); else arOpen.delete(f.id);
+            ev.currentTarget.textContent = `${open ? "▾" : "▸"} ${memberCount} member${memberCount === 1 ? "" : "s"}`;
+          });
+        }
+      }
+    }
+
+    ["ar-search", "ar-type", "ar-role"].forEach((id) =>
+      document.getElementById(id).addEventListener("input", renderAccessReview)
+    );
+
     async function refreshFindings(toolId) {
       const res = await fetch(`/api/tools/${toolId}/findings`);
       const data = await res.json();
@@ -371,6 +532,12 @@
       const empty = document.querySelector(`[data-empty="${toolId}"]`);
       const ranAt = document.querySelector(`[data-ranat="${toolId}"]`);
       ranAt.textContent = data.ranAt ? `last run: ${new Date(data.ranAt).toLocaleString()}` : "never run";
+      if (toolId === "access-review") {
+        empty.style.display = data.findings.length ? "none" : "block";
+        accessReviewData = data.findings;
+        renderAccessReview();
+        return;
+      }
       rows.innerHTML = "";
       empty.style.display = data.findings.length ? "none" : "block";
       for (const f of data.findings) {
@@ -378,7 +545,7 @@
         tr.innerHTML = `
           <td><span class="kind-badge">${f.kind}</span></td>
           <td>${f.name || ""}</td>
-          <td><code>${f.subscriptionId || ""}</code></td>
+          <td>${f.subscriptionName ? `${esc(f.subscriptionName)}<div class="ar-sub"><code>${esc(f.subscriptionId)}</code></div>` : `<code>${esc(f.subscriptionId || "")}</code>`}</td>
           <td>${f.resourceGroup || ""}</td>
           <td>${f.detail || ""}</td>
         `;
@@ -423,7 +590,7 @@
             <thead><tr><th>Via</th><th>Role</th><th>Subscription</th><th>Scope</th></tr></thead>
             <tbody>
               ${data.assignments.map((a) => `
-                <tr><td>${a.via}</td><td>${a.role}</td><td><code>${a.subscriptionId || ""}</code></td><td>${a.scope}</td></tr>
+                <tr><td>${a.via}</td><td>${a.role}</td><td>${a.subscriptionName ? `${esc(a.subscriptionName)}<div class="ar-sub"><code>${esc(a.subscriptionId)}</code></div>` : `<code>${esc(a.subscriptionId || "")}</code>`}</td><td>${a.scope}</td></tr>
               `).join("")}
             </tbody>
           </table>

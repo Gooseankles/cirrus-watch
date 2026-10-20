@@ -106,7 +106,17 @@ async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
   return rows;
 }
 
+// Subscription ID -> display name, for every subscription the identity can see.
+async function subscriptionNames(toolId) {
+  const rows = await resourceGraphQuery(
+    `ResourceContainers | where type == 'microsoft.resources/subscriptions' | project subscriptionId, name`,
+    { toolId }
+  );
+  return new Map(rows.map((r) => [r.subscriptionId, r.name]));
+}
+
 module.exports = {
+  subscriptionNames,
   getArmToken,
   armGet,
   armPut,

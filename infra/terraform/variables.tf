@@ -64,8 +64,31 @@ variable "graph_permissions" {
   ]
 }
 
+variable "create_sso_app" {
+  description = <<-EOT
+    true = Terraform creates the sign-in app registration. false = the app registration comes from your own
+    request process: set sso_app_client_id (and sso_client_secret if the team hands out a secret instead of adding
+    the federated credential); the output sso_app_request lists everything to ask them for.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "sso_app_client_id" {
+  description = "Client ID of an existing sign-in app registration (only with create_sso_app = false). Blank on the first apply: SSO stays off (use admin_password) until the team sends it."
+  type        = string
+  default     = ""
+}
+
+variable "sso_client_secret" {
+  description = "Client secret of the existing app registration, if the team will not add the federated credential. Blank = secretless."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "admin_principal_ids" {
-  description = "Object IDs of users or groups that get the Admin role on the dashboard."
+  description = "Object IDs of users or groups that get the Admin role on the dashboard (only with create_sso_app = true; otherwise the app team assigns them)."
   type        = list(string)
   default     = []
 }

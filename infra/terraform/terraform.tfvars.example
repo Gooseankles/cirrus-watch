@@ -10,7 +10,14 @@ scan_scopes = [
   "/providers/Microsoft.Management/managementGroups/00000000-0000-0000-0000-000000000000",
 ]
 
-# Users or groups (object IDs) allowed to sign in.
+# If you may not create app registrations: set false, apply once, send the
+# `terraform output sso_app_request` text to the team, then put the client ID
+# they send back here and apply again.
+# create_sso_app    = false
+# sso_app_client_id = "00000000-0000-0000-0000-000000000000"
+# sso_client_secret = ""   # only if they give a secret instead of the federated credential
+
+# Users or groups (object IDs) allowed to sign in (create_sso_app = true only).
 admin_principal_ids = ["00000000-0000-0000-0000-000000000000"]
 user_principal_ids  = []
 

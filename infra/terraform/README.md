@@ -18,6 +18,23 @@ Creates everything the dashboard needs in one `apply`:
   Administrator for the Graph permissions. Set `grant_graph_permissions = false` if you do not have that role
   and ask an admin to grant them later.
 
+## When you may not create app registrations
+
+Some tenants hand out app registrations only through a request process. Then:
+
+1. Set `create_sso_app = false` (and an `admin_password` so you can get in meanwhile) and apply. This builds the
+   web app and the user-assigned identity, with SSO off.
+2. Run `terraform output -raw sso_app_request` and send that text to the team. It lists the redirect URI, the two
+   app roles, "assignment required", and the federated credential (issuer, subject = the identity's object ID,
+   audience), so no secret is needed.
+3. Put the client ID they send back in `sso_app_client_id` (and `sso_client_secret` only if they gave a secret
+   instead of the federated credential) and apply again. The team assigns people to Admin/User.
+
+Granting the Graph permissions to the scan identity is a separate Entra admin action (Privileged Role
+Administrator); if that is also done by request, set `grant_graph_permissions = false` and ask for
+`User.Read.All`, `GroupMember.Read.All`, `Application.Read.All` and `EntitlementManagement.Read.All` as
+application permissions for the `web_app_principal_id` output.
+
 ## Run
 
 ```

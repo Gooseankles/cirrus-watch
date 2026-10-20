@@ -74,10 +74,12 @@ resource "azurerm_linux_web_app" "this" {
       SESSION_SECRET                      = random_password.session_secret.result
       AZURE_AUTH_TYPE                     = "managed-identity"
       DASHBOARD_AZURE_TENANT_ID           = data.azuread_client_config.current.tenant_id
-      DASHBOARD_AZURE_CLIENT_ID           = azuread_application.dashboard.client_id
-      DASHBOARD_FEDERATED_MI_CLIENT_ID    = azurerm_user_assigned_identity.sso.client_id
+      DASHBOARD_AZURE_CLIENT_ID           = local.sso_client_id
       DASHBOARD_REDIRECT_URI              = local.redirect_uri
     },
+    local.sso_secretless
+    ? { DASHBOARD_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.sso.client_id }
+    : { DASHBOARD_AZURE_CLIENT_SECRET = var.sso_client_secret },
     var.admin_password != "" ? { DASHBOARD_ADMIN_PASSWORD = var.admin_password } : {},
     var.extra_app_settings,
   )

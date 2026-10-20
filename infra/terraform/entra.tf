@@ -1,9 +1,17 @@
 # --- SSO app registration ---
 
+locals {
+  sso_client_id   = var.create_sso_app ? azuread_application.dashboard[0].client_id : var.sso_app_client_id
+  sso_secretless  = var.create_sso_app || var.sso_client_secret == ""
+  sso_fic_issuer  = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/v2.0"
+  sso_fic_subject = azurerm_user_assigned_identity.sso.principal_id
+}
+
 resource "random_uuid" "role_admin" {}
 resource "random_uuid" "role_user" {}
 
 resource "azuread_application" "dashboard" {
+  count            = var.create_sso_app ? 1 : 0
   display_name     = "Azure tools dashboard (${var.name})"
   sign_in_audience = "AzureADMyOrg"
   owners           = [data.azuread_client_config.current.object_id]
@@ -34,7 +42,8 @@ resource "azuread_application" "dashboard" {
 }
 
 resource "azuread_service_principal" "dashboard" {
-  client_id                    = azuread_application.dashboard.client_id
+  count                        = var.create_sso_app ? 1 : 0
+  client_id                    = azuread_application.dashboard[0].client_id
   app_role_assignment_required = true # only people assigned below can sign in
   owners                       = [data.azuread_client_config.current.object_id]
 }
@@ -42,26 +51,27 @@ resource "azuread_service_principal" "dashboard" {
 # Secretless sign-in: the app registration accepts tokens from the web app's
 # user-assigned identity instead of a client secret.
 resource "azuread_application_federated_identity_credential" "sso" {
-  application_id = azuread_application.dashboard.id
+  count          = var.create_sso_app ? 1 : 0
+  application_id = azuread_application.dashboard[0].id
   display_name   = "app-service-${var.name}"
   description    = "User-assigned identity of the dashboard web app"
   audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/v2.0"
-  subject        = azurerm_user_assigned_identity.sso.principal_id
+  issuer         = local.sso_fic_issuer
+  subject        = local.sso_fic_subject
 }
 
 resource "azuread_app_role_assignment" "admins" {
-  for_each            = toset(var.admin_principal_ids)
+  for_each            = var.create_sso_app ? toset(var.admin_principal_ids) : toset([])
   app_role_id         = random_uuid.role_admin.result
   principal_object_id = each.value
-  resource_object_id  = azuread_service_principal.dashboard.object_id
+  resource_object_id  = azuread_service_principal.dashboard[0].object_id
 }
 
 resource "azuread_app_role_assignment" "users" {
-  for_each            = toset(var.user_principal_ids)
+  for_each            = var.create_sso_app ? toset(var.user_principal_ids) : toset([])
   app_role_id         = random_uuid.role_user.result
   principal_object_id = each.value
-  resource_object_id  = azuread_service_principal.dashboard.object_id
+  resource_object_id  = azuread_service_principal.dashboard[0].object_id
 }
 
 # --- Microsoft Graph permissions for the scan identity ---

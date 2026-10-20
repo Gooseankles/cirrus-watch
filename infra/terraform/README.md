@@ -53,6 +53,12 @@ terraform apply
 Open the `url` output and sign in. State is local by default; for a team, add an `azurerm` backend
 (storage account) to `versions.tf`.
 
+## Policy check
+
+Needs nothing beyond Reader on `scan_scopes`: it reads assignments, definitions, compliance states, exemptions,
+remediation tasks and the policy identities' role assignments, and its probes call `checkPolicyRestrictions`
+(a read operation; no resource is created). Choose the probes in Settings, Policy check.
+
 ## Not covered
 
 - Key Vault access for the secret-expiry tool: give `web_app_principal_id` "Key Vault Certificates Officer"

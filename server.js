@@ -96,6 +96,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/accessReview")),
   registerScanTool(app, require("./src/tools/secretExpiry")),
   registerScanTool(app, require("./src/tools/accessPackages")),
+  registerScanTool(app, require("./src/tools/policyCheck")),
   registerActionTool(app, require("./src/tools/accessLookup")),
   registerActionTool(app, require("./src/tools/subscriptionDecommission")),
 ];

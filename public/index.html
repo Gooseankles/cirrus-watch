@@ -282,6 +282,7 @@
       "access-review": "🛡️",
       "secret-expiry": "🔑",
       "access-packages": "📦",
+      "policy-check": "🚦",
       "settings": "⚙️",
     };
 
@@ -292,6 +293,7 @@
       { id: "access-review", label: "Access review" },
       { id: "secret-expiry", label: "Expiring secrets/certs" },
       { id: "access-packages", label: "Access packages" },
+      { id: "policy-check", label: "Policy check", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find assignments that cannot work: enforcement off, Disabled effect, missing definitions, deploy/modify policies without an identity or the roles they need, remediation failed or never run, nothing evaluated, and stale exemptions." },
     ];
 
     const STATIC_TABS = [
@@ -377,6 +379,7 @@
       }
       section.innerHTML = `
         <h2>${tool.label}</h2>
+        ${tool.sub ? `<div class="page-sub">${tool.sub}</div>` : ""}
         <div class="card">
           <div class="toolbar">
             <button class="run" data-run="${tool.id}">Run now</button>

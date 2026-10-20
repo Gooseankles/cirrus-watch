@@ -29,6 +29,7 @@ const FIELDS = [
   { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
   { key: "HISTORY_RETENTION_DAYS", label: "Keep run history (days)", group: "History storage", hint: "Blank = 365" },
 
+  { key: "ROLE_ASSIGNMENT_LIMIT_WARN_PCT", label: "Warn at % of the 4,000 limit", group: "Role assignments", hint: "Blank = 80" },
   { key: "POLICY_PROBES", label: "Probe tests to run", group: "Policy check", hint: "Comma-separated: storage-public-blob, storage-http, storage-old-tls, public-ip, keyvault-no-purge-protection, sql-public-network, untagged-resource, denied-region. Blank = all, none = off" },
   { key: "POLICY_PROBE_REGION", label: "Region for probes", group: "Policy check", hint: "An allowed region; blank = norwayeast" },
   { key: "POLICY_PROBE_DENIED_REGION", label: "Region that must be blocked", group: "Policy check", hint: "Enables the denied-region probe, e.g. brazilsouth" },
@@ -54,6 +55,7 @@ const TOOL_SPNS = [
   { id: "access-review", label: "Access review" },
   { id: "secret-expiry", label: "Expiring secrets/certs" },
   { id: "access-packages", label: "Access packages" },
+  { id: "role-assignments", label: "Role assignments" },
   { id: "policy-check", label: "Policy check" },
   { id: "history-storage", label: "History storage" },
 ];

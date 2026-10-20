@@ -283,6 +283,7 @@
       "secret-expiry": "🔑",
       "access-packages": "📦",
       "policy-check": "🚦",
+      "role-assignments": "👻",
       "settings": "⚙️",
     };
 
@@ -293,6 +294,7 @@
       { id: "access-review", label: "Access review" },
       { id: "secret-expiry", label: "Expiring secrets/certs" },
       { id: "access-packages", label: "Access packages" },
+      { id: "role-assignments", label: "Role assignments", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), and subscriptions getting close to Azure's limit of 4,000 role assignments." },
       { id: "policy-check", label: "Policy check", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find assignments that cannot work: enforcement off, Disabled effect, missing definitions, deploy/modify policies without an identity or the roles they need, remediation failed or never run, nothing evaluated, and stale exemptions." },
     ];
 

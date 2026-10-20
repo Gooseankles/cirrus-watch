@@ -64,7 +64,12 @@ app.get("/api/settings", auth.requireRole("Admin"), (req, res) => {
   res.json(settings.getAll());
 });
 app.post("/api/settings", auth.requireRole("Admin"), (req, res) => {
-  res.json(settings.setMany(req.body || {}));
+  try {
+    res.json(settings.setMany(req.body || {}));
+  } catch (err) {
+    console.error(`Saving settings failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
 });
 app.post("/api/settings/test-spn", auth.requireRole("Admin"), async (req, res) => {
   const toolId = (req.body && req.body.toolId) || null;

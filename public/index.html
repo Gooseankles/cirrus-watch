@@ -526,7 +526,15 @@
           btn.addEventListener("click", async () => {
             btn.disabled = true;
             out.className = "test-result";
-            out.textContent = "Testing (uses the saved values)...";
+            out.textContent = "Saving...";
+            const saved = await saveSettings();
+            if (!saved.ok) {
+              out.className = "test-result level-error";
+              out.textContent = `Not tested: saving the settings failed: ${saved.error}`;
+              btn.disabled = false;
+              return;
+            }
+            out.textContent = "Testing...";
             const r = await fetch("/api/settings/test-spn", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -555,21 +563,33 @@
       });
     }
 
-    document.getElementById("settings-save").addEventListener("click", async () => {
-      const status = document.getElementById("settings-status");
+    async function saveSettings() {
       const values = {};
       document.querySelectorAll("[data-setting]").forEach((input) => {
         const isFallback = input.dataset.fallback !== undefined && input.value === input.dataset.fallback;
         values[input.dataset.setting] = isFallback ? "" : input.value;
       });
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return res.ok ? { ok: true } : { ok: false, error: data.error || `HTTP ${res.status}` };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    }
+
+    document.getElementById("settings-save").addEventListener("click", async () => {
+      const status = document.getElementById("settings-status");
+      status.className = "status-msg";
       status.textContent = "Saving...";
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values }),
-      });
-      status.textContent = res.ok ? "Saved." : "Save failed.";
-      if (res.ok) await loadSettings();
+      const r = await saveSettings();
+      status.className = `status-msg ${r.ok ? "level-success" : "level-error"}`;
+      status.textContent = r.ok ? "Saved." : `Save failed: ${r.error}`;
+      if (r.ok) await loadSettings();
     });
 
     loadWhoAmI().then(() => {

@@ -42,7 +42,18 @@ function clientCredentialConfig() {
   if (!FEDERATED_MI_CLIENT_ID) return { clientSecret: CLIENT_SECRET };
   const mi = new ManagedIdentityCredential({ clientId: FEDERATED_MI_CLIENT_ID });
   return {
-    clientAssertion: async () => (await mi.getToken("api://AzureADTokenExchange/.default")).token,
+    clientAssertion: async () => {
+      try {
+        return (await mi.getToken("api://AzureADTokenExchange/.default")).token;
+      } catch (err) {
+        console.error(`SSO: managed identity ${FEDERATED_MI_CLIENT_ID} gave no token:`, err);
+        throw new Error(
+          `the user-assigned managed identity with client ID ${FEDERATED_MI_CLIENT_ID} (DASHBOARD_FEDERATED_MI_CLIENT_ID) gave no token. ` +
+            `Check that it is attached to this web app (Identity > User assigned) and that the value is its Client ID, not its Object ID. ` +
+            `Azure said: ${err.message}`
+        );
+      }
+    },
   };
 }
 
@@ -124,6 +135,7 @@ async function handleCallback(req, res) {
       res.redirect("/");
     });
   } catch (err) {
+    console.error("SSO: sign-in failed:", err);
     res.status(500).send(`Sign-in failed: ${err.message}`);
   }
 }

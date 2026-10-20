@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Azure tools</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0e14;
+      --panel: #121622;
+      --panel-2: #171c2b;
+      --border: #242b3d;
+      --text: #e6e9f2;
+      --muted: #8891a8;
+      --accent: #6c7bff;
+      --accent-2: #45e3c2;
+      --danger: #ff5d7a;
+      --ok: #45e3a8;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      margin: 0;
+      background:
+        radial-gradient(900px 500px at 100% -10%, rgba(108, 123, 255, 0.18), transparent 60%),
+        radial-gradient(700px 400px at -10% 10%, rgba(69, 227, 194, 0.10), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+    }
+    a { color: var(--accent-2); }
+
+    /* --- Sidebar --- */
+    aside {
+      width: 230px;
+      flex: none;
+      padding: 22px 14px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; }
+    .brand .mark {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 4px 16px rgba(108, 123, 255, 0.35);
+      flex: none;
+    }
+    .brand .name { font-weight: 700; font-size: 1.02rem; letter-spacing: 0.2px; }
+    .brand .sub { font-size: 0.7rem; color: var(--muted); margin-top: 1px; }
+
+    nav { display: flex; flex-direction: column; gap: 2px; }
+    nav .group-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 10px 4px; }
+    nav button {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 8px; border: none; background: none;
+      color: var(--muted); cursor: pointer; font: inherit; text-align: left; width: 100%;
+      transition: background 0.12s, color 0.12s;
+    }
+    nav button .icon { font-size: 1rem; width: 1.2em; text-align: center; }
+    nav button:hover { background: var(--panel-2); color: var(--text); }
+    nav button.active { background: linear-gradient(90deg, rgba(108,123,255,0.18), rgba(108,123,255,0.02)); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+
+    .sidebar-foot { margin-top: auto; padding-top: 12px; }
+
+    /* --- Main --- */
+    main { flex: 1; min-width: 0; padding: 26px 34px 60px; }
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; gap: 20px; }
+    h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    h2 { font-size: 1.05rem; margin: 0 0 4px; }
+    .page-sub { color: var(--muted); font-size: 0.88rem; }
+
+    .whoami { font-size: 0.82rem; color: var(--muted); text-align: right; white-space: nowrap; }
+    .whoami .role {
+      font-weight: 600; color: var(--accent-2);
+      background: rgba(69, 227, 194, 0.12); border: 1px solid rgba(69, 227, 194, 0.3);
+      padding: 1px 8px; border-radius: 999px; font-size: 0.75rem;
+    }
+    .whoami a { text-decoration: none; }
+
+    section { display: none; }
+    section.active { display: block; animation: fade 0.15s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-top: 14px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.87rem; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    .level-error { color: var(--danger); }
+    .level-success { color: var(--ok); }
+    .level-info { color: inherit; }
+
+    .kind-badge {
+      display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.78rem;
+      background: rgba(255, 93, 122, 0.12); color: var(--danger); border: 1px solid rgba(255, 93, 122, 0.3);
+    }
+
+    code { font-size: 0.85em; color: var(--accent-2); background: rgba(69, 227, 194, 0.08); padding: 1px 5px; border-radius: 4px; }
+    .empty { color: var(--muted); padding: 16px 0; font-size: 0.9rem; }
+
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+    .toolbar input {
+      padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border); min-width: 240px;
+      background: var(--panel-2); color: var(--text);
+    }
+    button.run {
+      padding: 7px 14px; border-radius: 7px; border: none; cursor: pointer; font: inherit; font-weight: 600;
+      background: linear-gradient(135deg, var(--accent), #8a6cff); color: #fff;
+      box-shadow: 0 2px 10px rgba(108, 123, 255, 0.3);
+      transition: transform 0.08s, opacity 0.12s;
+    }
+    button.run:hover:not(:disabled) { transform: translateY(-1px); }
+    button.run:disabled { opacity: 0.55; cursor: default; transform: none; }
+    button.run.running { animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+
+    .ranAt { color: var(--muted); font-size: 0.82rem; }
+    .status-msg { font-size: 0.85rem; color: var(--muted); min-height: 1.2em; }
+
+    .settings-group { margin-bottom: 18px; }
+    .settings-group h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
+    .settings-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+    .settings-row label { flex: 0 0 240px; font-size: 0.88rem; }
+    .settings-row .field { flex: 1; display: flex; gap: 8px; align-items: center; }
+    .settings-row select {
+      flex: 1; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font: inherit;
+    }
+    .settings-row input {
+      flex: 1; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font: inherit;
+    }
+    .settings-row .hint { color: var(--muted); font-size: 0.76rem; margin-top: 2px; }
+    .settings-row .secret-state { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .settings-row .secret-state.is-set { color: var(--ok); }
+    .btn-ghost {
+      padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: none;
+      color: var(--muted); cursor: pointer; font: inherit; font-size: 0.78rem; white-space: nowrap;
+    }
+    .btn-ghost:hover { color: var(--danger); border-color: var(--danger); }
+    #settings-save { margin-top: 6px; }
+    .settings-group > .hint { color: var(--muted); font-size: 0.8rem; margin-top: -4px; }
+    details.spn-tool { border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; margin-bottom: 8px; background: var(--panel-2); }
+    details.spn-tool[open] { padding-bottom: 6px; }
+    details.spn-tool summary { cursor: pointer; padding: 9px 0; display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; list-style: none; }
+    details.spn-tool summary::-webkit-details-marker { display: none; }
+    details.spn-tool summary::before { content: "▸"; color: var(--muted); margin-right: 8px; transition: transform 0.12s; }
+    details.spn-tool[open] summary::before { transform: rotate(90deg); }
+    details.spn-tool summary span:first-child { flex: 1; }
+    .spn-badge { font-size: 0.72rem; color: var(--muted); border: 1px solid var(--border); padding: 1px 8px; border-radius: 999px; }
+    .spn-badge.own { color: var(--accent-2); border-color: rgba(69, 227, 194, 0.4); }
+    .btn-test:hover { color: var(--accent-2); border-color: var(--accent-2); }
+    .test-result { font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <aside>
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <div class="name">Azure tools</div>
+        <div class="sub">home-grown automations</div>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot" id="whoami"></div>
+  </aside>
+
+  <main>
+  <section id="section-subscription-create" data-id="subscription-create">
+    <h2>ServiceNow &rarr; subscription creation: logs</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Time</th><th>Level</th><th>Ticket</th><th>Message</th></tr></thead>
+        <tbody id="logs-rows"></tbody>
+      </table>
+      <div class="empty" id="logs-empty" style="display:none">No runs yet. Logs appear here once ServiceNow calls the webhook.</div>
+    </div>
+  </section>
+
+  <section id="section-subscription-decommission" data-id="subscription-decommission">
+    <h2>Subscription decommission: logs</h2>
+    <div class="page-sub">Triggered the same way as creation, via ServiceNow calling <code>/webhook/decommission-subscription</code> with a completed checklist.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Time</th><th>Level</th><th>Ticket</th><th>Message</th></tr></thead>
+        <tbody id="logs-decom-rows"></tbody>
+      </table>
+      <div class="empty" id="logs-decom-empty" style="display:none">No runs yet.</div>
+    </div>
+  </section>
+
+  <section id="section-access-lookup" data-id="access-lookup">
+    <h2>Access lookup</h2>
+    <div class="card">
+      <div class="toolbar">
+        <input id="upn-input" placeholder="user@yourtenant.com" />
+        <button class="run" id="upn-run">Look up</button>
+      </div>
+      <div class="status-msg" id="upn-status"></div>
+      <div id="upn-result"></div>
+    </div>
+  </section>
+
+  <div id="scan-sections"></div>
+
+  <section id="section-settings" data-id="settings">
+    <h2>Settings</h2>
+    <div class="page-sub">Overrides the matching .env value without a restart. Leave a plain field blank to fall back to .env.</div>
+    <div class="card" id="settings-card">
+      <div id="settings-rows"></div>
+      <button class="run" id="settings-save">Save</button>
+      <div class="status-msg" id="settings-status"></div>
+    </div>
+  </section>
+  </main>
+
+  <script>
+    const ICONS = {
+      "subscription-create": "🧾",
+      "subscription-decommission": "🗑️",
+      "access-lookup": "🔎",
+      "orphaned-resources": "🧹",
+      "tag-compliance": "🏷️",
+      "cost-anomaly": "💸",
+      "access-review": "🛡️",
+      "secret-expiry": "🔑",
+      "access-packages": "📦",
+      "settings": "⚙️",
+    };
+
+    const SCAN_TOOLS = [
+      { id: "orphaned-resources", label: "Orphaned resources" },
+      { id: "tag-compliance", label: "Tag compliance" },
+      { id: "cost-anomaly", label: "Cost anomalies" },
+      { id: "access-review", label: "Access review" },
+      { id: "secret-expiry", label: "Expiring secrets/certs" },
+      { id: "access-packages", label: "Access packages" },
+    ];
+
+    const STATIC_TABS = [
+      { id: "subscription-create", label: "Subscription creation" },
+      { id: "subscription-decommission", label: "Subscription decommission" },
+      { id: "access-lookup", label: "Access lookup" },
+    ];
+
+    const scanRoot = document.getElementById("scan-sections");
+    for (const tool of SCAN_TOOLS) {
+      const section = document.createElement("section");
+      section.id = `section-${tool.id}`;
+      section.dataset.id = tool.id;
+      section.innerHTML = `
+        <h2>${tool.label}</h2>
+        <div class="card">
+          <div class="toolbar">
+            <button class="run" data-run="${tool.id}">Run now</button>
+            <span class="ranAt" data-ranat="${tool.id}"></span>
+          </div>
+          <table>
+            <thead><tr><th>Kind</th><th>Name</th><th>Subscription</th><th>Resource group</th><th>Detail</th></tr></thead>
+            <tbody data-rows="${tool.id}"></tbody>
+          </table>
+          <div class="empty" data-empty="${tool.id}" style="display:none">No findings yet — click "Run now".</div>
+        </div>
+      `;
+      scanRoot.appendChild(section);
+    }
+
+    const nav = document.getElementById("nav");
+    let isAdmin = false;
+
+    function addGroupLabel(text) {
+      const label = document.createElement("div");
+      label.className = "group-label";
+      label.textContent = text;
+      nav.appendChild(label);
+    }
+
+    function addNavButton(tab) {
+      const btn = document.createElement("button");
+      btn.innerHTML = `<span class="icon">${ICONS[tab.id] || "•"}</span><span>${tab.label}</span>`;
+      btn.dataset.target = tab.id;
+      btn.addEventListener("click", () => showTab(tab.id));
+      nav.appendChild(btn);
+    }
+
+    function buildNav() {
+      nav.innerHTML = "";
+      addGroupLabel("ServiceNow");
+      STATIC_TABS.slice(0, 2).forEach(addNavButton);
+      addGroupLabel("Lookup");
+      addNavButton(STATIC_TABS[2]);
+      addGroupLabel("Scans");
+      SCAN_TOOLS.forEach(addNavButton);
+      if (isAdmin) {
+        addGroupLabel("Admin");
+        addNavButton({ id: "settings", label: "Settings" });
+      }
+      showTab(STATIC_TABS[0].id);
+    }
+
+    function showTab(id) {
+      document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.target === id));
+      document.querySelectorAll("section").forEach((s) => s.classList.toggle("active", s.dataset.id === id));
+    }
+
+    async function loadWhoAmI() {
+      const res = await fetch("/api/me");
+      const me = await res.json();
+      isAdmin = Boolean(me.isAdmin);
+      const role = me.roles && me.roles.length ? me.roles.join(", ") : "User";
+      document.getElementById("whoami").innerHTML = me.signedIn
+        ? `<div class="whoami">${me.name}<br/><span class="role">${role}</span></div><div class="whoami"><a href="/auth/logout">Sign out</a></div>`
+        : "";
+      buildNav();
+      if (!isAdmin) {
+        document.querySelectorAll("button[data-run]").forEach((b) => {
+          b.disabled = true;
+          b.title = "Admin role required";
+        });
+      }
+    }
+
+    async function refreshLogs() {
+      const res = await fetch("/api/logs?limit=300");
+      const entries = await res.json();
+      renderLogTable(entries.filter((e) => e.tool === "subscription-create"), "logs-rows", "logs-empty");
+      renderLogTable(entries.filter((e) => e.tool === "subscription-decommission"), "logs-decom-rows", "logs-decom-empty");
+    }
+
+    function renderLogTable(entries, rowsId, emptyId) {
+      const rows = document.getElementById(rowsId);
+      const empty = document.getElementById(emptyId);
+      rows.innerHTML = "";
+      empty.style.display = entries.length ? "none" : "block";
+      for (const e of entries) {
+        const tr = document.createElement("tr");
+        const time = e.time ? new Date(e.time).toLocaleString() : "?";
+        tr.innerHTML = `
+          <td>${time}</td>
+          <td class="level-${e.level || "info"}">${e.level || "info"}</td>
+          <td><code>${e.ticketNumber || ""}</code></td>
+          <td>${e.message || ""}</td>
+        `;
+        rows.appendChild(tr);
+      }
+    }
+
+    async function refreshFindings(toolId) {
+      const res = await fetch(`/api/tools/${toolId}/findings`);
+      const data = await res.json();
+      const rows = document.querySelector(`[data-rows="${toolId}"]`);
+      const empty = document.querySelector(`[data-empty="${toolId}"]`);
+      const ranAt = document.querySelector(`[data-ranat="${toolId}"]`);
+      ranAt.textContent = data.ranAt ? `last run: ${new Date(data.ranAt).toLocaleString()}` : "never run";
+      rows.innerHTML = "";
+      empty.style.display = data.findings.length ? "none" : "block";
+      for (const f of data.findings) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><span class="kind-badge">${f.kind}</span></td>
+          <td>${f.name || ""}</td>
+          <td><code>${f.subscriptionId || ""}</code></td>
+          <td>${f.resourceGroup || ""}</td>
+          <td>${f.detail || ""}</td>
+        `;
+        rows.appendChild(tr);
+      }
+    }
+
+    for (const tool of SCAN_TOOLS) {
+      refreshFindings(tool.id);
+      document.querySelector(`[data-run="${tool.id}"]`).addEventListener("click", async (ev) => {
+        ev.target.disabled = true;
+        ev.target.classList.add("running");
+        ev.target.textContent = "Running...";
+        await fetch(`/api/tools/${tool.id}/run`, { method: "POST" });
+        // Scan runs async server-side; poll a few times for it to land.
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          await refreshFindings(tool.id);
+        }
+        ev.target.disabled = false;
+        ev.target.classList.remove("running");
+        ev.target.textContent = "Run now";
+      });
+    }
+
+    document.getElementById("upn-run").addEventListener("click", async () => {
+      const upn = document.getElementById("upn-input").value.trim();
+      const status = document.getElementById("upn-status");
+      const result = document.getElementById("upn-result");
+      if (!upn) return;
+      status.textContent = "Looking up...";
+      result.innerHTML = "";
+      try {
+        const res = await fetch(`/api/tools/access-lookup/run?upn=${encodeURIComponent(upn)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "lookup failed");
+        status.textContent = "";
+        result.innerHTML = `
+          <p><strong>${data.user.displayName}</strong> (${data.user.upn})</p>
+          <p>Groups: ${data.groups.join(", ") || "none"}</p>
+          <table>
+            <thead><tr><th>Via</th><th>Role</th><th>Subscription</th><th>Scope</th></tr></thead>
+            <tbody>
+              ${data.assignments.map((a) => `
+                <tr><td>${a.via}</td><td>${a.role}</td><td><code>${a.subscriptionId || ""}</code></td><td>${a.scope}</td></tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    });
+
+    function groupBy(list, keyFn) {
+      const out = new Map();
+      for (const item of list) {
+        const key = keyFn(item);
+        if (!out.has(key)) out.set(key, []);
+        out.get(key).push(item);
+      }
+      return out;
+    }
+
+    async function loadSettings() {
+      const res = await fetch("/api/settings");
+      if (!res.ok) return;
+      const fields = await res.json();
+      const root = document.getElementById("settings-rows");
+      root.innerHTML = "";
+      const groups = groupBy(fields, (f) => f.group);
+      let spnHeadingAdded = false;
+      for (const [groupName, groupFields] of groups) {
+        const collapsible = groupFields.some((f) => f.collapsible);
+        const spnTool = groupFields[0].spnTool;
+        const isSharedSpn = groupFields.some((f) => f.key === "AZURE_CLIENT_ID");
+        if (collapsible && !spnHeadingAdded) {
+          spnHeadingAdded = true;
+          const intro = document.createElement("div");
+          intro.className = "settings-group";
+          intro.innerHTML = `<h3>Per-tool SPNs (optional)</h3><div class="hint">Give a tool its own least-privilege service principal. A tool without a client ID here uses the shared SPN.</div>`;
+          root.appendChild(intro);
+        }
+        let section;
+        if (collapsible) {
+          section = document.createElement("details");
+          section.className = "settings-group spn-tool";
+          const hasOwn = groupFields.some((f) => f.key.endsWith("AZURE_CLIENT_ID") && (f.value || f.envDefault));
+          section.open = hasOwn;
+          const summary = document.createElement("summary");
+          summary.innerHTML = `<span>${groupName.replace(/^SPN override: /, "")}</span><span class="spn-badge ${hasOwn ? "own" : ""}">${hasOwn ? "own SPN" : "shared SPN"}</span>`;
+          section.appendChild(summary);
+        } else {
+          section = document.createElement("div");
+          section.className = "settings-group";
+          const h3 = document.createElement("h3");
+          h3.textContent = groupName;
+          section.appendChild(h3);
+        }
+        for (const f of groupFields) {
+          const row = document.createElement("div");
+          row.className = "settings-row";
+          if (f.secretAuthOnly) row.dataset.secretAuthOnly = "1";
+          if (f.options) {
+            const current = f.value || f.envDefault || f.defaultValue;
+            row.innerHTML = `
+              <label>${f.label}</label>
+              <div class="field">
+                <select data-setting="${f.key}" data-auth-type="1" data-fallback="${f.envDefault || f.defaultValue}">
+                  ${f.options.map((o) => `<option value="${o.value}" ${o.value === current ? "selected" : ""}>${o.label}</option>`).join("")}
+                </select>
+              </div>
+            `;
+          } else if (f.secret) {
+            row.innerHTML = `
+              <label>${f.label}</label>
+              <div class="field">
+                <input type="password" data-setting="${f.key}" placeholder="leave blank to keep current value" autocomplete="new-password" />
+                <span class="secret-state ${f.isSet ? "is-set" : ""}">${f.isSet ? `set (${f.source})` : "not set"}</span>
+                ${f.isSet ? `<button type="button" class="btn-ghost" data-clear="${f.key}">Clear</button>` : ""}
+              </div>
+            `;
+          } else {
+            row.innerHTML = `
+              <label>${f.label}${f.hint ? `<div class="hint">${f.hint}</div>` : ""}</label>
+              <div class="field">
+                <input data-setting="${f.key}" placeholder="${f.envDefault || "not set in .env"}" value="${f.value || ""}" />
+              </div>
+            `;
+          }
+          section.appendChild(row);
+        }
+        const authSelect = section.querySelector("select[data-auth-type]");
+        if (authSelect) {
+          const applyAuthType = () => {
+            const mi = authSelect.value === "managed-identity";
+            section.querySelectorAll("[data-secret-auth-only]").forEach((r) => { r.style.display = mi ? "none" : ""; });
+          };
+          authSelect.addEventListener("change", applyAuthType);
+          applyAuthType();
+        }
+        if (collapsible || isSharedSpn) {
+          const testRow = document.createElement("div");
+          testRow.className = "settings-row";
+          testRow.innerHTML = `<label></label><div class="field"><button type="button" class="btn-ghost btn-test">Test connection</button><span class="test-result"></span></div>`;
+          const btn = testRow.querySelector("button");
+          const out = testRow.querySelector(".test-result");
+          btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            out.className = "test-result";
+            out.textContent = "Testing (uses the saved values)...";
+            const r = await fetch("/api/settings/test-spn", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ toolId: spnTool || null }),
+            }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+            out.className = `test-result ${r.ok ? "level-success" : "level-error"}`;
+            const who = r.source
+              ? `${r.source} ${r.authType === "managed-identity" ? "managed identity" : "SPN"} ${r.clientId || (r.authType === "managed-identity" ? "(system-assigned)" : "")}`.trim()
+              : "";
+            out.textContent = r.ok ? `OK: ${who} got a token` : `Failed${who ? ` (${who})` : ""}: ${r.error}`;
+            btn.disabled = false;
+          });
+          section.appendChild(testRow);
+        }
+        root.appendChild(section);
+      }
+      root.querySelectorAll("[data-clear]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ values: {}, clear: [btn.dataset.clear] }),
+          });
+          await loadSettings();
+        });
+      });
+    }
+
+    document.getElementById("settings-save").addEventListener("click", async () => {
+      const status = document.getElementById("settings-status");
+      const values = {};
+      document.querySelectorAll("[data-setting]").forEach((input) => {
+        const isFallback = input.dataset.fallback !== undefined && input.value === input.dataset.fallback;
+        values[input.dataset.setting] = isFallback ? "" : input.value;
+      });
+      status.textContent = "Saving...";
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values }),
+      });
+      status.textContent = res.ok ? "Saved." : "Save failed.";
+      if (res.ok) await loadSettings();
+    });
+
+    loadWhoAmI().then(() => {
+      if (isAdmin) loadSettings();
+    });
+    refreshLogs();
+    setInterval(refreshLogs, 5000);
+  </script>
+</body>
+</html>

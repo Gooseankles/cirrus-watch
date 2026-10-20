@@ -1,0 +1,65 @@
+// Shared Azure Resource Manager request helpers used by every tool. Each
+// call takes an optional toolId so it authenticates as that tool's own SPN
+// (see credentials.js) instead of always using the shared one.
+const axios = require("axios");
+const { getCredential } = require("./credentials");
+const settings = require("./settings");
+
+const ARM_SCOPE = "https://management.azure.com/.default";
+const RESOURCE_GRAPH_API_VERSION = "2021-03-01";
+
+async function getArmToken(toolId) {
+  const token = await getCredential(toolId).getToken(ARM_SCOPE);
+  return token.token;
+}
+
+async function armRequest(method, url, data, toolId) {
+  const token = await getArmToken(toolId);
+  const response = await axios.request({
+    method,
+    url,
+    data,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    validateStatus: () => true,
+  });
+  if (response.status >= 300) {
+    throw new Error(`ARM request failed ${method} ${url} (${response.status}): ${JSON.stringify(response.data)}`);
+  }
+  return response.data;
+}
+
+function armGet(url, toolId) {
+  return armRequest("get", url, undefined, toolId);
+}
+function armPut(url, data, toolId) {
+  return armRequest("put", url, data, toolId);
+}
+function armPost(url, data, toolId) {
+  return armRequest("post", url, data, toolId);
+}
+
+function configuredSubscriptionIds() {
+  return (settings.get("AZURE_SUBSCRIPTION_IDS") || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Runs a Kusto-style query against Azure Resource Graph, scoped to
+// AZURE_SUBSCRIPTION_IDS if set, otherwise every subscription the calling
+// SPN can see.
+async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
+  const subs = subscriptions || configuredSubscriptionIds();
+  const url = `https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=${RESOURCE_GRAPH_API_VERSION}`;
+  const body = {
+    query,
+    ...(subs.length && { subscriptions: subs }),
+  };
+  const data = await armPost(url, body, toolId);
+  return data.data || [];
+}
+
+module.exports = { getArmToken, armGet, armPut, armPost, resourceGraphQuery, configuredSubscriptionIds };

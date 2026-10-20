@@ -1,0 +1,19 @@
+{
+  "name": "azure-ops-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dashboard of home-grown Azure automation tools (subscription automation, housekeeping scans, lookups)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.4.1",
+    "@azure/msal-node": "^7.1.0",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.19.0",
+    "node-cron": "^3.0.3"
+  }
+}

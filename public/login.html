@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sign in — Azure tools</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; max-width: 360px; margin-inline: auto; margin-top: 15vh; }
+    h1 { font-size: 1.2rem; margin-bottom: 20px; }
+    .card { border: 1px solid #8884; border-radius: 10px; padding: 20px; margin-bottom: 14px; }
+    .card h2 { font-size: 0.95rem; margin: 0 0 10px; color: #888; font-weight: 500; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #8886; margin-bottom: 8px; font: inherit; }
+    button { width: 100%; padding: 9px 10px; border-radius: 6px; border: none; background: #08f; color: #fff; cursor: pointer; font: inherit; }
+    a.btn { display: block; text-align: center; text-decoration: none; }
+    .status-msg { font-size: 0.85rem; color: #e5484d; min-height: 1.2em; margin-top: 6px; }
+    .none { color: #888; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Azure tools dashboard</h1>
+  <div id="sso-card" class="card" style="display:none">
+    <h2>Sign in with Microsoft</h2>
+    <a class="btn" href="/auth/login"><button type="button">Sign in with Microsoft</button></a>
+  </div>
+  <div id="local-card" class="card" style="display:none">
+    <h2>Local admin</h2>
+    <form id="local-form">
+      <input id="username" value="admin" autocomplete="username" readonly />
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <button type="submit">Sign in</button>
+    </form>
+    <div class="status-msg" id="local-status"></div>
+  </div>
+  <div id="none-msg" class="none" style="display:none">
+    No sign-in method is configured on the server yet. Set DASHBOARD_ADMIN_PASSWORD and/or DASHBOARD_AZURE_* in .env.
+  </div>
+
+  <script>
+    (async () => {
+      const res = await fetch("/api/me");
+      const me = await res.json();
+      if (me.signedIn) {
+        window.location.href = "/";
+        return;
+      }
+      if (me.ssoConfigured) document.getElementById("sso-card").style.display = "block";
+      if (me.localAdminConfigured) document.getElementById("local-card").style.display = "block";
+      if (!me.ssoConfigured && !me.localAdminConfigured) document.getElementById("none-msg").style.display = "block";
+    })();
+
+    document.getElementById("local-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const status = document.getElementById("local-status");
+      status.textContent = "";
+      const res = await fetch("/auth/local-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: document.getElementById("password").value }),
+      });
+      if (res.ok) {
+        window.location.href = "/";
+      } else {
+        const data = await res.json().catch(() => ({}));
+        status.textContent = data.error || "sign-in failed";
+      }
+    });
+  </script>
+</body>
+</html>

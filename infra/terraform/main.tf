@@ -1,6 +1,6 @@
 # Deploys the dashboard with the module in modules/dashboard. To use the module
 # from another configuration instead:
-#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.8.0.1"
+#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.8.0.2"
 module "dashboard" {
   source = "./modules/dashboard"
 

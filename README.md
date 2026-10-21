@@ -58,6 +58,28 @@ Uses Node.js 20 (the version the image is built on). Set the Azure connection in
 scans need, secretless SSO, and the storage account for run history. See
 [infra/terraform/README.md](infra/terraform/README.md).
 
+### As a Terraform module
+
+Use the module from your own configuration and pin a version tag (every version is tagged `v<version>`; see the
+repo's tags for the newest):
+
+```hcl
+module "dashboard" {
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.8.0.2"
+
+  name     = "contoso-azure-tools"
+  location = "norwayeast"
+  image    = "trozity/azure-ops-dashboard:0.8.0.2" # the module tag pins the infrastructure, this pins the app
+
+  shared_spn_access = [
+    { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
+  ]
+  admin_principal_ids = ["<group object id>"]
+}
+```
+
+All inputs, the provider setup and what each one does are in [infra/terraform/README.md](infra/terraform/README.md).
+
 ## Signing in and roles
 
 - **Admin**: everything, plus Run now, cost history refresh and the Settings page.

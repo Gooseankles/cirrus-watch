@@ -36,6 +36,13 @@ const ICON_PATHS = {
   list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   chevron: '<polyline points="9 18 15 12 9 6"/>',
   report: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  history: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/>',
   print: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
 };
 function icon(name, cls) {
@@ -92,15 +99,28 @@ const fmt = {
 
 /* ---------- static knowledge about the tools ---------- */
 const TOOLS = [
-  { id: "orphaned-resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Unattached disks, NICs, unused public IPs and empty resource groups that still cost money or clutter the tenant." },
-  { id: "tag-compliance", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
-  { id: "cost-anomaly", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
-  { id: "access-review", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
-  { id: "secret-expiry", label: "Expiring app credentials", icon: "key", schedule: "Daily at 06:00", sub: "App registration secrets and certificates that expire soon." },
-  { id: "key-vault", label: "Key Vault", icon: "shield", schedule: "Daily at 05:45", sub: "Vault settings (soft delete, purge protection, open networks, access policies), secrets, keys and certificates that expired, expire soon or never expire, who can read secrets, and vaults with no logging, no owner or no use." },
-  { id: "access-packages", label: "Access packages", icon: "box", schedule: "Daily at 05:00", sub: "Entitlement management packages that expire soon, auto-approve without an end date, go unused or have weak approval." },
-  { id: "role-assignments", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), and subscriptions getting close to Azure's limit of 4,000 role assignments." },
-  { id: "policy-check", label: "Policy check", icon: "policy", schedule: "Daily at 05:30", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find policy assignments that cannot work." },
+  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Unattached disks, NICs, unused public IPs and empty resource groups that still cost money or clutter the tenant." },
+  { id: "tag-compliance", group: "resources", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
+  { id: "cost-anomaly", group: "cost", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
+  { id: "access-review", group: "access", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
+  { id: "secret-expiry", group: "access", label: "Expiring app credentials", icon: "key", schedule: "Daily at 06:00", sub: "App registration secrets and certificates that expire soon." },
+  { id: "key-vault", group: "resources", label: "Key Vault", icon: "shield", schedule: "Daily at 05:45", sub: "Vault settings (soft delete, purge protection, open networks, access policies), secrets, keys and certificates that expired, expire soon or never expire, who can read secrets, and vaults with no logging, no owner or no use." },
+  { id: "access-packages", group: "access", label: "Access packages", icon: "box", schedule: "Daily at 05:00", sub: "Entitlement management packages that expire soon, auto-approve without an end date, go unused or have weak approval." },
+  { id: "role-assignments", group: "access", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), and subscriptions getting close to Azure's limit of 4,000 role assignments." },
+  { id: "policy-check", group: "governance", label: "Policy check", icon: "policy", schedule: "Daily at 05:30", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find policy assignments that cannot work." },
+  { id: "internet-exposure", group: "resources", label: "Internet exposure", icon: "globe", schedule: "Daily at 03:30", sub: "Network security group rules open to the whole internet (admin and database ports, all ports), VMs with a public IP, storage containers anyone can read and database firewalls open to everyone or to all of Azure." },
+  { id: "end-of-support", group: "resources", label: "End of support", icon: "clock", schedule: "Weekly, Monday at 06:00", sub: "AKS clusters on a Kubernetes version Azure no longer supports, App Service runtimes (Node.js, Python, .NET, PHP) and VM operating systems past or near end of support, and services that still accept TLS 1.0 or 1.1." },
+  { id: "service-retirements", group: "resources", label: "Service retirements", icon: "calendar", schedule: "Daily at 06:15", sub: "Azure features and services being retired that your resources still use, from Azure Advisor, with the retirement date." },
+  { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
+  { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere (no diagnostic setting) and subscriptions whose activity log is not exported beyond Azure's 90 days." },
+  { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
+  { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
+];
+const TOOL_GROUPS = [
+  { id: "access", label: "Access" },
+  { id: "resources", label: "Resources" },
+  { id: "governance", label: "Governance" },
+  { id: "cost", label: "Cost" },
 ];
 const TOOL_BY_ID = Object.fromEntries(TOOLS.map((t) => [t.id, t]));
 
@@ -154,6 +174,40 @@ const KINDS = {
   "exemption-no-expiry": ["Exemption without end date", "warn"],
   "exemption-expired": ["Exemption expired", "warn"],
   "exemption-expiring": ["Exemption expiring", ""],
+  "nsg-open-admin-port": ["Admin port open", "crit"],
+  "nsg-open-db-port": ["Database port open", "crit"],
+  "nsg-open-all-ports": ["All ports open", "crit"],
+  "nsg-open-unattached": ["Open rule, NSG unused", ""],
+  "vm-public-ip": ["VM with public IP", "warn"],
+  "storage-public-container": ["Public container", "crit"],
+  "storage-public-allowed": ["Anonymous access allowed", ""],
+  "db-firewall-open-all": ["Firewall open to all", "crit"],
+  "db-firewall-azure-services": ["Open to all of Azure", "warn"],
+  "db-firewall-wide-range": ["Wide firewall range", "warn"],
+  "aks-unsupported": ["Kubernetes unsupported", "crit"],
+  "aks-oldest-supported": ["Oldest Kubernetes", "warn"],
+  "runtime-end-of-support": ["Runtime out of support", "crit"],
+  "runtime-support-ending": ["Runtime support ending", "warn"],
+  "os-end-of-support": ["OS out of support", "crit"],
+  "os-support-ending": ["OS support ending", "warn"],
+  "tls-old-allowed": ["Old TLS allowed", "warn"],
+  "retirement-past": ["Retired", "crit"],
+  "retirement-soon": ["Retiring soon", "warn"],
+  "retirement-planned": ["Retirement planned", ""],
+  "vm-no-backup": ["No backup", "warn"],
+  "backup-stopped": ["Backup stopped", "warn"],
+  "backup-failing": ["Backup failing", "crit"],
+  "backup-stale": ["Backup too old", "crit"],
+  "vault-soft-delete-off": ["Vault soft delete off", "crit"],
+  "vault-lrs": ["Locally redundant vault", ""],
+  "no-diagnostic-setting": ["No diagnostic setting", "warn"],
+  "activity-log-not-exported": ["Activity log not exported", "warn"],
+  "quota-near-limit": ["Quota near limit", "warn"],
+  "quota-at-limit": ["Quota at limit", "crit"],
+  "security-change": ["Security change", "warn"],
+  "resource-created": ["Created", ""],
+  "resource-updated": ["Changed", ""],
+  "resource-deleted": ["Deleted", ""],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");
@@ -466,9 +520,14 @@ function buildNav() {
   const me = state.me || {};
   const groups = [
     { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }] },
-    { label: "Access", items: [{ route: "lookup", label: "Access lookup", icon: "search" }] },
-    { label: "Scans", items: TOOLS.map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })) },
-    { label: "Cost", items: [{ route: "cost", label: "Cost history", icon: "cost" }] },
+    ...TOOL_GROUPS.map((g) => ({
+      label: g.label,
+      items: [
+        ...(g.id === "access" ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
+        ...TOOLS.filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
+        ...(g.id === "cost" ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
+      ],
+    })),
   ];
   if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "settings", label: "Settings", icon: "settings" }] });
   $("#nav").innerHTML = groups
@@ -528,6 +587,9 @@ function renderOverview() {
   let open = 0, added = 0, resolved = 0, errors = 0, neverRan = 0, accepted = 0;
   for (const tool of TOOLS) {
     const t = toolState(tool.id);
+    if (t.error) errors++;
+    else if (t.loaded && !t.data.ranAt) neverRan++;
+    if (tool.info) continue; // the change log is a list of events, not problems
     open += t.data.findings.length;
     accepted += t.accepted.length;
     const last = t.history[t.history.length - 1];
@@ -535,8 +597,6 @@ function renderOverview() {
       added += last.added || 0;
       resolved += last.resolved || 0;
     }
-    if (t.error) errors++;
-    else if (t.loaded && !t.data.ranAt) neverRan++;
   }
   $("#ov-updated").innerHTML = loaded.length ? `<b>${loaded.length} of ${TOOLS.length}</b> scans loaded` : "Loading…";
   $("#ov-stats").innerHTML =
@@ -565,7 +625,7 @@ function toolCard(tool) {
     : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.accepted.length ? fmt.int(t.accepted.length) + " accepted · " : ""}${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
   return `<a class="tool-card" href="#/scan/${esc(tool.id)}">
     <div class="tc-head">${icon(tool.icon)}<span>${esc(tool.label)}</span></div>
-    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>open finding${n === 1 ? "" : "s"}</small></div>
+    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
     <div class="tc-delta">${delta}</div>
     <div class="tc-spark" data-spark="${esc(tool.id)}"></div>
     <div class="tc-kinds">${kinds.map(([k, c]) => `${kindBadge(k).replace("</span>", ` ${fmt.int(c)}</span>`)}`).join("")}</div>

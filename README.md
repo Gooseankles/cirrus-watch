@@ -20,6 +20,13 @@ are needed.
 | Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date or have a single approver |
 | Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
+| Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
+| End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support, services that still accept TLS 1.0/1.1 |
+| Service retirements | Daily | Azure features being retired that your resources still use (from Azure Advisor), with the date |
+| Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage |
+| Diagnostic settings | Daily | Resources whose logs go nowhere, subscriptions whose activity log is not exported |
+| Quotas | Daily | Compute, network and storage quotas close to their limit in the regions you use |
+| Change log | Daily | What people and apps created, changed or deleted in the last 24 hours, security changes marked (for information; not in totals or the report) |
 | Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
 | Access lookup | On demand | Every Azure role a person holds, directly or through a group, across all subscriptions |
 
@@ -79,11 +86,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.13.1.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.14.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.13.1.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.14.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -164,7 +171,8 @@ Terraform) is in **[docs/permissions.md](docs/permissions.md)**. In short, the s
 identity (by default the web app's managed identity, or a service principal):
 
 - **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
-  automatically. Policy check needs nothing more.
+  automatically. Policy check, internet exposure, end of support, service retirements, backup coverage,
+  diagnostic settings, quotas and the change log need nothing more.
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
   `Application.Read.All` and `EntitlementManagement.Read.All` (the last only matters with Entra ID Governance /

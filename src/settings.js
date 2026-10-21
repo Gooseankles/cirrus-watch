@@ -60,6 +60,12 @@ const FIELDS = [
   { key: "ACCESS_PACKAGE_EXPIRY_WARN_DAYS", label: "Assignment expiry warning (days)", group: "Access packages" },
   { key: "ACCESS_PACKAGE_STALE_PENDING_DAYS", label: "Pending request stale age (days)", group: "Access packages" },
   { key: "ACCESS_PACKAGE_UNUSED_AGE_DAYS", label: "Unused package age (days)", group: "Access packages" },
+  { key: "EOS_WARN_DAYS", label: "Warn before end of support (days)", group: "End of support", hint: "Runtimes and operating systems; blank = 180" },
+  { key: "RETIREMENT_WARN_DAYS", label: "Warn before retirement (days)", group: "Service retirements", hint: "Later retirements are listed as planned; blank = 180" },
+  { key: "BACKUP_MAX_AGE_HOURS", label: "Newest backup at most (hours) old", group: "Backup coverage", hint: "Blank = 48" },
+  { key: "DIAGNOSTICS_RESOURCE_TYPES", label: "Resource types that must keep logs", group: "Diagnostic settings", hint: "Comma-separated, e.g. microsoft.network/azurefirewalls. Blank = AKS, app gateways, firewalls, Front Door/CDN, API Management, backup vaults, Event Hubs, Service Bus, SQL databases, storage" },
+  { key: "QUOTA_WARN_PCT", label: "Warn at % of a quota", group: "Quotas", hint: "95% and over is critical; blank = 80" },
+  { key: "CHANGE_LOG_HOURS", label: "Changes from the last (hours)", group: "Change log", hint: "Match the schedule (daily); blank = 24, at most 336" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
 // may set differently.
@@ -79,6 +85,13 @@ const TOOL_SPNS = [
   { id: "access-packages", label: "Access packages" },
   { id: "role-assignments", label: "Role assignments" },
   { id: "policy-check", label: "Policy check" },
+  { id: "internet-exposure", label: "Internet exposure" },
+  { id: "end-of-support", label: "End of support" },
+  { id: "service-retirements", label: "Service retirements" },
+  { id: "backup-coverage", label: "Backup coverage" },
+  { id: "diagnostic-settings", label: "Diagnostic settings" },
+  { id: "quotas", label: "Quotas" },
+  { id: "change-log", label: "Change log" },
   { id: "history-storage", label: "History storage" },
 ];
 

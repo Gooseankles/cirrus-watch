@@ -165,6 +165,13 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/accessPackages")),
   registerScanTool(app, require("./src/tools/roleAssignments")),
   registerScanTool(app, require("./src/tools/policyCheck")),
+  registerScanTool(app, require("./src/tools/internetExposure")),
+  registerScanTool(app, require("./src/tools/endOfSupport")),
+  registerScanTool(app, require("./src/tools/serviceRetirements")),
+  registerScanTool(app, require("./src/tools/backupCoverage")),
+  registerScanTool(app, require("./src/tools/diagnosticSettings")),
+  registerScanTool(app, require("./src/tools/quotas")),
+  registerScanTool(app, require("./src/tools/changeLog")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 
@@ -179,7 +186,7 @@ app.get("/api/report", async (req, res) => {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month > thisMonth) return res.status(400).json({ error: "month must be YYYY-MM, not in the future" });
   try {
     const keys = readKeys(req);
-    const scans = registeredTools.filter((t) => t.kind === "scan");
+    const scans = registeredTools.filter((t) => t.kind === "scan" && !t.info); // the change log is not a problem list
     const out = await require("./src/report").build(scans, month, keys, decorate);
     res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
   } catch (err) {

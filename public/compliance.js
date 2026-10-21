@@ -12,6 +12,7 @@ const CONTROLS = {
   "cis:3.10": "Encrypt sensitive data in transit",
   "cis:3.11": "Encrypt sensitive data at rest",
   "cis:4.1": "Secure configuration process",
+  "cis:4.4": "Firewall on servers",
   "cis:5.1": "Inventory of accounts",
   "cis:5.3": "Disable dormant accounts",
   "cis:5.4": "Administrator privileges on dedicated accounts",
@@ -41,6 +42,9 @@ const CONTROLS = {
 const ASSETS = ["cis:1.1", "nis2:i"];
 const ACCESS = ["cis:6.8", "nis2:i"];
 const POLICY = ["cis:4.1", "nis2:a", "nis2:f"];
+const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i"];
+const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e"];
+const BACKUP = ["cis:11.2", "nis2:c"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
   "orphaned-nic": ASSETS,
@@ -86,6 +90,36 @@ const KIND_CONTROLS = {
   "exemption-no-expiry": POLICY,
   "exemption-expired": POLICY,
   "exemption-expiring": POLICY,
+  "nsg-open-admin-port": EXPOSED,
+  "nsg-open-db-port": EXPOSED,
+  "nsg-open-all-ports": EXPOSED,
+  "nsg-open-unattached": EXPOSED,
+  "vm-public-ip": ["cis:12.2", "nis2:i"],
+  "storage-public-container": ["cis:3.3", "nis2:i"],
+  "storage-public-allowed": ["cis:3.3", "nis2:i"],
+  "db-firewall-open-all": EXPOSED,
+  "db-firewall-azure-services": EXPOSED,
+  "db-firewall-wide-range": EXPOSED,
+  "tls-old-allowed": ["cis:3.10", "nis2:h"],
+  "aks-unsupported": SUPPORT,
+  "aks-oldest-supported": SUPPORT,
+  "runtime-end-of-support": SUPPORT,
+  "runtime-support-ending": SUPPORT,
+  "os-end-of-support": SUPPORT,
+  "os-support-ending": SUPPORT,
+  "retirement-past": ["cis:2.2", "nis2:e"],
+  "retirement-soon": ["cis:2.2", "nis2:e"],
+  "retirement-planned": ["cis:2.2", "nis2:e"],
+  "vm-no-backup": BACKUP,
+  "backup-stopped": BACKUP,
+  "backup-failing": BACKUP,
+  "backup-stale": BACKUP,
+  "vault-soft-delete-off": ["cis:11.3", "nis2:c"],
+  "vault-lrs": ["cis:11.3", "nis2:c"],
+  "no-diagnostic-setting": ["cis:8.2", "nis2:b"],
+  "activity-log-not-exported": ["cis:8.2", "nis2:b"],
+  "quota-near-limit": ["nis2:c"],
+  "quota-at-limit": ["nis2:c"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {

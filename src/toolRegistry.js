@@ -209,7 +209,7 @@ function registerScanTool(app, tool) {
     console.log(`[${tool.id}] scheduled: ${tool.schedule}`);
   }
 
-  return { id: tool.id, label: tool.label, kind: "scan" };
+  return { id: tool.id, label: tool.label, kind: "scan", ...(tool.info && { info: true }) };
 }
 
 // Action tools (ones triggered on demand with input, like a lookup) register their own routes directly.

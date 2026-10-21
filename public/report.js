@@ -83,7 +83,7 @@ const Report = (() => {
       body.innerHTML = `<div class="status-msg error">${esc(r.error)}</div>`;
       return;
     }
-    const tools = (r.tools || []).filter((t) => TOOL_BY_ID[t.id]);
+    const tools = (r.tools || []).filter((t) => TOOL_BY_ID[t.id] && !TOOL_BY_ID[t.id].info);
     const endKinds = merge(tools.map((t) => t.openByKind));
     const startKinds = merge(tools.map((t) => t.startByKind));
     const hadStart = tools.some((t) => t.startRanAt);

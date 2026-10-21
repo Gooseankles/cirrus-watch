@@ -488,7 +488,8 @@ table.data .secondary.bad { color: var(--critical-text); }
 .cost-table-wrap { margin-top: 10px; }
 
 /* --- Tenant tabs (several tenants) --- */
-.tenant-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 0 0 18px; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+/* Wraps onto a second row instead of scrolling (the tabs' -1px margin made a scroll bar even when they fit). */
+.tenant-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 18px; border-bottom: 1px solid var(--border); }
 .tenant-tab {
   flex: none; padding: 8px 14px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
   background: none; color: var(--text-2); cursor: pointer; font-size: 0.84rem; font-weight: 500; white-space: nowrap;

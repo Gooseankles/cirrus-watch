@@ -5,6 +5,7 @@ const path = require("path");
 const log = require("./src/log");
 const auth = require("./src/auth");
 const settings = require("./src/settings");
+const secretStore = require("./src/secretStore");
 const { testSpn, testTenant } = require("./src/credentials");
 const tenants = require("./src/tenants");
 const access = require("./src/access");
@@ -107,11 +108,11 @@ app.get("/api/settings", auth.requireRole("Admin"), (req, res) => {
   const t = settingsTenant(req, res);
   if (t) res.json(settings.getAll(t.key));
 });
-app.post("/api/settings", auth.requireRole("Admin"), (req, res) => {
+app.post("/api/settings", auth.requireRole("Admin"), async (req, res) => {
   const t = settingsTenant(req, res);
   if (!t) return;
   try {
-    res.json(settings.setMany(req.body || {}, t.key));
+    res.json(await settings.setMany(req.body || {}, t.key));
   } catch (err) {
     console.error(`Saving settings failed: ${err.message}`);
     res.status(500).json({ error: err.message });
@@ -134,16 +135,16 @@ const withStorage = (list) => {
 app.get("/api/tenants", auth.requireRole("Admin"), (req, res) => {
   res.json({ tenants: withStorage(tenants.listForSettings()) });
 });
-app.post("/api/tenants", auth.requireRole("Admin"), (req, res) => {
+app.post("/api/tenants", auth.requireRole("Admin"), async (req, res) => {
   try {
-    res.json({ tenants: withStorage(tenants.upsert(req.body || {})) });
+    res.json({ tenants: withStorage(await tenants.upsert(req.body || {})) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
-app.delete("/api/tenants/:key", auth.requireRole("Admin"), (req, res) => {
+app.delete("/api/tenants/:key", auth.requireRole("Admin"), async (req, res) => {
   try {
-    res.json({ tenants: withStorage(tenants.remove(req.params.key)) });
+    res.json({ tenants: withStorage(await tenants.remove(req.params.key)) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -169,6 +170,7 @@ const registeredTools = [
 
 app.get("/api/tools", (req, res) => res.json(registeredTools));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
+app.get("/api/secret-store", auth.requireRole("Admin"), (req, res) => res.json(secretStore.describe()));
 
 // Cost history: every subscription's daily cost plus monthly by service and
 // resource group, kept in each tenant's own history store. Refreshed nightly.
@@ -210,6 +212,14 @@ app.get("/api/logs", (req, res) => {
   // Someone limited to some tenants sees only those tenants' entries.
   res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req) }));
 });
+
+// Secrets from the key vault (SECRET_VAULT_URL); any still in the JSON files
+// move there once it can be read. Sign-in and the pages work meanwhile.
+secretStore.onLoad(async () => {
+  const moved = (await settings.moveSecretsToVault()) + (await tenants.moveSecretsToVault());
+  if (moved) console.log(`Secrets: moved ${moved} from the settings files into the key vault`);
+});
+secretStore.load();
 
 app.listen(PORT, () => {
   console.log(`Azure tools dashboard: http://localhost:${PORT}`);

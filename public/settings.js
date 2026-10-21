@@ -175,7 +175,7 @@ const Settings = (() => {
         [{ label: "Tenant" }, { label: "App (client) ID" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
         list.map((t) => [
           `<div class="name-cell"><div class="primary">${esc(t.name)}${t.enabled ? "" : ' <span class="tag">off</span>'}</div><div class="secondary mono">${esc(t.key)} · ${esc(t.tenantId)}</div></div>`,
-          `<div class="name-cell"><div class="primary">${t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>'}</div><div class="secondary">${t.hasSecret ? "secret set" : '<span class="bad">no secret</span>'}</div></div>`,
+          `<div class="name-cell"><div class="primary">${t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>'}</div><div class="secondary">${t.hasSecret ? `secret set${t.secretIn ? ` (${esc(t.secretIn)})` : ""}` : '<span class="bad">no secret</span>'}</div></div>`,
           t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
           `<div class="name-cell"><div class="primary mono">${esc(t.container || "")}</div><div class="secondary">from ${esc(t.source)}</div></div>`,
           `<div class="tenant-actions"><button type="button" class="btn small ghost" data-tenant-test="${esc(t.key)}">Test</button><button type="button" class="btn small ghost" data-tenant-edit="${esc(t.key)}">Edit</button>${
@@ -210,7 +210,7 @@ const Settings = (() => {
       ${tenantRow("Name", "Shown on the tab and next to findings.", input("name", t.name, "Acme AS"))}
       ${tenantRow("Tenant ID", "The customer's Entra tenant ID.", input("tenantId", t.tenantId, "00000000-0000-0000-0000-000000000000"))}
       ${tenantRow("App (client) ID", "The app registration made in that tenant.", input("clientId", t.clientId, "00000000-0000-0000-0000-000000000000"))}
-      ${tenantRow("Client secret", "Certificates & secrets → New client secret on that app; paste its Value. Stored on the server, never shown again.", `<input class="input" type="password" data-tf="clientSecret" autocomplete="new-password" placeholder="${t.hasSecret ? "set; leave blank to keep" : "not set"}" />${
+      ${tenantRow("Client secret", "Certificates & secrets → New client secret on that app; paste its Value. Kept in the dashboard's key vault (on the server without one), never shown again.", `<input class="input" type="password" data-tf="clientSecret" autocomplete="new-password" placeholder="${t.hasSecret ? "set; leave blank to keep" : "not set"}" />${
         t.hasSecret ? '<label class="check"><input type="checkbox" data-tf="clearSecret" /> Remove the stored secret</label>' : ""
       }`)}
       ${tenantRow("Subscriptions", "Comma-separated IDs; blank = every subscription it can see.", input("subscriptionIds", (t.subscriptionIds || []).join(", "), "all"))}

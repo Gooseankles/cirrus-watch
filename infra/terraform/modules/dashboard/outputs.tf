@@ -25,6 +25,11 @@ output "history_storage_url" {
   value       = var.create_history_storage ? azurerm_storage_account.history[0].primary_blob_endpoint : null
 }
 
+output "secret_vault_uri" {
+  description = "Address of the key vault holding the secrets entered in Settings (null when create_secret_vault = false)."
+  value       = var.create_secret_vault ? azurerm_key_vault.secrets[0].vault_uri : null
+}
+
 output "web_app_principal_id" {
   description = "Object ID of the web app's system-assigned identity (the shared SPN). Extra roles can go in shared_spn_access or be granted elsewhere with this ID."
   value       = azurerm_linux_web_app.this.identity[0].principal_id
@@ -95,6 +100,7 @@ output "private_network" {
   value = var.private_network ? {
     app_subnet_id         = local.app_subnet_id
     private_endpoint_id   = local.history_private ? azurerm_private_endpoint.history_blob[0].id : null
+    vault_endpoint_id     = local.vault_private ? azurerm_private_endpoint.secret_vault[0].id : null
     storage_public_access = "Disabled"
   } : null
 }

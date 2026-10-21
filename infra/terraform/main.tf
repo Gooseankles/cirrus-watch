@@ -20,15 +20,21 @@ module "dashboard" {
   create_history_storage  = var.create_history_storage
   storage_account_name    = var.storage_account_name
   history_retention_days  = var.history_retention_days
-  create_sso_app          = var.create_sso_app
-  sso_app_client_id       = var.sso_app_client_id
-  sso_client_secret       = var.sso_client_secret
-  admin_principal_ids     = var.admin_principal_ids
-  user_principal_ids      = var.user_principal_ids
-  admin_password          = var.admin_password
-  extra_app_settings      = var.extra_app_settings
-  allowed_ip_ranges       = var.allowed_ip_ranges
-  allowed_subnet_ids      = var.allowed_subnet_ids
+
+  create_secret_vault           = var.create_secret_vault
+  secret_vault_name             = var.secret_vault_name
+  secret_vault_purge_protection = var.secret_vault_purge_protection
+  secret_vault_admin_ids        = var.secret_vault_admin_ids
+
+  create_sso_app      = var.create_sso_app
+  sso_app_client_id   = var.sso_app_client_id
+  sso_client_secret   = var.sso_client_secret
+  admin_principal_ids = var.admin_principal_ids
+  user_principal_ids  = var.user_principal_ids
+  admin_password      = var.admin_password
+  extra_app_settings  = var.extra_app_settings
+  allowed_ip_ranges   = var.allowed_ip_ranges
+  allowed_subnet_ids  = var.allowed_subnet_ids
 
   customers          = var.customers
   create_role_groups = var.create_role_groups
@@ -39,6 +45,7 @@ module "dashboard" {
   vnet_integration_subnet_id = var.vnet_integration_subnet_id
   private_endpoint_subnet_id = var.private_endpoint_subnet_id
   blob_private_dns_zone_id   = var.blob_private_dns_zone_id
+  vault_private_dns_zone_id  = var.vault_private_dns_zone_id
   vnet_route_all             = var.vnet_route_all
 
   tags = var.tags

@@ -52,7 +52,7 @@ resource "azurerm_linux_web_app" "this" {
   tags                = var.tags
 
   # Outbound through the VNet (private_network): reaches the history storage
-  # by its private endpoint.
+  # and the secret vault by their private endpoints.
   virtual_network_subnet_id = local.app_subnet_id
 
   # System-assigned: the scan tools in the home tenant (blank client ID in
@@ -117,6 +117,7 @@ resource "azurerm_linux_web_app" "this" {
     local.sso_secretless
     ? { DASHBOARD_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.sso.client_id }
     : { DASHBOARD_AZURE_CLIENT_SECRET = var.sso_client_secret },
+    var.create_secret_vault ? { SECRET_VAULT_URL = azurerm_key_vault.secrets[0].vault_uri } : {},
     var.create_history_storage ? {
       STORAGE_ACCOUNT_URL    = azurerm_storage_account.history[0].primary_blob_endpoint
       STORAGE_CONTAINER      = azurerm_storage_container.history[0].name

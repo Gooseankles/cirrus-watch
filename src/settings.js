@@ -11,6 +11,8 @@ const fs = require("fs");
 const path = require("path");
 
 const { DATA_DIR } = require("./paths");
+const { writeAtomic } = require("./jsonFile");
+const secretStore = require("./secretStore");
 
 const { HOME, current } = require("./tenantContext");
 
@@ -108,8 +110,7 @@ function readOverrides() {
 }
 
 function writeOverrides(overrides) {
-  fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(overrides, null, 2));
+  writeAtomic(SETTINGS_PATH, overrides);
 }
 
 // { "<tenant key>": { KEY: value } }
@@ -123,15 +124,27 @@ function readTenantOverrides() {
 }
 
 function writeTenantOverrides(all) {
-  fs.mkdirSync(path.dirname(TENANT_SETTINGS_PATH), { recursive: true });
-  fs.writeFileSync(TENANT_SETTINGS_PATH, JSON.stringify(all, null, 2));
+  writeAtomic(TENANT_SETTINGS_PATH, all);
 }
 
 const PER_TENANT_KEYS = new Set(FIELDS.filter((f) => f.perTenant).map((f) => f.key));
 const isCustomer = (tenantKey) => Boolean(tenantKey) && tenantKey !== HOME;
 
+// A secret typed into Settings: from the key vault when one is set (a value
+// still in settings.json is used until it has been moved there), else the file.
+function storedSecret(key, overrides) {
+  const inVault = secretStore.enabled() ? secretStore.get("setting", key) : "";
+  if (inVault) return { value: inVault, where: "key vault" };
+  if (overrides[key] !== undefined && overrides[key] !== "") return { value: overrides[key], where: "override" };
+  return null;
+}
+
 function homeValue(key) {
   const overrides = readOverrides();
+  if (SECRET_KEYS.has(key)) {
+    const s = storedSecret(key, overrides);
+    return s ? s.value : process.env[key];
+  }
   if (overrides[key] !== undefined && overrides[key] !== "") return overrides[key];
   return process.env[key];
 }
@@ -164,11 +177,12 @@ function getAll(tenantKey) {
   return FIELDS.map((f) => {
     const hasOverride = overrides[f.key] !== undefined && overrides[f.key] !== "";
     if (f.secret) {
+      const s = storedSecret(f.key, overrides);
       return {
         ...f,
         value: "",
-        isSet: hasOverride || Boolean(process.env[f.key]),
-        source: hasOverride ? "override" : process.env[f.key] ? "env" : "none",
+        isSet: Boolean(s) || Boolean(process.env[f.key]),
+        source: s ? s.where : process.env[f.key] ? "env" : "none",
       };
     }
     return {
@@ -183,17 +197,29 @@ function getAll(tenantKey) {
 // Plain fields: an empty string in `values` clears the override (falls back
 // to .env). Secret fields ignore an empty string (nothing typed = leave the
 // stored secret alone) — clearing one requires listing its key in `clear`.
-function setMany(body, tenantKey) {
+// With a key vault, secrets go there (before anything else is saved) and never
+// into settings.json.
+async function setMany(body, tenantKey) {
   const values = (body && body.values) || {};
   const clear = (body && body.clear) || [];
   if (isCustomer(tenantKey)) return setTenant(tenantKey, values);
   const overrides = readOverrides();
+  const vault = secretStore.enabled();
 
+  for (const key of clear) {
+    if (vault && SECRET_KEYS.has(key)) await secretStore.remove("setting", key);
+  }
   for (const key of KEYS) {
     if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
     const v = typeof values[key] === "string" ? values[key].trim() : values[key];
     if (SECRET_KEYS.has(key)) {
-      if (v) overrides[key] = v; // blank = leave whatever is already stored
+      if (!v || clear.includes(key)) continue; // blank = leave whatever is already stored
+      if (vault) {
+        await secretStore.set("setting", key, v);
+        delete overrides[key];
+      } else {
+        overrides[key] = v;
+      }
       continue;
     }
     const field = FIELDS.find((f) => f.key === key);
@@ -232,4 +258,20 @@ function dropTenant(tenantKey) {
   writeTenantOverrides(all);
 }
 
-module.exports = { get, getAll, setMany, dropTenant, FIELDS, TOOL_SPNS, spnPrefix };
+// Moves secrets still in settings.json into the key vault (once one is set and
+// loaded). Each leaves the file only after the vault has it.
+async function moveSecretsToVault() {
+  if (!secretStore.enabled() || !secretStore.ready()) return 0;
+  let moved = 0;
+  for (const key of SECRET_KEYS) {
+    const overrides = readOverrides();
+    if (overrides[key] === undefined || overrides[key] === "") continue;
+    if (!secretStore.has("setting", key)) await secretStore.set("setting", key, String(overrides[key]));
+    delete overrides[key];
+    writeOverrides(overrides);
+    moved++;
+  }
+  return moved;
+}
+
+module.exports = { get, getAll, setMany, dropTenant, moveSecretsToVault, FIELDS, TOOL_SPNS, spnPrefix };

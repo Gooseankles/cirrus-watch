@@ -52,3 +52,8 @@ output "private_network" {
   description = "VNet integration subnet and storage private endpoint."
   value       = module.dashboard.private_network
 }
+
+output "secret_vault_uri" {
+  description = "Address of the key vault holding the secrets entered in Settings."
+  value       = module.dashboard.secret_vault_uri
+}

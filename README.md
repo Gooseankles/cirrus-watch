@@ -52,7 +52,7 @@ Uses Node.js 20 (the version the image is built on). Set the Azure connection in
 ### On Azure App Service
 
 `infra/terraform` creates the App Service, the managed identity with the read roles and Graph permissions the
-scans need, secretless SSO, and the storage account for run history. See
+scans need, secretless SSO, the storage account for run history and the key vault for secrets entered in Settings. See
 [infra/terraform/README.md](infra/terraform/README.md).
 
 ### As a Terraform module
@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.2"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.12.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.11.2.2" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.12.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -125,9 +125,10 @@ home tenant keeps using the shared SPN.
 
 Each customer tenant has its own app registration, made there by hand, with a client secret. Give that app the
 Graph application permissions (with admin consent) and Reader, Cost Management Reader and Key Vault Reader on the
-subscriptions, put its client ID in Terraform's `customers` (`client_id`) or in Settings, and paste its secret in
-Settings → Customer tenants → Edit (only there, so it never lands in the Terraform state; the page shows whether one
-is set, never the value). `terraform output customer_onboarding` prints every step per customer; Terraform never
+subscriptions (step by step in [docs/permissions.md](docs/permissions.md#customer-tenant-app-other-tenants)), put
+its client ID in Terraform's `customers` (`client_id`) or in Settings, and paste its secret in Settings → Customer
+tenants → Edit (only there, so it never lands in the Terraform state; it is kept in the key vault, and the page
+shows whether one is set, never the value). `terraform output customer_onboarding` prints every step per customer; Terraform never
 touches a customer tenant. A secretless sign-in is not possible here: Entra does not let an app trust a managed
 identity of another tenant.
 
@@ -141,7 +142,9 @@ can instead be scanned by the home identity like any other subscription; then it
 
 ## Permissions
 
-The scans only read. Give the scan identity (by default the web app's managed identity, or a service principal):
+Every identity and what it needs (home tenant, customer tenants, the app's own storage and vault, and whoever runs
+Terraform) is in **[docs/permissions.md](docs/permissions.md)**. In short, the scans only read. Give the scan
+identity (by default the web app's managed identity, or a service principal):
 
 - **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
   automatically. Policy check needs nothing more.
@@ -153,6 +156,7 @@ The scans only read. Give the scan identity (by default the web app's managed id
   access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
   Vault settings, access and logging checks need only Reader.
 - **History storage**: `Storage Blob Data Contributor` on the storage account, when `STORAGE_ACCOUNT_URL` is set.
+- **Secret vault**: `Key Vault Secrets Officer` on the dashboard's own key vault, when `SECRET_VAULT_URL` is set.
 
 Every tool can have its own identity (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends in
 `.env`), and a tool without one uses the shared identity. Missing permissions show up as an error entry on the
@@ -166,7 +170,13 @@ tool's page and in the activity log, never as an empty result.
   customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
   With Terraform's `private_network = true` the storage account is reached only through a private endpoint and
   its public network access is off.
-- **Settings page overrides and sign-in sessions**: under `DATA_DIR`.
+- **Client secrets entered in Settings** (SPN overrides, customer tenants): in an Azure key vault when
+  `SECRET_VAULT_URL` is set (Terraform creates one; the app reads and writes it with its managed identity, as
+  secrets named `dashboard-…`), otherwise in `settings.json` / `tenants.json` under `DATA_DIR`. Secrets already in
+  those files move to the vault at start-up, and are removed from the file once the vault has them. If the vault
+  cannot be reached, the dashboard still starts, says so on the tools that need a secret, refuses to save new
+  secrets and retries every minute. `GET /api/secret-store` (Admin) shows which store is in use.
+- **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`.
 - **Activity log**: JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 
 `.env`, `data/` and `logs/` are ignored by git; never commit real secrets.

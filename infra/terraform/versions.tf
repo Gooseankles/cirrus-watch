@@ -29,6 +29,7 @@ provider "azurerm" {
     "Microsoft.Web",
     "Microsoft.Storage",
     "Microsoft.ManagedIdentity",
+    "Microsoft.KeyVault",
   ]
 }
 

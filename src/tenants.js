@@ -5,7 +5,8 @@
 // the Settings page (DATA_DIR/tenants.json). A Settings entry with the same key
 // overrides the Terraform one field by field. Each customer tenant has its own
 // app registration (clientId), made there by hand, and the dashboard signs in
-// as it with a client secret entered in Settings (never in Terraform). Entra
+// as it with a client secret entered in Settings (never in Terraform), kept in
+// the key vault when SECRET_VAULT_URL is set (secretStore), else here. Entra
 // does not let an app trust a managed identity of another tenant (AADSTS700236),
 // so a secretless sign-in into a customer's own app is not possible.
 // The key is what the per-customer app roles use: Admin-<key> and User-<key>.
@@ -14,6 +15,8 @@ const path = require("path");
 
 const { DATA_DIR } = require("./paths");
 const settings = require("./settings");
+const secretStore = require("./secretStore");
+const { writeAtomic } = require("./jsonFile");
 const { HOME } = require("./tenantContext");
 
 const FILE = path.join(DATA_DIR, "tenants.json");
@@ -34,8 +37,12 @@ function readFile() {
 }
 
 function writeFile(list) {
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(list, null, 2));
+  writeAtomic(FILE, list);
+}
+
+// The vault's copy first; one still in the file is used until it is moved.
+function secretOf(key, fallback) {
+  return (secretStore.enabled() && secretStore.get("tenant", key)) || String(fallback || "").trim();
 }
 
 function readEnv() {
@@ -78,7 +85,7 @@ function customers() {
       name: String(t.name || key),
       tenantId: String(t.tenantId || "").trim(),
       clientId: String(t.clientId || "").trim(),
-      clientSecret: String(t.clientSecret || "").trim(),
+      clientSecret: secretOf(key, t.clientSecret),
       subscriptionIds: toList(t.subscriptionIds),
       enabled: t.enabled !== false && t.enabled !== "false",
       source: t.source,
@@ -136,12 +143,16 @@ function isMultiTenant() {
 
 // --- Settings page ---
 
-// Never returns a secret, only whether one is set.
+// Never returns a secret, only whether one is set and where.
 function listForSettings() {
-  return customers().map(({ clientSecret, ...t }) => ({ ...t, hasSecret: Boolean(clientSecret) }));
+  return customers().map(({ clientSecret, ...t }) => ({
+    ...t,
+    hasSecret: Boolean(clientSecret),
+    secretIn: !clientSecret ? null : secretStore.enabled() && secretStore.has("tenant", t.key) ? "key vault" : "file",
+  }));
 }
 
-function upsert(body) {
+async function upsert(body) {
   const key = String((body && body.key) || "").trim().toLowerCase();
   if (!KEY_RE.test(key) || key === HOME) throw new Error(`key must be 1-40 lowercase letters, digits, - or _ (not "${HOME}")`);
   const list = readFile();
@@ -155,17 +166,12 @@ function upsert(body) {
       entry.enabled = v !== false && v !== "false";
       continue;
     }
-    if (f === "clientSecret") {
-      if (typeof v === "string" && v.trim()) entry.clientSecret = v.trim(); // blank = keep
-      continue;
-    }
+    if (f === "clientSecret") continue; // below, after the checks
     if (f === "subscriptionIds") v = toList(v);
     if (typeof v === "string") v = v.trim();
     if (v === "" || (Array.isArray(v) && !v.length)) delete entry[f];
     else entry[f] = v;
   }
-
-  if (body.clearSecret && !(typeof body.clientSecret === "string" && body.clientSecret.trim())) delete entry.clientSecret;
 
   // Check the result as it will be used (Terraform values included).
   const envBase = readEnv().find((t) => String(t.key).toLowerCase() === key) || {};
@@ -178,6 +184,19 @@ function upsert(body) {
   const problem = validate(check);
   if (problem) throw new Error(problem);
 
+  // Blank = keep the stored secret; clearSecret removes it unless a new one
+  // was typed. With a key vault it goes there, and the file never holds it.
+  const newSecret = typeof body.clientSecret === "string" ? body.clientSecret.trim() : "";
+  if (secretStore.enabled()) {
+    if (newSecret) await secretStore.set("tenant", key, newSecret);
+    else if (body.clearSecret) await secretStore.remove("tenant", key);
+    if (newSecret || body.clearSecret) delete entry.clientSecret;
+  } else if (newSecret) {
+    entry.clientSecret = newSecret;
+  } else if (body.clearSecret) {
+    delete entry.clientSecret;
+  }
+
   if (at >= 0) list[at] = entry;
   else list.push(entry);
   writeFile(list);
@@ -186,16 +205,34 @@ function upsert(body) {
 
 // Removes a tenant added in Settings, or Settings' changes to a Terraform
 // tenant (it goes back to what Terraform set). A Terraform tenant itself stays.
-function remove(key) {
+async function remove(key) {
   const k = String(key).toLowerCase();
   const inFile = readFile().some((t) => t && String(t.key).toLowerCase() === k);
   if (!inFile) {
     const fromEnv = readEnv().some((t) => t && String(t.key).toLowerCase() === k);
     throw new Error(fromEnv ? "this tenant is set by Terraform; remove it there" : "no such tenant");
   }
+  if (secretStore.enabled()) await secretStore.remove("tenant", k);
   writeFile(readFile().filter((t) => String(t.key).toLowerCase() !== k));
   if (!readEnv().some((t) => t && String(t.key).toLowerCase() === k)) settings.dropTenant(k);
   return listForSettings();
 }
 
-module.exports = { HOME, customers, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };
+// Moves client secrets still in tenants.json into the key vault (once one is
+// set and loaded). Each leaves the file only after the vault has it.
+async function moveSecretsToVault() {
+  if (!secretStore.enabled() || !secretStore.ready()) return 0;
+  let moved = 0;
+  for (const t of readFile()) {
+    if (!t || !t.key || !t.clientSecret) continue;
+    const key = String(t.key).toLowerCase();
+    if (!secretStore.has("tenant", key)) await secretStore.set("tenant", key, String(t.clientSecret).trim());
+    const list = readFile();
+    for (const e of list) if (e && String(e.key).toLowerCase() === key) delete e.clientSecret;
+    writeFile(list);
+    moved++;
+  }
+  return moved;
+}
+
+module.exports = { moveSecretsToVault, HOME, customers, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };

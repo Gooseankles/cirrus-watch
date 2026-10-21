@@ -105,6 +105,30 @@ variable "history_retention_days" {
   default     = 730
 }
 
+variable "create_secret_vault" {
+  description = "Create a key vault for the client secrets entered in Settings (SPN overrides, customer tenants); the web app reads and writes it with its managed identity. false = those secrets stay in files on the app's own disk."
+  type        = bool
+  default     = true
+}
+
+variable "secret_vault_name" {
+  description = "Key vault name (3-24 letters, digits and dashes, globally unique). Blank = kv<name without dashes> plus a random suffix."
+  type        = string
+  default     = ""
+}
+
+variable "secret_vault_purge_protection" {
+  description = "Turn on purge protection for the secret vault. Cannot be turned off again, and a deleted vault then keeps its name for 90 days."
+  type        = bool
+  default     = false
+}
+
+variable "secret_vault_admin_ids" {
+  description = "Object IDs of users or groups who may see and change the stored secrets in the portal (Key Vault Secrets Officer). Empty = only the web app."
+  type        = list(string)
+  default     = []
+}
+
 variable "create_sso_app" {
   description = <<-EOT
     true = Terraform creates the sign-in app registration. false = the app registration comes from your own
@@ -242,8 +266,8 @@ variable "role_group_prefix" {
 
 variable "private_network" {
   description = <<-EOT
-    Join the web app to a virtual network (VNet integration) and reach the history storage account through a
-    private endpoint, with public network access on the storage account turned off. Without existing subnets a small
+    Join the web app to a virtual network (VNet integration) and reach the history storage account and the secret
+    vault through private endpoints, with their public network access turned off. Without existing subnets a small
     VNet is created (vnet_address_space). Costs a little extra (private endpoint and DNS zone).
   EOT
   type        = bool
@@ -263,13 +287,19 @@ variable "vnet_integration_subnet_id" {
 }
 
 variable "private_endpoint_subnet_id" {
-  description = "Existing subnet for the storage private endpoint. Set together with vnet_integration_subnet_id."
+  description = "Existing subnet for the private endpoints (storage, secret vault). Set together with vnet_integration_subnet_id."
   type        = string
   default     = ""
 }
 
 variable "blob_private_dns_zone_id" {
   description = "Existing privatelink.blob.core.windows.net private DNS zone (e.g. in a hub), already linked to the VNet. Blank = create one and link it to the VNet."
+  type        = string
+  default     = ""
+}
+
+variable "vault_private_dns_zone_id" {
+  description = "Existing privatelink.vaultcore.azure.net private DNS zone (e.g. in a hub), already linked to the VNet. Blank = create one and link it to the VNet."
   type        = string
   default     = ""
 }

@@ -18,6 +18,14 @@ One `apply` creates:
   `dashboard` container, and Storage Blob Data Contributor for the web app's identity. Every scan run is kept there
   (`history_retention_days`, default 730), so the dashboard shows trends and what was new or resolved in each run.
   Off = results stay on the app's own disk (`/home/data`, 365 days by default).
+- **Secret vault** (`create_secret_vault`, on by default): a key vault (RBAC, soft delete 90 days) for the client
+  secrets entered in Settings (SPN overrides, customer tenants). The web app gets Key Vault Secrets Officer on it and
+  reads and writes it with its managed identity; Terraform never writes a secret, so none reach the state. Add
+  object IDs to `secret_vault_admin_ids` for people who may see the secrets in the portal. Purge protection is off
+  by default (`secret_vault_purge_protection`), so a deleted deployment can reuse the name.
+
+Every identity's permissions, including the app registration each customer makes in their own tenant, are listed in
+[docs/permissions.md](../../docs/permissions.md).
 
 ## Shared SPN access
 
@@ -72,9 +80,10 @@ and the storage container `dashboard-<key>`. With at least one customer, Terrafo
 - a storage container per customer.
 
 In each customer tenant, by hand: register an app, give it a client secret, the Graph application permissions with
-admin consent and Reader, Cost Management Reader and Key Vault Reader. Set its `client_id` and apply again (or
-enter it in Settings), and paste the secret in the dashboard's Settings → Customer tenants → Edit. The secret is
-never a Terraform value, so it stays out of the state. `terraform output customer_onboarding` prints the steps and
+admin consent and Reader, Cost Management Reader and Key Vault Reader ([details](../../docs/permissions.md#customer-tenant-app-other-tenants)).
+Set its `client_id` and apply again (or enter it in Settings), and paste the secret in the dashboard's Settings →
+Customer tenants → Edit. The secret goes to the secret vault and is never a Terraform value, so it stays out of
+the state. `terraform output customer_onboarding` prints the steps and
 the `az role assignment create` commands per customer. So the first apply can run before the app registrations
 exist.
 
@@ -104,19 +113,22 @@ private_network    = true
 vnet_address_space = ["10.90.0.0/24"]  # a VNet is created: /26 for the app, /27 for private endpoints
 ```
 
-The web app gets outbound VNet integration and reaches the history storage account through a private endpoint
-(with a `privatelink.blob.core.windows.net` private DNS zone linked to the VNet), and the storage account's public
-network access is turned off. To use an existing network instead, set `vnet_integration_subnet_id` (delegated to
-`Microsoft.Web/serverFarms`), `private_endpoint_subnet_id` and, if the DNS zone lives in a hub,
-`blob_private_dns_zone_id`. `vnet_route_all = true` sends all outbound traffic through the VNet (it then needs a
+The web app gets outbound VNet integration and reaches the history storage account and the secret vault through
+private endpoints (with `privatelink.blob.core.windows.net` and `privatelink.vaultcore.azure.net` private DNS zones
+linked to the VNet), and their public network access is turned off. To use an existing network instead, set
+`vnet_integration_subnet_id` (delegated to `Microsoft.Web/serverFarms`), `private_endpoint_subnet_id` and, if the
+DNS zones live in a hub, `blob_private_dns_zone_id` and `vault_private_dns_zone_id`. `vnet_route_all = true` sends all outbound traffic through the VNet (it then needs a
 NAT gateway or firewall for internet access). The App Service plan must support VNet integration (Basic or higher).
 Terraform creates the containers through the storage data plane, so run it from a network that can reach the
 private endpoint, or apply once with `private_network = false` first so the containers exist.
 
 ## Who can run it
 
+(All in one table in [docs/permissions.md](../../docs/permissions.md#whoever-runs-terraform).)
+
 - `Contributor` on the subscription for the app itself.
-- `Owner`, `User Access Administrator` or `Role Based Access Control Administrator` on each `shared_spn_access` scope.
+- `Owner`, `User Access Administrator` or `Role Based Access Control Administrator` on each `shared_spn_access` scope,
+  and on the dashboard's resource group (the storage account and secret vault role assignments).
 - Entra: `Application Administrator` (app registration), and `Privileged Role Administrator` or Global
   Administrator for the Graph permissions. Set `grant_graph_permissions = false` if you do not have that role
   and ask an admin to grant them later. With `create_role_groups` (the default) also `Groups Administrator`.
@@ -127,7 +139,7 @@ private endpoint, or apply once with `private_network = false` first so the cont
   user consent see "Need admin approval".
 - `Network Contributor` (on the subscription, or on the existing VNet) when `private_network = true`.
 - azurerm 5 registers no resource providers by itself. The root provider block registers `Microsoft.Web`,
-  `Microsoft.Storage` and `Microsoft.ManagedIdentity`, which needs rights on the subscription; if they are already
+  `Microsoft.Storage`, `Microsoft.ManagedIdentity` and `Microsoft.KeyVault`, which needs rights on the subscription; if they are already
   registered and you lack those rights, remove `resource_providers_to_register` from `versions.tf`.
 
 ## When you may not create app registrations
@@ -165,6 +177,10 @@ Open the `url` output and sign in. State is local by default; for a team, add an
 `moved` blocks in `main.tf` carry the resources over to `module.dashboard`, so the plan should show moves and
 no replacements.
 
+**Upgrading to 0.12:** the apply adds the secret vault and its role assignment (register `Microsoft.KeyVault` if
+your runner cannot). On its first start the app moves the client secrets it finds in `settings.json` and
+`tenants.json` into the vault and removes them from the files; nothing has to be re-entered.
+
 ## Use the module
 
 The module has no provider blocks; pass your own. The azurerm provider needs `storage_use_azuread = true` when
@@ -178,7 +194,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.2"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.12.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -197,9 +213,9 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.11.2.2` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.12.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
-`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers` and
+`history_storage_url`, `secret_vault_uri`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.
 
 ## Policy check

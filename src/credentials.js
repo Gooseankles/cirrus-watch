@@ -12,6 +12,7 @@
 const crypto = require("crypto");
 const { ClientSecretCredential, ClientAssertionCredential, ManagedIdentityCredential } = require("@azure/identity");
 const settings = require("./settings");
+const secretStore = require("./secretStore");
 const tenantContext = require("./tenantContext");
 
 const STORAGE_TOOL_ID = "history-storage";
@@ -25,6 +26,14 @@ function readIdentity(p) {
     clientSecret: settings.get(`${p}AZURE_CLIENT_SECRET`),
     miClientId: settings.get(`${p}AZURE_FEDERATED_MI_CLIENT_ID`),
   };
+}
+
+// A missing secret while the key vault cannot be read says so, instead of
+// sending the admin to Settings for a secret that is there.
+function vaultProblem() {
+  if (secretStore.ready()) return "";
+  const d = secretStore.describe();
+  return ` (the key vault holding the secrets is not reachable: ${d.error || "still loading"})`;
 }
 
 function resolveSpn(toolId) {
@@ -54,7 +63,8 @@ function resolveSpn(toolId) {
     throw new Error(
       `${where} is set to client secret auth but has no ${missing.join(", ")} — ` +
         `fill it in Settings (or .env), switch it to managed identity` +
-        (source === "tool" ? ", or clear the tool's client ID to use the shared identity" : "")
+        (source === "tool" ? ", or clear the tool's client ID to use the shared identity" : "") +
+        (!id.clientSecret ? vaultProblem() : "")
     );
   }
   return { source, authType: "secret", tenantId, clientId: id.clientId, clientSecret: id.clientSecret };
@@ -67,7 +77,7 @@ function resolveTenantSpn(tenant) {
     throw new Error(`customer tenant "${tenant.name}" has no app (client) ID yet: set it in Terraform's customers or in Settings, Customer tenants`);
   }
   if (!tenant.clientSecret) {
-    throw new Error(`customer tenant "${tenant.name}" has no client secret yet: enter it in Settings, Customer tenants, Edit`);
+    throw new Error(`customer tenant "${tenant.name}" has no client secret yet: enter it in Settings, Customer tenants, Edit${vaultProblem()}`);
   }
   return { source: `tenant:${tenant.key}`, authType: "secret", tenantId: tenant.tenantId, clientId: tenant.clientId, clientSecret: tenant.clientSecret };
 }

@@ -10,10 +10,15 @@ updates:
       npm-minor-and-patch:
         update-types: [minor, patch]
 
+  # Node majors are changed by hand, to the next LTS (even numbers); odd
+  # majors like 25 have short support. Patches and minors still come.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /

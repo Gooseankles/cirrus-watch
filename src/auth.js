@@ -100,9 +100,14 @@ async function startLogin(req, res) {
     });
     req.session.save(() => res.redirect(url));
   } catch (err) {
-    res.status(500).send(`Could not start sign-in: ${err.message}`);
+    res.status(500).type("text/plain").send(`Could not start sign-in: ${err.message}`);
   }
 }
+
+// Only people assigned one of these app roles get in. A token without a role
+// means the Enterprise App does not require assignment; refuse it rather than
+// letting the whole tenant read the dashboard.
+const SIGN_IN_ROLES = ["Admin", "User"];
 
 async function handleCallback(req, res) {
   const client = getMsalClient();
@@ -110,7 +115,8 @@ async function handleCallback(req, res) {
   const flow = req.session.authFlow;
   delete req.session.authFlow;
   if (req.query.error) {
-    return res.status(403).send(`Sign-in was refused: ${String(req.query.error_description || req.query.error).slice(0, 300)}`);
+    // Plain text: the description comes from the query string.
+    return res.status(403).type("text/plain").send(`Sign-in was refused: ${String(req.query.error_description || req.query.error).slice(0, 300)}`);
   }
   if (!flow || typeof req.query.state !== "string" || !timingSafeEquals(req.query.state, flow.state)) {
     return res.redirect("/login.html");
@@ -124,8 +130,12 @@ async function handleCallback(req, res) {
     });
     const claims = result.idTokenClaims || {};
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
+    if (!roles.some((r) => SIGN_IN_ROLES.includes(r))) {
+      console.warn(`SSO: refused ${claims.preferred_username || "unknown"}: no Admin or User role in the token`);
+      return res.redirect("/login.html?error=no-role");
+    }
     req.session.regenerate((err) => {
-      if (err) return res.status(500).send("Sign-in failed: could not start a session");
+      if (err) return res.status(500).type("text/plain").send("Sign-in failed: could not start a session");
       req.session.user = {
         name: claims.name || claims.preferred_username || "unknown",
         upn: claims.preferred_username || null,
@@ -136,19 +146,52 @@ async function handleCallback(req, res) {
     });
   } catch (err) {
     console.error("SSO: sign-in failed:", err);
-    res.status(500).send(`Sign-in failed: ${err.message}`);
+    res.status(500).type("text/plain").send(`Sign-in failed: ${err.message}`);
   }
+}
+
+// Wrong local passwords per client address: after LOGIN_MAX_FAILURES in
+// LOGIN_WINDOW_MS that address must wait until the window ends.
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginFailures = new Map();
+
+function loginBlockedFor(ip) {
+  const entry = loginFailures.get(ip);
+  if (!entry || entry.resetAt <= Date.now()) return 0;
+  return entry.count >= LOGIN_MAX_FAILURES ? entry.resetAt - Date.now() : 0;
+}
+
+function recordLoginFailure(ip) {
+  const now = Date.now();
+  if (loginFailures.size > 10000) {
+    for (const [key, e] of loginFailures) if (e.resetAt <= now) loginFailures.delete(key);
+  }
+  const entry = loginFailures.get(ip);
+  if (!entry || entry.resetAt <= now) loginFailures.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  else entry.count++;
 }
 
 function handleLocalLogin(req, res) {
   const expected = process.env.DASHBOARD_ADMIN_PASSWORD;
   if (!expected) return res.status(500).json({ error: "local admin account is not configured" });
+  const wait = loginBlockedFor(req.ip);
+  if (wait) {
+    res.set("Retry-After", String(Math.ceil(wait / 1000)));
+    return res.status(429).json({ error: `too many wrong passwords; try again in ${Math.ceil(wait / 60000)} minute(s)` });
+  }
   const { username, password } = req.body || {};
   if (username !== "admin" || typeof password !== "string" || !timingSafeEquals(password, expected)) {
+    recordLoginFailure(req.ip);
     return res.status(401).json({ error: "wrong username or password" });
   }
-  req.session.user = { name: "admin", upn: null, roles: ["Admin"], via: "local" };
-  res.json({ ok: true });
+  loginFailures.delete(req.ip);
+  // A fresh session ID on sign-in, so an ID planted before it is worth nothing.
+  req.session.regenerate((err) => {
+    if (err) return res.status(500).json({ error: "could not start a session" });
+    req.session.user = { name: "admin", upn: null, roles: ["Admin"], via: "local" };
+    res.json({ ok: true });
+  });
 }
 
 function handleLogout(req, res) {
@@ -162,7 +205,7 @@ function handleLogout(req, res) {
   });
 }
 
-const EXEMPT_PREFIXES = ["/auth/", "/api/me", "/login.html"];
+const EXEMPT_PREFIXES = ["/auth/", "/api/me", "/login.html", "/login.js"];
 
 function requireAuth(req, res, next) {
   if (EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();

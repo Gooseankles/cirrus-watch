@@ -152,6 +152,18 @@ variable "extra_app_settings" {
   sensitive   = true
 }
 
+variable "allowed_ip_ranges" {
+  description = "Public IPs or CIDR ranges that may reach the web app. Empty (with empty allowed_subnet_ids) = open to the internet."
+  type        = list(string)
+  default     = []
+}
+
+variable "allowed_subnet_ids" {
+  description = "Subnet resource IDs that may reach the web app (needs the Microsoft.Web service endpoint on the subnet)."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Tags on the Azure resources."
   type        = map(string)

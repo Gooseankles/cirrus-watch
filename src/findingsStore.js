@@ -25,23 +25,33 @@ function retentionDays() {
 
 // --- Backends: get(key) -> parsed JSON or null, put(key, obj), del(key) ---
 
+// Keys are built from tool IDs, run times and subscription IDs; refuse any
+// that could step out of the store (.., backslashes, absolute paths).
+function checkKey(key) {
+  if (typeof key !== "string" || !/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(key) || key.split("/").some((p) => p === ".." || p === ".")) {
+    throw new Error("history storage: invalid key");
+  }
+  return key;
+}
+
 const fileBackend = {
   name: "file",
   async get(key) {
+    const file = path.join(DATA_DIR, checkKey(key));
     try {
-      return JSON.parse(fs.readFileSync(path.join(DATA_DIR, key), "utf8"));
+      return JSON.parse(fs.readFileSync(file, "utf8"));
     } catch {
       return null;
     }
   },
   async put(key, obj) {
-    const file = path.join(DATA_DIR, key);
+    const file = path.join(DATA_DIR, checkKey(key));
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(obj));
   },
   async del(key) {
     try {
-      fs.unlinkSync(path.join(DATA_DIR, key));
+      fs.unlinkSync(path.join(DATA_DIR, checkKey(key)));
     } catch {
       // already gone
     }
@@ -79,6 +89,7 @@ function blobBackend(accountUrl, container) {
   return {
     name: "blob",
     async get(key) {
+      checkKey(key);
       const resp = await axios.get(`${base}/${key}`, {
         headers: await headers(),
         validateStatus: () => true,
@@ -94,6 +105,7 @@ function blobBackend(accountUrl, container) {
       }
     },
     async put(key, obj) {
+      checkKey(key);
       const body = JSON.stringify(obj);
       const send = async () =>
         axios.put(`${base}/${key}`, body, {
@@ -109,6 +121,7 @@ function blobBackend(accountUrl, container) {
       if (resp.status >= 300) throw fail("write", key, resp);
     },
     async del(key) {
+      checkKey(key);
       const resp = await axios.delete(`${base}/${key}`, { headers: await headers(), validateStatus: () => true });
       if (resp.status >= 300 && resp.status !== 404) throw fail("delete", key, resp);
     },

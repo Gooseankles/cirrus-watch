@@ -38,6 +38,19 @@ scan_subscription_ids = ["<id>"]
 The `shared_spn_role_assignments` output lists what was granted. The old `scan_scopes` list still works (each
 entry becomes a scope with the default roles) but is deprecated; move it to `shared_spn_access`.
 
+## Access restrictions
+
+To let only some networks reach the site (the portal's "Enabled from selected virtual networks and IP addresses"):
+
+```hcl
+allowed_ip_ranges  = ["203.0.113.10", "198.51.100.0/24"]  # office / VPN egress IPs; a bare IP = that one address
+allowed_subnet_ids = []                                   # optional: subnets with the Microsoft.Web service endpoint
+```
+
+Any entry turns the default action to Deny, so every other address gets a 403 from App Service before it reaches
+the app. The Kudu (scm) site follows the same rules. Sign-in keeps working because the Entra redirect goes through
+the user's own browser. Empty lists (the default) leave the site open to the internet, with sign-in still required.
+
 ## Who can run it
 
 - `Contributor` on the subscription for the app itself.
@@ -97,7 +110,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.9.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -116,7 +129,7 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.9.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.10.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`) in `modules/dashboard/outputs.tf`.
 

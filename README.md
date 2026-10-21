@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.9.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.9.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.10.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -76,11 +76,14 @@ module "dashboard" {
 ```
 
 All inputs, the provider setup and what each one does are in [infra/terraform/README.md](infra/terraform/README.md).
+To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access restrictions" there).
 
 ## Signing in and roles
 
 - **Admin**: everything, plus Run now, cost history refresh and the Settings page.
 - **User**: read-only.
+
+An SSO account with neither role is refused, even when the Enterprise App does not require assignment.
 
 Two ways to sign in, either or both:
 
@@ -88,7 +91,7 @@ Two ways to sign in, either or both:
 
 Set `DASHBOARD_ADMIN_PASSWORD`. The username is always `admin` and it always has the Admin role. Handy before SSO
 exists or as a break-glass login; leave it blank to turn it off. Use a strong password if the dashboard is
-reachable by anyone else.
+reachable by anyone else. After 10 wrong passwords from one address, that address must wait 15 minutes.
 
 ### SSO with an Entra ID app registration
 

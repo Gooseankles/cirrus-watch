@@ -31,6 +31,12 @@ shared_spn_access = [
 admin_principal_ids = ["00000000-0000-0000-0000-000000000000"]
 user_principal_ids  = []
 
+# Only these public IPs (or ranges) can reach the site; everyone else gets 403
+# before the app. Empty = open to the internet (sign-in still required).
+# allowed_ip_ranges = ["203.0.113.10", "198.51.100.0/24"]
+# Subnets (with the Microsoft.Web service endpoint) that may reach it too.
+# allowed_subnet_ids = ["/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<subnet>"]
+
 # Break-glass local login; leave blank once SSO works.
 # admin_password = "a-long-random-password"
 

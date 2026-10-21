@@ -10,7 +10,25 @@ const { FileSessionStore } = require("./src/sessionStore");
 const { registerScanTool, registerActionTool } = require("./src/toolRegistry");
 
 const app = express();
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(express.json({ limit: "100kb" }));
+
+// Security headers on every response. The pages load only their own scripts
+// (no inline script); inline style attributes are used for bar widths.
+app.use((req, res, next) => {
+  res.set({
+    "Content-Security-Policy":
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+      "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  });
+  if (req.secure) res.set("Strict-Transport-Security", "max-age=31536000");
+  next();
+});
 // App Service ends HTTPS at its front end and forwards plain HTTP, so trust
 // its X-Forwarded-Proto to allow Secure cookies.
 function sessionStore() {
@@ -112,7 +130,9 @@ app.get("/api/cost/history", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.get("/api/cost/history/:subscriptionId", async (req, res) => {
+  if (!GUID.test(req.params.subscriptionId)) return res.status(400).json({ error: "not a subscription ID" });
   try {
     const doc = await costHistory.subscription(req.params.subscriptionId);
     if (!doc) return res.status(404).json({ error: "no cost history for that subscription yet" });

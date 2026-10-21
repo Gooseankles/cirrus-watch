@@ -6,6 +6,10 @@ locals {
   image_parts = split(":", var.image)
   image_name  = local.image_parts[0]
   image_tag   = length(local.image_parts) > 1 ? local.image_parts[1] : "latest"
+
+  # A bare address becomes a /32 (or /128 for IPv6).
+  allowed_ip_ranges = [for ip in var.allowed_ip_ranges : strcontains(ip, "/") ? ip : (strcontains(ip, ":") ? "${ip}/128" : "${ip}/32")]
+  restricted        = length(var.allowed_ip_ranges) + length(var.allowed_subnet_ids) > 0
 }
 
 data "azuread_client_config" "current" {}
@@ -59,6 +63,31 @@ resource "azurerm_linux_web_app" "this" {
     ftps_state          = "Disabled"
     minimum_tls_version = "1.2"
     http2_enabled       = true
+
+    # Access restrictions: with any allowed IP or subnet, everything else is
+    # refused before it reaches the app. The Kudu (scm) site follows the same rules.
+    ip_restriction_default_action = local.restricted ? "Deny" : "Allow"
+    scm_use_main_ip_restriction   = local.restricted
+
+    dynamic "ip_restriction" {
+      for_each = local.allowed_ip_ranges
+      content {
+        name       = "allow-ip-${ip_restriction.key + 1}"
+        action     = "Allow"
+        priority   = 100 + ip_restriction.key
+        ip_address = ip_restriction.value
+      }
+    }
+
+    dynamic "ip_restriction" {
+      for_each = var.allowed_subnet_ids
+      content {
+        name                      = "allow-subnet-${ip_restriction.key + 1}"
+        action                    = "Allow"
+        priority                  = 200 + ip_restriction.key
+        virtual_network_subnet_id = ip_restriction.value
+      }
+    }
 
     application_stack {
       docker_registry_url = "https://index.docker.io"

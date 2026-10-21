@@ -142,6 +142,27 @@ variable "extra_app_settings" {
   sensitive   = true
 }
 
+variable "allowed_ip_ranges" {
+  description = <<-EOT
+    Public IPs or CIDR ranges that may reach the web app ("Enabled from selected virtual networks and IP
+    addresses"), e.g. ["203.0.113.10", "198.51.100.0/24"]. A bare address means that one address. Empty, together
+    with an empty allowed_subnet_ids, = open to the internet (sign-in still required).
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for ip in var.allowed_ip_ranges : can(cidrhost(strcontains(ip, "/") ? ip : (strcontains(ip, ":") ? "${ip}/128" : "${ip}/32"), 0))])
+    error_message = "Each allowed_ip_ranges entry must be an IP address or a CIDR range, e.g. 203.0.113.10 or 198.51.100.0/24."
+  }
+}
+
+variable "allowed_subnet_ids" {
+  description = "Subnet resource IDs whose traffic may reach the web app (the subnet needs the Microsoft.Web service endpoint). Used together with allowed_ip_ranges."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Tags on the Azure resources."
   type        = map(string)

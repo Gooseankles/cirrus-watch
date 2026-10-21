@@ -1,6 +1,6 @@
 # Deploys the dashboard with the module in modules/dashboard. To use the module
 # from another configuration instead:
-#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.9.0.0"
+#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
 module "dashboard" {
   source = "./modules/dashboard"
 
@@ -26,7 +26,9 @@ module "dashboard" {
   user_principal_ids      = var.user_principal_ids
   admin_password          = var.admin_password
   extra_app_settings      = var.extra_app_settings
-  tags                    = var.tags
+  allowed_ip_ranges       = var.allowed_ip_ranges
+  allowed_subnet_ids      = var.allowed_subnet_ids
+  tags                 = var.tags
 }
 
 # The resources lived in this folder before it became a module; these keep an

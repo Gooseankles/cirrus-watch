@@ -2,68 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Sign in — Azure tools</title>
+  <title>Sign in · Azure ops</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%233987e5'/%3E%3Cpath d='M12 5L5 8.5l7 3.5 7-3.5-7-3.5zM5 15.5l7 3.5 7-3.5M5 12l7 3.5 7-3.5' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <!-- Self-contained: /app.css needs a signed-in session, and this page is shown before one exists. Tokens mirror app.css. -->
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; max-width: 360px; margin-inline: auto; margin-top: 15vh; }
-    h1 { font-size: 1.2rem; margin-bottom: 20px; }
-    .card { border: 1px solid #8884; border-radius: 10px; padding: 20px; margin-bottom: 14px; }
-    .card h2 { font-size: 0.95rem; margin: 0 0 10px; color: #888; font-weight: 500; }
-    input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #8886; margin-bottom: 8px; font: inherit; }
-    button { width: 100%; padding: 9px 10px; border-radius: 6px; border: none; background: #08f; color: #fff; cursor: pointer; font: inherit; }
-    a.btn { display: block; text-align: center; text-decoration: none; }
-    .status-msg { font-size: 0.85rem; color: #e5484d; min-height: 1.2em; margin-top: 6px; }
-    .none { color: #888; font-size: 0.85rem; }
+    :root {
+      --bg: #0e1013; --surface: #161a20; --surface-2: #1d222a; --surface-3: #252b35;
+      --border: #272d37; --border-strong: #353d4a;
+      --text: #e9ebef; --text-2: #b4bac5; --muted: #7f8794;
+      --accent: #3987e5; --accent-soft: rgba(57, 135, 229, 0.16); --critical-text: #ef7a7a;
+      --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { height: 100%; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); display: grid; place-items: center; padding: 24px; }
+    h2 { margin: 0 0 10px; font-size: 0.86rem; color: var(--muted); font-weight: 500; letter-spacing: -0.01em; }
+    .hidden { display: none !important; }
+    .login-box { width: 100%; max-width: 380px; }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 2px 8px 22px; }
+    .brand-mark { width: 28px; height: 28px; border-radius: 7px; flex: none; background: linear-gradient(145deg, #3987e5, #1c5cab); display: grid; place-items: center; }
+    .brand-mark svg { width: 16px; height: 16px; stroke: #fff; }
+    .brand-name { font-weight: 600; font-size: 0.95rem; line-height: 1.15; }
+    .brand-sub { font-size: 0.72rem; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-top: 12px; }
+    .card.note { color: var(--text-2); font-size: 0.86rem; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+      padding: 7px 13px; border-radius: 7px; border: 1px solid var(--border-strong);
+      background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit; font-weight: 500; font-size: 0.86rem;
+      white-space: nowrap; text-decoration: none; transition: background 0.1s, border-color 0.1s;
+    }
+    .btn:hover:not(:disabled) { background: var(--surface-3); border-color: #46505f; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: #4a93ea; border-color: transparent; }
+    .btn.ms svg { width: 16px; height: 16px; }
+    .input {
+      display: block; width: 100%; margin-bottom: 8px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-strong);
+      background: var(--surface-2); color: var(--text); font: inherit; font-size: 0.86rem;
+    }
+    .input[readonly] { color: var(--text-2); }
+    .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .input::placeholder { color: var(--muted); }
+    .status-msg { font-size: 0.82rem; color: var(--critical-text); min-height: 1.2em; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>Azure tools dashboard</h1>
-  <div id="sso-card" class="card" style="display:none">
-    <h2>Sign in with Microsoft</h2>
-    <a class="btn" href="/auth/login"><button type="button">Sign in with Microsoft</button></a>
-  </div>
-  <div id="local-card" class="card" style="display:none">
-    <h2>Local admin</h2>
-    <form id="local-form">
-      <input id="username" value="admin" autocomplete="username" readonly />
-      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
-      <button type="submit">Sign in</button>
-    </form>
-    <div class="status-msg" id="local-status"></div>
-  </div>
-  <div id="none-msg" class="none" style="display:none">
-    No sign-in method is configured on the server yet. Set DASHBOARD_ADMIN_PASSWORD and/or DASHBOARD_AZURE_* in .env.
+  <div class="login-box">
+    <div class="brand">
+      <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+      <div><div class="brand-name">Azure ops</div><div class="brand-sub">tenant dashboard</div></div>
+    </div>
+
+    <div class="card hidden" id="sso-card">
+      <h2>Work account</h2>
+      <a class="btn ms" href="/auth/login"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="9" height="9" fill="#f35325"/><rect x="13" y="2" width="9" height="9" fill="#81bc06"/><rect x="2" y="13" width="9" height="9" fill="#05a6f0"/><rect x="13" y="13" width="9" height="9" fill="#ffba08"/></svg>Sign in with Microsoft</a>
+    </div>
+
+    <div class="card hidden" id="local-card">
+      <h2>Local admin</h2>
+      <form id="local-form" autocomplete="off">
+        <input class="input" id="username" value="admin" readonly aria-label="Username" autocomplete="username" />
+        <input class="input" id="password" type="password" placeholder="Password" autocomplete="current-password" aria-label="Password" required />
+        <button class="btn primary" type="submit">Sign in</button>
+        <div class="status-msg" id="local-status"></div>
+      </form>
+    </div>
+
+    <div class="card note hidden" id="none-msg">No sign-in method is configured on the server yet. Set DASHBOARD_ADMIN_PASSWORD and/or DASHBOARD_AZURE_* in .env.</div>
   </div>
 
   <script>
     (async () => {
-      const res = await fetch("/api/me");
-      const me = await res.json();
+      let me = {};
+      try {
+        me = await (await fetch("/api/me")).json();
+      } catch (err) { /* treat as not signed in */ }
       if (me.signedIn) {
         window.location.href = "/";
         return;
       }
-      if (me.ssoConfigured) document.getElementById("sso-card").style.display = "block";
-      if (me.localAdminConfigured) document.getElementById("local-card").style.display = "block";
-      if (!me.ssoConfigured && !me.localAdminConfigured) document.getElementById("none-msg").style.display = "block";
+      document.getElementById("sso-card").classList.toggle("hidden", !me.ssoConfigured);
+      document.getElementById("local-card").classList.toggle("hidden", !me.localAdminConfigured);
+      document.getElementById("none-msg").classList.toggle("hidden", Boolean(me.ssoConfigured || me.localAdminConfigured));
     })();
 
     document.getElementById("local-form").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const status = document.getElementById("local-status");
+      const btn = ev.target.querySelector("button");
       status.textContent = "";
-      const res = await fetch("/auth/local-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "admin", password: document.getElementById("password").value }),
-      });
-      if (res.ok) {
-        window.location.href = "/";
-      } else {
+      btn.disabled = true;
+      try {
+        const res = await fetch("/auth/local-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: "admin", password: document.getElementById("password").value }),
+        });
         const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          window.location.href = "/";
+          return;
+        }
         status.textContent = data.error || "sign-in failed";
+      } catch (err) {
+        status.textContent = "sign-in failed";
       }
+      btn.disabled = false;
     });
   </script>
 </body>

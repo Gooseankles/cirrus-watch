@@ -54,7 +54,7 @@ jobs:
 
       # Build once into the local Docker, scan it, and push only if it passes.
       - name: Build for the scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -86,7 +86,7 @@ jobs:
             --exit-code 1 "scan-target:${{ github.sha }}"
 
       - name: Push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}

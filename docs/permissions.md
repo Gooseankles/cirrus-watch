@@ -41,11 +41,19 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `AuditLog.Read.All` | Stale accounts (last sign-in) and admins' MFA registration; both need Entra ID P1 or P2 |
 | `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
+| `LicenseAssignment.Read.All` | Licence coverage: the licences the tenant owns |
+| `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup` | Licence coverage: who is eligible or time-bound in PIM for Groups |
 
 All of these only read. Without P1 the stale accounts scan and the MFA check report that the licence is
 missing; the other checks still run.
 
 No Entra directory role is needed.
+
+**Licence coverage** counts licences the way Microsoft does: one per member user who benefits, not one per feature
+switched on. P1 for everyone in scope of an enabled Conditional Access policy; P2 (or ID Governance) for people in
+scope of a risk-based policy, with an eligible or time-bound PIM assignment (Entra roles, Azure roles, PIM for Groups)
+or with an access package; ID Governance for access packages that use auto-assignment or custom extensions. Guests
+are billed per monthly active user instead and are shown apart. Not counted: PIM approvers and access reviews.
 
 ## Customer tenant app (other tenants)
 
@@ -60,7 +68,8 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
    Entra refuses it with AADSTS700236.)
 3. **Entra (Microsoft Graph)**: API permissions → Microsoft Graph → **Application** permissions `User.Read.All`,
    `GroupMember.Read.All`, `Application.Read.All`, `EntitlementManagement.Read.All`, `RoleManagement.Read.Directory`,
-   `AuditLog.Read.All`, `Policy.Read.All`, `DelegatedPermissionGrant.Read.All`, then **Grant admin consent**
+   `AuditLog.Read.All`, `Policy.Read.All`, `DelegatedPermissionGrant.Read.All`, `LicenseAssignment.Read.All`,
+   `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup`, then **Grant admin consent**
    (needs a Privileged Role Administrator or Global Administrator in that tenant). No directory role.
 4. **Subscriptions (Azure RBAC)**: `Reader`, `Cost Management Reader` and `Key Vault Reader` for the app's
    service principal on each subscription to scan, or on a management group (the tenant root group's ID is the

@@ -45,6 +45,7 @@ const ICON_PATHS = {
   history: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/>',
   crown: '<path d="M2 18h20"/><path d="M3 18l-1-11 6 5 4-8 4 8 6-5-1 11"/>',
   userx: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/>',
+  badge: '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2.5"/><line x1="13" y1="10" x2="18" y2="10"/><line x1="13" y1="14" x2="17" y2="14"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
   print: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
@@ -123,6 +124,7 @@ const TOOLS = [
   { id: "stale-accounts", group: "identity", label: "Stale accounts", icon: "userx", schedule: "Daily at 05:30", sub: "Enabled members and guests with no sign-in for a long time, accounts that never signed in and guest invitations never accepted. Sign-in data needs Microsoft Entra ID P1." },
   { id: "conditional-access", group: "identity", label: "Conditional Access", icon: "lock", schedule: "Daily at 05:45", sub: "Gaps in Conditional Access: no MFA for all users or for admins, legacy sign-in not blocked, policies left in report-only and policies with long exclusion lists." },
   { id: "app-permissions", group: "identity", label: "App permissions", icon: "grid", schedule: "Daily at 05:15", sub: "Apps with Microsoft Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, and whether users may consent to any app themselves." },
+  { id: "licence-coverage", group: "identity", label: "Licence coverage", icon: "badge", schedule: "Daily at 06:00", sub: "How many Entra ID P1, P2 and ID Governance licences the features in use need, against how many the tenant owns. Counts the people in scope of Conditional Access, with PIM eligible or time-bound roles (Entra roles, Azure roles, PIM for Groups) and with access packages. Guests are billed per monthly active user and shown apart." },
 ];
 const TOOL_GROUPS = [
   { id: "access", label: "Access" },
@@ -240,6 +242,9 @@ const KINDS = {
   "app-broad-data-permission": ["Broad data permission", "warn"],
   "app-risky-delegated-consent": ["Risky consent", "warn"],
   "user-consent-unrestricted": ["Users can consent", "warn"],
+  "licence-short": ["Not enough licences", "crit"],
+  "licence-count": ["Licences needed", ""],
+  "licence-user": ["Needs a licence", ""],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");

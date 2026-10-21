@@ -99,6 +99,9 @@ variable "graph_permissions" {
     "AuditLog.Read.All",
     "Policy.Read.All",
     "DelegatedPermissionGrant.Read.All",
+    "LicenseAssignment.Read.All",
+    "PrivilegedEligibilitySchedule.Read.AzureADGroup",
+    "PrivilegedAssignmentSchedule.Read.AzureADGroup",
   ]
 }
 

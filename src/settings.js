@@ -99,6 +99,7 @@ const TOOL_SPNS = [
   { id: "stale-accounts", label: "Stale accounts" },
   { id: "conditional-access", label: "Conditional Access" },
   { id: "app-permissions", label: "App permissions" },
+  { id: "licence-coverage", label: "Licence coverage" },
   { id: "history-storage", label: "History storage" },
 ];
 

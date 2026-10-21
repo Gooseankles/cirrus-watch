@@ -1,10 +1,15 @@
 // Backup coverage: VMs no Recovery Services vault protects, backups that
 // stopped, failed or have not run lately, and vaults without soft delete.
 // Reader is enough.
-const { resourceGraphQuery } = require("../armClient");
-const { numberSetting, runChecks, nameOf } = require("./util");
+// Resource Graph's copy of a protected item is not refreshed after every
+// backup (its lastBackupTime can be months old), so items it shows as stale,
+// failing or stopped are read again from the vault before they count.
+const { resourceGraphQuery, armGet } = require("../armClient");
+const { numberSetting, runChecks, nameOf, mapLimit, itemErrors } = require("./util");
 
 const TOOL_ID = "backup-coverage";
+const ITEM_API = "2023-04-01";
+const MAX_LIVE_READS = 300;
 
 async function protectedItems() {
   return resourceGraphQuery(
@@ -14,14 +19,43 @@ async function protectedItems() {
         vault = tostring(split(id, '/backupFabrics/')[0]),
         source = tolower(tostring(properties.sourceResourceId)), friendly = tostring(properties.friendlyName),
         workload = tostring(properties.workloadType), state = tostring(properties.protectionState),
-        lastStatus = tostring(properties.lastBackupStatus), lastTime = tostring(properties.lastBackupTime)`,
+        lastStatus = tostring(properties.lastBackupStatus), lastTime = tostring(properties.lastBackupTime),
+        lastPoint = tostring(properties.lastRecoveryPoint)`,
     { toolId: TOOL_ID }
   );
 }
 
+// The newer of the last backup and the last recovery point.
+function lastOf(p) {
+  const times = [p.lastBackupTime, p.lastRecoveryPoint].filter((t) => t && !Number.isNaN(Date.parse(t)));
+  return times.sort((a, b) => Date.parse(b) - Date.parse(a))[0] || "";
+}
+
+// Would this item give a finding, by the given values?
+function suspicious(it, maxAgeHours) {
+  if (/ProtectionStopped|BackupsSuspended/i.test(it.state)) return true;
+  if (!/Protected/i.test(it.state) || /IRPending/i.test(it.state)) return false;
+  if (/Failed/i.test(it.lastStatus)) return true;
+  return Boolean(it.lastTime) && (Date.now() - Date.parse(it.lastTime)) / 3600000 > maxAgeHours;
+}
+
+// Replaces the Resource Graph values of suspicious items with the vault's own.
+async function refreshFromVault(items, maxAgeHours) {
+  for (const it of items) it.lastTime = lastOf({ lastBackupTime: it.lastTime, lastRecoveryPoint: it.lastPoint });
+  const check = items.filter((it) => suspicious(it, maxAgeHours)).slice(0, MAX_LIVE_READS);
+  const failures = await mapLimit(check, 6, async (it) => {
+    const p = ((await armGet(`https://management.azure.com${it.id}?api-version=${ITEM_API}`, TOOL_ID)) || {}).properties || {};
+    if (p.protectionState) it.state = p.protectionState;
+    if (p.lastBackupStatus) it.lastStatus = p.lastBackupStatus;
+    const live = lastOf(p);
+    if (live && (!it.lastTime || Date.parse(live) > Date.parse(it.lastTime))) it.lastTime = live;
+  });
+  return itemErrors(TOOL_ID, "live-items", "backup items' live status (Resource Graph's possibly old values used)", failures, check.length);
+}
+
 async function itemFindings(items) {
   const maxAgeHours = numberSetting("BACKUP_MAX_AGE_HOURS", 48, { min: 1, max: 24 * 365 });
-  const findings = [];
+  const findings = await refreshFromVault(items, maxAgeHours);
   for (const it of items) {
     const base = { name: it.friendly || nameOf(it.source) || nameOf(it.id), resourceGroup: it.resourceGroup, subscriptionId: it.subscriptionId };
     const where = `${it.workload || "item"} in vault ${nameOf(it.vault)}`;

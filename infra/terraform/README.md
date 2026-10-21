@@ -142,6 +142,19 @@ private endpoint, or apply once with `private_network = false` first so the cont
   `Microsoft.Storage`, `Microsoft.ManagedIdentity` and `Microsoft.KeyVault`, which needs rights on the subscription; if they are already
   registered and you lack those rights, remove `resource_providers_to_register` from `versions.tf`.
 
+## Where to find what Terraform made in Entra
+
+| What | Where in the portal |
+| --- | --- |
+| Sign-in app (roles, redirect URI, federated credential) | App registrations → **Azure tools dashboard (&lt;name&gt;)** |
+| Scan identity (the shared SPN) and its Graph permissions | Enterprise applications → set **Application type = Managed Identities** → **&lt;name&gt;** (the web app's name) → Permissions |
+| Sign-in identity (trusted by the sign-in app, no permissions) | Enterprise applications → Managed Identities → **id-&lt;name&gt;-sso** |
+
+The scan identity is the web app's system-assigned managed identity. A managed identity has no app registration,
+so it is only under Enterprise applications, and the default filter there (Enterprise Applications) hides it. Its
+object ID is the `web_app_principal_id` output; its Azure roles are on each `shared_spn_access` scope under Access
+control (IAM).
+
 ## When you may not create app registrations
 
 Some tenants hand out app registrations only through a request process. Then:
@@ -197,7 +210,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.17.1.2"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.17.1.3"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -216,7 +229,7 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.17.1.2` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.17.1.3` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`, `secret_vault_uri`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.

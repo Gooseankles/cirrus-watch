@@ -97,7 +97,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=main"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.8.0.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -113,7 +113,10 @@ output "url" {
 }
 ```
 
-Pin `?ref=` to a commit or tag for repeatable deployments. Inputs are in `modules/dashboard/variables.tf`, outputs
+`?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
+raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
+image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
+as `:0.8.0.1` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`) in `modules/dashboard/outputs.tf`.
 

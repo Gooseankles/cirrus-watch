@@ -126,7 +126,7 @@ resource "azuread_app_role_assignment" "customer_members" {
 # --- Microsoft Graph permissions for the scan identity ---
 
 data "azuread_service_principal" "msgraph" {
-  count     = var.grant_graph_permissions || local.customer_scan_app_created ? 1 : 0
+  count     = var.grant_graph_permissions ? 1 : 0
   client_id = "00000003-0000-0000-c000-000000000000"
 }
 

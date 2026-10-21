@@ -3,11 +3,10 @@
 //
 // A tenant comes from DASHBOARD_TENANTS (a JSON list, set by Terraform) and/or
 // the Settings page (DATA_DIR/tenants.json). A Settings entry with the same key
-// overrides the Terraform one field by field. Each tenant signs in either with
-//   federated: an app registration (usually one multi-tenant app consented in
-//              every customer tenant) that trusts the web app's user-assigned
-//              managed identity, so no secret exists; or
-//   secret:    an app registration in that tenant with a client secret.
+// overrides the Terraform one field by field. Each customer tenant has its own
+// app registration (clientId), made there by hand, with a federated credential
+// that trusts the web app's user-assigned managed identity
+// (TENANT_FEDERATED_MI_CLIENT_ID), so no secret exists anywhere.
 // The key is what the per-customer app roles use: Admin-<key> and User-<key>.
 const fs = require("fs");
 const path = require("path");
@@ -19,8 +18,10 @@ const { HOME } = require("./tenantContext");
 const FILE = path.join(DATA_DIR, "tenants.json");
 const KEY_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const AUTH_TYPES = ["federated", "secret"];
-const FIELDS = ["name", "tenantId", "authType", "clientId", "clientSecret", "miClientId", "subscriptionIds", "enabled"];
+const FIELDS = ["name", "tenantId", "clientId", "subscriptionIds", "enabled"];
+// Fields of 0.11.0.0 (secret or another identity per tenant); dropped from
+// tenants.json on the next save of that tenant.
+const OLD_FIELDS = ["authType", "clientSecret", "miClientId"];
 
 function readFile() {
   try {
@@ -75,10 +76,8 @@ function customers() {
       key,
       name: String(t.name || key),
       tenantId: String(t.tenantId || "").trim(),
-      authType: AUTH_TYPES.includes(t.authType) ? t.authType : "federated",
-      clientId: String(t.clientId || process.env.TENANT_APP_CLIENT_ID || "").trim(),
-      clientSecret: t.clientSecret || "",
-      miClientId: String(t.miClientId || process.env.TENANT_FEDERATED_MI_CLIENT_ID || process.env.DASHBOARD_FEDERATED_MI_CLIENT_ID || "").trim(),
+      clientId: String(t.clientId || "").trim(),
+      miClientId: federation().miClientId,
       subscriptionIds: toList(t.subscriptionIds),
       enabled: t.enabled !== false && t.enabled !== "false",
       source: t.source,
@@ -96,8 +95,20 @@ function customers() {
 function validate(t) {
   if (!KEY_RE.test(t.key) || t.key === HOME) return `key must be 1-40 lowercase letters, digits, - or _ (not "${HOME}")`;
   if (!GUID_RE.test(t.tenantId)) return "tenantId must be a GUID";
+  if (t.clientId && !GUID_RE.test(t.clientId)) return "clientId must be a GUID";
   if (t.subscriptionIds.some((s) => !GUID_RE.test(s))) return "subscriptionIds must be GUIDs";
   return null;
+}
+
+// The identity every customer app registration trusts, and the values its
+// federated credential needs (Terraform sets them when customers exist).
+function federation() {
+  return {
+    miClientId: String(process.env.TENANT_FEDERATED_MI_CLIENT_ID || "").trim(),
+    issuer: String(process.env.TENANT_FEDERATED_ISSUER || "").trim(),
+    subject: String(process.env.TENANT_FEDERATED_SUBJECT || "").trim(),
+    audience: "api://AzureADTokenExchange",
+  };
 }
 
 function home() {
@@ -135,9 +146,8 @@ function isMultiTenant() {
 
 // --- Settings page ---
 
-// Never returns a secret, only whether one is set.
 function listForSettings() {
-  return customers().map(({ clientSecret, ...t }) => ({ ...t, hasSecret: Boolean(clientSecret) }));
+  return customers();
 }
 
 function upsert(body) {
@@ -146,29 +156,28 @@ function upsert(body) {
   const list = readFile();
   const at = list.findIndex((t) => String(t.key).toLowerCase() === key);
   const entry = at >= 0 ? { ...list[at] } : { key };
+  for (const f of OLD_FIELDS) delete entry[f];
   for (const f of FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(body, f)) continue;
     let v = body[f];
-    if (f === "clientSecret") {
-      if (body.clearSecret) delete entry.clientSecret;
-      if (typeof v === "string" && v.trim()) entry.clientSecret = v.trim(); // blank = keep
-      continue;
-    }
     if (f === "enabled") {
       entry.enabled = v !== false && v !== "false";
       continue;
     }
     if (f === "subscriptionIds") v = toList(v);
     if (typeof v === "string") v = v.trim();
-    if (f === "authType" && v && !AUTH_TYPES.includes(v)) throw new Error(`authType must be ${AUTH_TYPES.join(" or ")}`);
     if (v === "" || (Array.isArray(v) && !v.length)) delete entry[f];
     else entry[f] = v;
   }
-  if (body.clearSecret && !(typeof body.clientSecret === "string" && body.clientSecret.trim())) delete entry.clientSecret;
 
   // Check the result as it will be used (Terraform values included).
   const envBase = readEnv().find((t) => String(t.key).toLowerCase() === key) || {};
-  const check = { key, tenantId: String(entry.tenantId || envBase.tenantId || ""), subscriptionIds: toList(entry.subscriptionIds || envBase.subscriptionIds) };
+  const check = {
+    key,
+    tenantId: String(entry.tenantId || envBase.tenantId || ""),
+    clientId: String(entry.clientId || envBase.clientId || ""),
+    subscriptionIds: toList(entry.subscriptionIds || envBase.subscriptionIds),
+  };
   const problem = validate(check);
   if (problem) throw new Error(problem);
 
@@ -178,7 +187,6 @@ function upsert(body) {
   return listForSettings();
 }
 
-// Removes the Settings entry. A tenant from Terraform stays (change it there).
 // Removes a tenant added in Settings, or Settings' changes to a Terraform
 // tenant (it goes back to what Terraform set). A Terraform tenant itself stays.
 function remove(key) {
@@ -192,4 +200,4 @@ function remove(key) {
   return listForSettings();
 }
 
-module.exports = { HOME, customers, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };
+module.exports = { HOME, customers, federation, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };

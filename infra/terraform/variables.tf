@@ -178,13 +178,14 @@ variable "customers" {
     - or _; it names the app roles Admin-<key> and User-<key>, the Entra groups and the storage container).
       name             shown in the tenant tabs
       tenant_id        the customer's Entra tenant ID
-      subscription_ids limit the scans to these subscriptions (empty = every one the scan app can see there)
-      client_id        the customer's own app registration instead of the shared multi-tenant scan app (it needs a
-                       federated credential that trusts this dashboard; see the customer_onboarding output)
+      client_id        the app registration made in that tenant (with a federated credential that trusts this
+                       dashboard; see the customer_onboarding output). Empty until it exists; it can also be set in
+                       the app's Settings.
+      subscription_ids limit the scans to these subscriptions (empty = every one the app can see there)
       enabled          false = keep the customer but stop scanning it
       admin_members    object IDs of users who get Admin-<key> (read and run scans for this customer)
       user_members     object IDs of users who get User-<key> (read this customer)
-    Permissions in the customer tenant are granted by hand: see the customer_onboarding output.
+    Terraform never touches a customer tenant: the app registration and its permissions are made there by hand.
   EOT
   type = map(object({
     name             = string
@@ -207,21 +208,6 @@ variable "customers" {
   }
 }
 
-variable "create_customer_scan_app" {
-  description = <<-EOT
-    Create one multi-tenant app registration that scans every customer tenant (each customer's admin consents to it
-    once). It trusts the web app's customer-scan managed identity through a federated credential, so no secret
-    exists. false = use customer_scan_app_client_id, or a client_id per customer.
-  EOT
-  type        = bool
-  default     = true
-}
-
-variable "customer_scan_app_client_id" {
-  description = "Client ID of an existing multi-tenant scan app registration (only with create_customer_scan_app = false)."
-  type        = string
-  default     = ""
-}
 
 variable "create_role_groups" {
   description = <<-EOT

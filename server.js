@@ -111,7 +111,7 @@ app.post("/api/settings/test-spn", auth.requireRole("Admin"), async (req, res) =
   res.json(await testSpn(toolId));
 });
 
-// Customer tenants (Settings). Secrets go in, never come back out.
+// Customer tenants (Settings).
 const withStorage = (list) => {
   const store = require("./src/findingsStore");
   const blob = Boolean(settings.get("STORAGE_ACCOUNT_URL"));
@@ -120,10 +120,7 @@ const withStorage = (list) => {
 app.get("/api/tenants", auth.requireRole("Admin"), (req, res) => {
   res.json({
     tenants: withStorage(tenants.listForSettings()),
-    defaults: {
-      clientId: process.env.TENANT_APP_CLIENT_ID || "",
-      miClientId: process.env.TENANT_FEDERATED_MI_CLIENT_ID || process.env.DASHBOARD_FEDERATED_MI_CLIENT_ID || "",
-    },
+    federation: tenants.federation(),
   });
 });
 app.post("/api/tenants", auth.requireRole("Admin"), (req, res) => {

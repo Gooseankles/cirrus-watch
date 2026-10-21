@@ -68,13 +68,8 @@ output "role_groups" {
   value       = { for role, g in azuread_group.role : role => g.object_id }
 }
 
-output "customer_scan_app_client_id" {
-  description = "Client ID of the multi-tenant scan app that signs in to customer tenants (null without customers)."
-  value       = local.has_customers ? local.customer_scan_app_client_id : null
-}
-
 output "customer_scan_identity_client_id" {
-  description = "Client ID of the managed identity the scan app trusts (null without customers)."
+  description = "Client ID of the managed identity each customer's app registration trusts (null without customers)."
   value       = local.has_customers ? azurerm_user_assigned_identity.customers[0].client_id : null
 }
 
@@ -84,24 +79,21 @@ output "customer_containers" {
 }
 
 output "customer_onboarding" {
-  description = "Per customer: what an admin in that tenant does once (consent and read roles). Terraform does not touch customer tenants."
+  description = "Per customer: the app registration to make in that tenant (no secret) and the permissions to give it. Terraform does not touch customer tenants."
   value = {
-    for k, c in var.customers : k => c.client_id == "" ? join("\n", concat([
+    for k, c in var.customers : k => join("\n", concat([
       "${c.name} (tenant ${c.tenant_id})",
-      "1. A Global Administrator there opens this link and accepts (creates the scan app in their tenant, grants its Graph read permissions):",
-      "   https://login.microsoftonline.com/${c.tenant_id}/adminconsent?client_id=${local.customer_scan_app_client_id}",
-      "2. Grant it read roles (an Owner or User Access Administrator, signed in to that tenant), per subscription or on a management group:",
+      "1. In that tenant, register an app (single tenant), e.g. \"Azure tools dashboard\". ${c.client_id != "" ? "Set: ${c.client_id}." : "Then put its Application (client) ID in customers.${k}.client_id (or in Settings) and apply."}",
+      "2. On the app: Certificates & secrets > Federated credentials > Add > Other issuer:",
+      "     issuer:   ${local.sso_fic_issuer}",
+      "     subject:  ${local.customer_fic_subject}   (object ID of managed identity id-${var.name}-customers)",
+      "     audience: api://AzureADTokenExchange",
+      "3. API permissions > Microsoft Graph > Application: ${join(", ", var.graph_permissions)}; then Grant admin consent.",
+      "4. Read roles for it, per subscription (or on a management group):",
       ], [
       for pair in setproduct(length(c.subscription_ids) > 0 ? c.subscription_ids : ["<subscription-id>"], local.scan_roles) :
-      "   az role assignment create --assignee ${local.customer_scan_app_client_id} --role \"${pair[1]}\" --scope /subscriptions/${pair[0]}"
-      ])) : join("\n", [
-      "${c.name} (tenant ${c.tenant_id}) uses its own app registration ${c.client_id}.",
-      "In that tenant, add a federated credential to it (Certificates & secrets > Federated credentials > Other issuer):",
-      "   issuer:   ${local.sso_fic_issuer}",
-      "   subject:  ${local.customer_fic_subject}   (object ID of managed identity id-${var.name}-customers)",
-      "   audience: api://AzureADTokenExchange",
-      "Then grant that app Graph application permissions (${join(", ", var.graph_permissions)}) with admin consent, and Reader, Cost Management Reader and Key Vault Reader on the subscriptions.",
-    ])
+      "     az role assignment create --assignee ${c.client_id != "" ? c.client_id : "<client-id>"} --role \"${pair[1]}\" --scope /subscriptions/${pair[0]}"
+    ]))
   }
 }
 

@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.11.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.11.0.1" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -120,21 +120,19 @@ This is a separate app registration from the identity the scans use: it only sig
 
 One dashboard can scan other organizations' tenants as well as its own, so it is hosted in one place. Each tenant
 gets a tab at the top of the page ("All tenants" shows them together, with the tenant next to each row), its own
-storage container, and its own roles (above). Its scans run in that tenant with that tenant's identity; the home
-tenant keeps using the shared SPN.
+storage container, and its own roles (above). Its scans run in that tenant as that tenant's app registration; the
+home tenant keeps using the shared SPN.
 
-How the dashboard signs in to a customer tenant:
+Each customer tenant has its own app registration, made there by hand, with a federated credential that trusts a
+user-assigned managed identity of the web app (`id-<name>-customers`), so no secret exists. Give that app the Graph
+application permissions (with admin consent) and Reader, Cost Management Reader and Key Vault Reader on the
+subscriptions, then put its client ID in Terraform's `customers` (`client_id`) or in Settings. `terraform output
+customer_onboarding` prints every step and value per customer, and Settings → Customer tenants shows the federated
+credential values; Terraform never touches a customer tenant.
 
-- **Federated (default, no secret)**: one multi-tenant app registration, "the scan app", trusts a user-assigned
-  managed identity of the web app through a federated credential. Each customer's Global Administrator consents
-  to the scan app once (which creates it in their tenant), and someone with Owner or User Access Administrator
-  there grants it Reader, Cost Management Reader and Key Vault Reader. Terraform prints the exact link and
-  commands per customer (`terraform output customer_onboarding`); it never touches a customer tenant.
-  A customer can also use its own app registration with a federated credential that trusts the same identity.
-- **Client secret**: an app registration in the customer tenant with a secret (Settings only).
-
-Customers come from Terraform (`customers`, passed to the app as `DASHBOARD_TENANTS`) or are added in Settings →
-Customer tenants, where each one can be tested. A customer tenant delegated to your tenant with Azure Lighthouse
+Customers come from Terraform (`customers`, passed to the app as `DASHBOARD_TENANTS`); Settings → Customer tenants
+lists them, tests each one and can change the client ID, name or subscriptions or turn scanning off. A tenant added
+only in Settings works, but has no Admin-&lt;key&gt; / User-&lt;key&gt; roles, so only global Admin and User see it. A customer tenant delegated to your tenant with Azure Lighthouse
 can instead be scanned by the home identity like any other subscription; then it does not need to be added here.
 
 ## Permissions

@@ -38,6 +38,7 @@ user_principal_ids  = []
 #   acme = {
 #     name          = "Acme AS"
 #     tenant_id     = "00000000-0000-0000-0000-000000000000"
+#     client_id     = ""  # app registration made in that tenant; set once it exists
 #     admin_members = []  # user object IDs: read and run Acme's scans
 #     user_members  = []  # user object IDs: read Acme only
 #   }

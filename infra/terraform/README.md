@@ -58,7 +58,8 @@ customers = {
   acme = {
     name             = "Acme AS"
     tenant_id        = "00000000-0000-0000-0000-000000000000"
-    subscription_ids = []                   # empty = every subscription the scan app can see there
+    client_id        = ""                   # the app registration made in Acme's tenant (set it once it exists)
+    subscription_ids = []                   # empty = every subscription that app can see there
     admin_members    = ["<user object id>"] # Admin-acme: read and run Acme's scans
     user_members     = ["<user object id>"] # User-acme: read Acme only
   }
@@ -69,15 +70,16 @@ Each key (lowercase letters, digits, - or _) names the app roles `Admin-<key>` a
 and the storage container `dashboard-<key>`. With at least one customer, Terraform adds:
 
 - a user-assigned managed identity `id-<name>-customers` on the web app, used only for customer sign-ins;
-- one multi-tenant app registration, the scan app, with a federated credential that trusts that identity (no
-  secret) and the Graph application permissions the scans need (`create_customer_scan_app = false` uses
-  `customer_scan_app_client_id` or each customer's own `client_id` instead);
 - a storage container per customer.
 
-Permissions in the customer tenant are granted by hand. `terraform output customer_onboarding` prints, per
-customer, the admin-consent link for their Global Administrator and the `az role assignment create` commands for
-Reader, Cost Management Reader and Key Vault Reader. A customer that uses its own app registration (`client_id`)
-gets the federated credential values to add to it instead.
+In each customer tenant, by hand: register an app, add a federated credential that trusts that identity (no
+secret), give it the Graph application permissions with admin consent and Reader, Cost Management Reader and Key
+Vault Reader, then set its `client_id` and apply again (or enter it in Settings). `terraform output
+customer_onboarding` prints the steps, the issuer and subject values and the `az role assignment create` commands
+per customer. So the first apply can run before the app registrations exist.
+
+**Upgrading from 0.11.0.0:** the shared multi-tenant scan app is gone (`create_customer_scan_app` and
+`customer_scan_app_client_id` were removed); the next apply deletes it if it was created.
 
 ## Role groups
 
@@ -167,7 +169,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -186,9 +188,9 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.11.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.11.0.1` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
-`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers`, the scan app's client IDs and
+`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers`, `customer_scan_identity_client_id` and
 `private_network`) in `modules/dashboard/outputs.tf`.
 
 ## Policy check

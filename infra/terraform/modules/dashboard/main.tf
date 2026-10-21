@@ -57,7 +57,7 @@ resource "azurerm_linux_web_app" "this" {
 
   # System-assigned: the scan tools in the home tenant (blank client ID in
   # Settings). User-assigned: SSO, and (with customers) signing in to
-  # customer tenants as the scan app.
+  # customer tenants as their app registrations.
   identity {
     type         = "SystemAssigned, UserAssigned"
     identity_ids = concat([azurerm_user_assigned_identity.sso.id], local.has_customers ? [azurerm_user_assigned_identity.customers[0].id] : [])
@@ -125,8 +125,9 @@ resource "azurerm_linux_web_app" "this" {
     } : {},
     local.has_customers ? {
       DASHBOARD_TENANTS             = jsonencode(local.dashboard_tenants)
-      TENANT_APP_CLIENT_ID          = local.customer_scan_app_client_id
       TENANT_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.customers[0].client_id
+      TENANT_FEDERATED_ISSUER       = local.sso_fic_issuer
+      TENANT_FEDERATED_SUBJECT      = local.customer_fic_subject
     } : {},
     length(var.scan_subscription_ids) > 0 ? { AZURE_SUBSCRIPTION_IDS = join(",", var.scan_subscription_ids) } : {},
     var.admin_password != "" ? { DASHBOARD_ADMIN_PASSWORD = var.admin_password } : {},

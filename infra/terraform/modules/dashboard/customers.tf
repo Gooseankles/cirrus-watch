@@ -1,16 +1,13 @@
 # --- Customer tenants ---
 #
-# One multi-tenant app registration ("scan app") scans every customer tenant.
-# It has no secret: it trusts the web app's customer-scan managed identity
-# through a federated credential. Each customer's admin consents to it once and
-# grants it read roles by hand (output customer_onboarding); nothing here
-# touches a customer tenant.
+# Each customer tenant gets an app registration there, made by hand, with a
+# federated credential that trusts the web app's customer-scan managed identity
+# below, so no secret exists (output customer_onboarding has the values).
+# Nothing here touches a customer tenant.
 
 locals {
-  has_customers               = length(var.customers) > 0
-  customer_scan_app_created   = var.create_customer_scan_app && local.has_customers
-  customer_scan_app_client_id = local.customer_scan_app_created ? azuread_application.customer_scan[0].client_id : var.customer_scan_app_client_id
-  customer_fic_subject        = local.has_customers ? azurerm_user_assigned_identity.customers[0].principal_id : ""
+  has_customers        = length(var.customers) > 0
+  customer_fic_subject = local.has_customers ? azurerm_user_assigned_identity.customers[0].principal_id : ""
 
   # What the app reads from DASHBOARD_TENANTS.
   dashboard_tenants = [
@@ -29,8 +26,8 @@ locals {
   scan_roles = ["Reader", "Cost Management Reader", "Key Vault Reader"]
 }
 
-# Used only to sign in to customer tenants (as the scan app), so sign-in logs
-# there show this identity and nothing else.
+# Used only to sign in to customer tenants (as their app registrations), so
+# sign-in logs there show this identity and nothing else.
 resource "azurerm_user_assigned_identity" "customers" {
   count               = local.has_customers ? 1 : 0
   name                = "id-${var.name}-customers"
@@ -39,35 +36,6 @@ resource "azurerm_user_assigned_identity" "customers" {
   tags                = var.tags
 }
 
-resource "azuread_application" "customer_scan" {
-  count            = local.customer_scan_app_created ? 1 : 0
-  display_name     = "Azure tools dashboard scanner (${var.name})"
-  sign_in_audience = "AzureADMultipleOrgs"
-  owners           = [data.azuread_client_config.current.object_id]
-
-  # Graph application permissions the scans use; each customer's admin
-  # consents to them (Azure roles are granted separately).
-  required_resource_access {
-    resource_app_id = "00000003-0000-0000-c000-000000000000"
-    dynamic "resource_access" {
-      for_each = var.graph_permissions
-      content {
-        id   = data.azuread_service_principal.msgraph[0].app_role_ids[resource_access.value]
-        type = "Role"
-      }
-    }
-  }
-}
-
-resource "azuread_application_federated_identity_credential" "customer_scan" {
-  count          = local.customer_scan_app_created ? 1 : 0
-  application_id = azuread_application.customer_scan[0].id
-  display_name   = "app-service-${var.name}-customers"
-  description    = "Customer-scan identity of the dashboard web app"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = local.sso_fic_issuer
-  subject        = local.customer_fic_subject
-}
 
 # --- Per-customer storage containers ---
 

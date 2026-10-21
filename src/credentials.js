@@ -59,19 +59,14 @@ function resolveSpn(toolId) {
   return { source, authType: "secret", tenantId, clientId: id.clientId, clientSecret: id.clientSecret };
 }
 
-// A customer tenant's identity, in the same shape as resolveSpn.
+// A customer tenant's identity (its own app registration, signed in to with
+// the web app's managed identity), in the same shape as resolveSpn.
 function resolveTenantSpn(tenant) {
-  const where = `customer tenant "${tenant.name}"`;
-  if (tenant.authType === "secret") {
-    if (!tenant.clientId || !tenant.clientSecret) {
-      throw new Error(`${where} uses client secret auth but has no ${!tenant.clientId ? "client ID" : "client secret"} (Settings, Customer tenants)`);
-    }
-    return { source: `tenant:${tenant.key}`, authType: "secret", tenantId: tenant.tenantId, clientId: tenant.clientId, clientSecret: tenant.clientSecret };
+  if (!tenant.clientId) {
+    throw new Error(`customer tenant "${tenant.name}" has no app (client) ID yet: set it in Terraform's customers or in Settings, Customer tenants`);
   }
-  if (!tenant.clientId || !tenant.miClientId) {
-    throw new Error(
-      `${where} uses federated auth but has no ${!tenant.clientId ? "app client ID (TENANT_APP_CLIENT_ID)" : "managed identity client ID (TENANT_FEDERATED_MI_CLIENT_ID)"}`
-    );
+  if (!tenant.miClientId) {
+    throw new Error(`customer tenant "${tenant.name}" cannot be scanned: TENANT_FEDERATED_MI_CLIENT_ID is empty (Terraform sets it when customers has an entry)`);
   }
   return { source: `tenant:${tenant.key}`, authType: "federated", tenantId: tenant.tenantId, clientId: tenant.clientId, miClientId: tenant.miClientId };
 }
@@ -155,7 +150,7 @@ async function testTenant(tenant) {
     }
     return { ok: true, ...describe(spn), graph };
   } catch (err) {
-    return { ok: false, ...(spn ? describe(spn) : { source: null, authType: tenant.authType, clientId: tenant.clientId || null }), error: errorText(err) };
+    return { ok: false, ...(spn ? describe(spn) : { source: null, authType: "federated", clientId: tenant.clientId || null }), error: errorText(err) };
   }
 }
 

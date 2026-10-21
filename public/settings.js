@@ -19,7 +19,8 @@ const Settings = (() => {
           </div>
           <div class="card" id="tenants-card">
             <div class="card-head"><h2>Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
-            <div class="note">Other organizations' tenants this dashboard scans. Each gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read). Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
+            <div class="note">Other organizations' tenants this dashboard scans. In each, make an app registration with a federated credential using the values below (no secret), give it read permissions, and enter its client ID here or in Terraform. Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
+            <div id="tenants-federation"></div>
             <div class="status-msg" id="tenants-status"></div>
             <div id="tenants-list"><div class="empty-state">Loading…</div></div>
             <div id="tenant-form"></div>
@@ -121,14 +122,14 @@ const Settings = (() => {
   }
 
   /* ---------- customer tenants ---------- */
-  const tn = { list: [], defaults: {}, editing: null };
+  const tn = { list: [], federation: {}, editing: null };
 
   async function loadTenants() {
     const status = $("#tenants-status");
     try {
       const r = await apiJson("/api/tenants");
       tn.list = Array.isArray(r.tenants) ? r.tenants : [];
-      tn.defaults = r.defaults || {};
+      tn.federation = r.federation || {};
       setStatus(status, "");
     } catch (err) {
       tn.list = [];
@@ -140,14 +141,27 @@ const Settings = (() => {
   function renderTenants() {
     const el = $("#tenants-list");
     if (!el) return;
+    const fed = $("#tenants-federation");
+    if (fed) {
+      const f = tn.federation;
+      fed.innerHTML = f.miClientId
+        ? `<div class="settings-group"><h3>Federated credential for each customer's app registration</h3>
+            <div class="hint">Certificates &amp; secrets → Federated credentials → Add → Other issuer.</div>
+            ${tableHtml([{ label: "Field" }, { label: "Value" }], [
+              ["Issuer", `<span class="mono">${esc(f.issuer || "not set (TENANT_FEDERATED_ISSUER)")}</span>`],
+              ["Subject identifier", `<span class="mono">${esc(f.subject || "not set (TENANT_FEDERATED_SUBJECT)")}</span>`],
+              ["Audience", `<span class="mono">${esc(f.audience)}</span>`],
+            ])}</div>`
+        : `<div class="status-msg error">No managed identity for customer sign-ins (TENANT_FEDERATED_MI_CLIENT_ID), so no customer tenant can be scanned. Terraform creates it when customers has at least one entry.</div>`;
+    }
     if (!tn.list.length) {
       el.innerHTML = `<div class="empty-state">No customer tenants. Only this tenant is scanned.</div>`;
     } else {
       el.innerHTML = tableHtml(
-        [{ label: "Tenant" }, { label: "Sign-in" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
+        [{ label: "Tenant" }, { label: "App (client) ID" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
         tn.list.map((t) => [
           `<div class="name-cell"><div class="primary">${esc(t.name)}${t.enabled ? "" : ' <span class="tag">off</span>'}</div><div class="secondary mono">${esc(t.key)} · ${esc(t.tenantId)}</div></div>`,
-          `<div class="name-cell"><div class="primary">${t.authType === "secret" ? `Client secret${t.hasSecret ? "" : ' <span class="secondary bad">missing</span>'}` : "Federated"}</div><div class="secondary mono">${esc(t.clientId || "no client ID")}</div></div>`,
+          t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>',
           t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
           `<div class="name-cell"><div class="primary mono">${esc(t.container || "")}</div><div class="secondary">from ${esc(t.source)}</div></div>`,
           `<div class="tenant-actions"><button type="button" class="btn small ghost" data-tenant-test="${esc(t.key)}">Test</button><button type="button" class="btn small ghost" data-tenant-edit="${esc(t.key)}">Edit</button>${
@@ -163,8 +177,8 @@ const Settings = (() => {
     renderTenantForm();
   }
 
-  function tenantRow(label, hint, control, authOnly) {
-    return `<div class="settings-row"${authOnly ? ` data-auth-only="${authOnly}"` : ""}><label>${esc(label)}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</label><div class="field">${control}</div></div>`;
+  function tenantRow(label, hint, control) {
+    return `<div class="settings-row"><label>${esc(label)}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</label><div class="field">${control}</div></div>`;
   }
   function renderTenantForm() {
     const el = $("#tenant-form");
@@ -176,23 +190,16 @@ const Settings = (() => {
     }
     const t = e.key ? tn.list.find((x) => x.key === e.key) || {} : {};
     const input = (name, value, ph, extra) => `<input class="input" type="text" data-tf="${name}" value="${esc(value || "")}" placeholder="${esc(ph || "")}"${extra || ""} />`;
-    const auth = t.authType || "federated";
-    // Values equal to the server defaults show as blank (= use the default).
-    const own = (v, def) => (v && v !== def ? v : "");
     el.innerHTML = `<div class="tenant-form settings-group">
       <h3>${e.key ? `Edit ${esc(t.name || e.key)}` : "New customer tenant"}</h3>
       ${tenantRow("Key", "Lowercase letters, digits, - or _. Names the roles Admin-<key> / User-<key> and the storage container; cannot be changed later.", input("key", e.key, "acme", e.key ? " disabled" : ""))}
       ${tenantRow("Name", "Shown on the tab and next to findings.", input("name", t.name, "Acme AS"))}
       ${tenantRow("Tenant ID", "The customer's Entra tenant ID.", input("tenantId", t.tenantId, "00000000-0000-0000-0000-000000000000"))}
-      ${tenantRow("Sign-in", "", `<select class="select" data-tf="authType" data-auth-type="1"><option value="federated"${auth === "federated" ? " selected" : ""}>Federated: the app registration trusts this app's managed identity (no secret)</option><option value="secret"${auth === "secret" ? " selected" : ""}>Client secret: an app registration in that tenant</option></select>`)}
-      ${tenantRow("App (client) ID", `Blank = ${tn.defaults.clientId || "TENANT_APP_CLIENT_ID (not set)"}`, input("clientId", own(t.clientId, tn.defaults.clientId), tn.defaults.clientId || ""))}
-      ${tenantRow("Managed identity it trusts", `Client ID of the user-assigned identity in the federated credential. Blank = ${tn.defaults.miClientId || "not set"}`, input("miClientId", own(t.miClientId, tn.defaults.miClientId), tn.defaults.miClientId || ""), "federated")}
-      ${tenantRow("Client secret", t.hasSecret ? "Set. Leave blank to keep it." : "Not set.", `<input class="input" type="password" data-tf="clientSecret" placeholder="leave blank to keep current value" autocomplete="new-password" />${t.hasSecret ? '<label class="check"><input type="checkbox" data-tf="clearSecret" /> Clear</label>' : ""}`, "secret")}
+      ${tenantRow("App (client) ID", "The app registration made in that tenant, with the federated credential shown above.", input("clientId", t.clientId, "00000000-0000-0000-0000-000000000000"))}
       ${tenantRow("Subscriptions", "Comma-separated IDs; blank = every subscription it can see.", input("subscriptionIds", (t.subscriptionIds || []).join(", "), "all"))}
       ${tenantRow("Scan", "", `<label class="check"><input type="checkbox" data-tf="enabled"${t.enabled === false ? "" : " checked"} /> Scan this tenant</label>`)}
       <div class="save-bar"><button type="button" class="btn primary" data-tenant-save="1">Save tenant</button><button type="button" class="btn ghost" data-tenant-cancel="1">Cancel</button><span class="status-msg" id="tenant-form-status"></span></div>
     </div>`;
-    applyAuthType($("select[data-tf=authType]", el));
   }
 
   async function tenantClick(el) {
@@ -244,11 +251,9 @@ const Settings = (() => {
       };
       const body = {
         key: tn.editing.key || val("key"),
-        name: val("name"), tenantId: val("tenantId"), authType: val("authType"), clientId: val("clientId"),
-        miClientId: val("miClientId"), subscriptionIds: val("subscriptionIds"), enabled: val("enabled"),
+        name: val("name"), tenantId: val("tenantId"), clientId: val("clientId"),
+        subscriptionIds: val("subscriptionIds"), enabled: val("enabled"),
       };
-      if (val("clientSecret")) body.clientSecret = val("clientSecret");
-      if (val("clearSecret")) body.clearSecret = true;
       const fstatus = $("#tenant-form-status");
       el.disabled = true;
       setStatus(fstatus, "Saving…");

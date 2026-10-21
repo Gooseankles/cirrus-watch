@@ -29,11 +29,9 @@ module "dashboard" {
   allowed_ip_ranges       = var.allowed_ip_ranges
   allowed_subnet_ids      = var.allowed_subnet_ids
 
-  customers                   = var.customers
-  create_customer_scan_app    = var.create_customer_scan_app
-  customer_scan_app_client_id = var.customer_scan_app_client_id
-  create_role_groups          = var.create_role_groups
-  role_group_prefix           = var.role_group_prefix
+  customers          = var.customers
+  create_role_groups = var.create_role_groups
+  role_group_prefix  = var.role_group_prefix
 
   private_network            = var.private_network
   vnet_address_space         = var.vnet_address_space

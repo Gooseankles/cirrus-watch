@@ -1,0 +1,4 @@
+# Findings the Trivy gate in .github/workflows/docker.yml may let through.
+# One CVE id per line, with a comment saying why it is accepted and until when,
+# for example:
+#   CVE-2026-12345  # only in a test tool, not reachable; recheck 2027-01

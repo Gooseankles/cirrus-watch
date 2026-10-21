@@ -54,7 +54,7 @@ flowchart TB
 | Part | What it is | Why |
 |---|---|---|
 | App Service (Linux) | One container, `always_on`, HTTPS only, TLS 1.2+ | Small, cheap, no servers to patch; the scheduler lives in the app |
-| Container image | `node:20-alpine`, runs as user `node`, port 7070 | Built by GitHub Actions on every push to `main` |
+| Container image | `node:24-alpine` without npm, runs as user `node`, port 7070 | Built by GitHub Actions on every push to `main`; pushed only if the Trivy scan finds no fixable critical or high problem |
 | Storage account | Blob containers `dashboard` and `dashboard-<customer>` | Scan results and history survive restarts and redeploys; no account keys |
 | Key vault | RBAC, soft delete, secrets named `dashboard-…` | Client secrets entered in Settings never sit on the app's disk |
 | Sign-in app registration | Entra app with app roles, assignment required | Who may sign in and what they may do |
@@ -435,4 +435,4 @@ scheduler is in-process (every instance would run every scan), so run **one inst
 | Tenant isolation | One container per customer; every read and run checks the person's tenant scope |
 | Traceability | Audit log of sign-ins, page views, lookups and changes (never secret values); activity log of every scan |
 | Network | HTTPS only, TLS 1.2+, FTPS off; optional IP restrictions and private endpoints |
-| Container | Alpine Node 20, production dependencies only, runs as non-root `node` |
+| Container | Alpine Node 24 with security updates, production dependencies only, no npm, runs as non-root `node`; Trivy scan before every push (results in the GitHub Security tab), Dependabot weekly |

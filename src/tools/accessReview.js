@@ -19,6 +19,7 @@ const PRIVILEGED = ["Owner", "Contributor", "User Access Administrator"];
 // A group with thousands of members would bloat the findings file; the
 // total is still reported.
 const MAX_MEMBERS_KEPT = 500;
+const MAX_GROUPS_WALKED = 200; // per assigned group, nested ones included
 const GROUP_CONCURRENCY = 4;
 
 function staleDays() {
@@ -48,29 +49,56 @@ function memberType(odataType) {
   return { user: "User", group: "Group", servicePrincipal: "App", device: "Device" }[t] || t || "Other";
 }
 
-// Everyone in the group, nested groups flattened (transitiveMembers).
-async function groupMembers(groupId) {
+// A group's direct members; one fetch per group per run, since nested groups
+// are often shared between several assigned groups.
+async function directMembers(groupId, cache) {
+  if (!cache.has(groupId)) {
+    cache.set(
+      groupId,
+      (async () => {
+        const out = [];
+        let next = `/groups/${groupId}/members?$select=id,displayName,userPrincipalName,accountEnabled&$top=999`;
+        while (next) {
+          const page = await graphGet(next, TOOL_ID);
+          for (const m of page.value || []) {
+            out.push({ id: m.id, name: m.displayName || m.id, upn: m.userPrincipalName || null, type: memberType(m["@odata.type"]), enabled: m.accountEnabled !== false });
+          }
+          next = page["@odata.nextLink"] || null;
+        }
+        return out.sort((a, b) => (a.type === "Group") - (b.type === "Group") || a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
+      })()
+    );
+  }
+  return cache.get(groupId);
+}
+
+// Everyone in the group as a tree: each member carries `via`, the group it is
+// a direct member of, so nested groups can be opened on the page. A group seen
+// twice on one path (a loop) is not followed again.
+async function groupMembers(groupId, cache) {
   const members = [];
-  let total = 0;
-  let next = `/groups/${groupId}/transitiveMembers?$select=id,displayName,userPrincipalName,accountEnabled&$top=999`;
-  while (next) {
-    const page = await graphGet(next, TOOL_ID);
-    for (const m of page.value || []) {
-      total += 1;
-      if (members.length < MAX_MEMBERS_KEPT) {
-        members.push({
-          id: m.id,
-          name: m.displayName || m.id,
-          upn: m.userPrincipalName || null,
-          type: memberType(m["@odata.type"]),
-          enabled: m.accountEnabled !== false,
-        });
+  const people = new Set();
+  let nestedGroups = 0;
+  let groupsRead = 0;
+  let truncated = false;
+  const walk = async (id, path) => {
+    if (groupsRead >= MAX_GROUPS_WALKED) {
+      truncated = true;
+      return;
+    }
+    groupsRead += 1;
+    for (const m of await directMembers(id, cache)) {
+      if (members.length < MAX_MEMBERS_KEPT) members.push({ ...m, via: id });
+      else truncated = true;
+      if (m.type !== "Group") people.add(m.id);
+      else if (!path.includes(m.id)) {
+        nestedGroups += 1;
+        await walk(m.id, [...path, m.id]);
       }
     }
-    next = page["@odata.nextLink"] || null;
-  }
-  members.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
-  return { members, memberTotal: total };
+  };
+  await walk(groupId, [groupId]);
+  return { members, memberTotal: people.size, nestedGroups, truncated };
 }
 
 async function mapLimit(items, limit, fn) {
@@ -164,9 +192,10 @@ async function run() {
   const membersByGroup = new Map();
   let memberErrors = 0;
   let firstMemberError = null;
+  const memberCache = new Map();
   await mapLimit(groupIds, GROUP_CONCURRENCY, async (id) => {
     try {
-      membersByGroup.set(id, await groupMembers(id));
+      membersByGroup.set(id, await groupMembers(id, memberCache));
     } catch (err) {
       memberErrors += 1;
       firstMemberError = firstMemberError || err.message;
@@ -184,6 +213,8 @@ async function run() {
     if (m) {
       f.members = m.members;
       f.memberTotal = m.memberTotal;
+      f.nestedGroups = m.nestedGroups;
+      if (m.truncated) f.membersTruncated = true;
     }
   }
 

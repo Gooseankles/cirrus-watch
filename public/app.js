@@ -1044,14 +1044,47 @@ function arScope(f, t) {
 function arMembers(f) {
   const members = Array.isArray(f.members) ? f.members : [];
   const glyph = (m) => (m.type === "Group" ? icon("users") : m.type === "App" ? icon("app") : icon("user"));
-  const list = members
-    .map(
-      (m) => `<div class="ar-member${m.enabled ? "" : " disabled"}" title="${esc(m.type || "")}${m.enabled ? "" : " (disabled)"}"><span class="m-ico">${glyph(m)}</span><div><div>${esc(m.name)}${m.enabled ? "" : ' <span class="muted">(disabled)</span>'}</div>${m.upn ? `<div class="secondary">${esc(m.upn)}</div>` : ""}</div></div>`
-    )
-    .join("");
-  const total = f.memberTotal != null ? f.memberTotal : members.length;
-  const more = total > members.length ? `<div class="note">+${fmt.int(total - members.length)} more not listed.</div>` : "";
-  return `<div class="ar-members">${list || '<span class="muted">No members.</span>'}</div>${more}`;
+  const card = (m) =>
+    `<div class="ar-member${m.enabled ? "" : " disabled"}" title="${esc(m.type || "")}${m.enabled ? "" : " (disabled)"}"><span class="m-ico">${glyph(m)}</span><div><div>${esc(m.name)}${m.enabled ? "" : ' <span class="muted">(disabled)</span>'}</div>${m.upn ? `<div class="secondary">${esc(m.upn)}</div>` : ""}</div></div>`;
+  // Runs before 0.13.1.0 kept one flat list (no `via`).
+  if (!members.some((m) => m.via)) {
+    const total = f.memberTotal != null ? f.memberTotal : members.length;
+    const more = total > members.length ? `<div class="note">+${fmt.int(total - members.length)} more not listed.</div>` : "";
+    return `<div class="ar-members">${members.map(card).join("") || '<span class="muted">No members.</span>'}</div>${more}`;
+  }
+  const byGroup = new Map();
+  for (const m of members) {
+    if (!byGroup.has(m.via)) byGroup.set(m.via, []);
+    byGroup.get(m.via).push(m);
+  }
+  // People reached through a group, nested ones included (each counted once).
+  const reach = (id, path) => {
+    const out = new Set();
+    for (const m of byGroup.get(id) || []) {
+      if (m.type !== "Group") out.add(m.id);
+      else if (!path.includes(m.id)) for (const p of reach(m.id, [...path, m.id])) out.add(p);
+    }
+    return out;
+  };
+  const level = (id, path) => {
+    const list = byGroup.get(id) || [];
+    const people = list.filter((m) => m.type !== "Group");
+    const groups = list.filter((m) => m.type === "Group");
+    const nested = groups
+      .map((g) => {
+        if (path.includes(g.id)) return `<div class="ar-nested loop">${icon("users")} ${esc(g.name)} <span class="muted small">(contains a group above it, not opened again)</span></div>`;
+        const n = reach(g.id, [...path, g.id]).size;
+        return `<details class="ar-nested"><summary>${icon("users")} <b>${esc(g.name)}</b> <span class="muted small">nested group · ${fmt.int(n)} member${n === 1 ? "" : "s"}</span></summary>${level(g.id, [...path, g.id])}</details>`;
+      })
+      .join("");
+    const cards = people.length ? `<div class="ar-members">${people.map(card).join("")}</div>` : "";
+    return cards + nested || '<span class="muted">No members.</span>';
+  };
+  const note = [
+    f.nestedGroups ? `${fmt.int(f.memberTotal)} unique member${f.memberTotal === 1 ? "" : "s"}, ${fmt.int(f.nestedGroups)} nested group${f.nestedGroups === 1 ? "" : "s"}. Open a nested group to see who is in it.` : "",
+    f.membersTruncated ? "List cut short (very large group); some members are not shown." : "",
+  ].filter(Boolean);
+  return level(f.principalId, [f.principalId]) + note.map((n) => `<div class="note">${esc(n)}</div>`).join("");
 }
 function arBody(shown, t) {
   const ranAt = t.data.ranAt;

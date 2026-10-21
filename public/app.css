@@ -444,6 +444,9 @@ details.spn-tool .settings-row { border-bottom-color: var(--border); }
 .spn-badge { font-size: 0.7rem; color: var(--muted); border: 1px solid var(--border-strong); padding: 1px 8px; border-radius: 999px; }
 .spn-badge.own { color: var(--good-text); border-color: rgba(12, 163, 12, 0.45); }
 .test-result { font-size: 0.8rem; }
+.test-result .perm-line { display: block; margin-top: 3px; text-align: left; }
+.test-result .perm-line.good { color: var(--good-text); }
+.test-result .perm-line.bad { color: var(--critical-text); }
 .save-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 
 /* login.html carries its own small stylesheet: this file is served only to signed-in sessions. */
@@ -542,3 +545,17 @@ dialog.dialog h2 { margin-bottom: 10px; }
   a { color: inherit; }
   .ctl-nis2 { color: #5a4fc0; border-color: #a9a2e6; }
 }
+
+/* --- Permission hint on a failed scan --- */
+.perm-hint { display: flex; gap: 10px; margin-top: 8px; padding: 10px 14px; border: 1px solid var(--critical); border-radius: var(--radius); background: var(--surface); font-size: 0.82rem; }
+.perm-hint > svg { width: 16px; height: 16px; flex: none; stroke: var(--critical-text); margin-top: 2px; }
+.perm-hint .perm-row { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 6px; align-items: baseline; }
+.perm-hint .perm-row .k { color: var(--muted); flex-basis: 100%; font-size: 0.76rem; }
+.perm-hint code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 0.76rem; }
+.perm-hint p { margin-top: 8px; }
+
+/* --- Activity log --- */
+.act-action { white-space: nowrap; }
+.act-action.change { color: var(--warning); }
+.act-action.signin { color: var(--accent-text); }
+.act-action.denied { color: var(--critical-text); }

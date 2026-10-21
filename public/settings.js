@@ -163,6 +163,29 @@ const Settings = (() => {
     renderTenants();
   }
 
+  // A Test's permission check, as plain lines: what is missing, or that all is there.
+  function permLines(p) {
+    if (!p) return { html: "", bad: false };
+    const short = (list) => (list.length > 4 ? `${list.slice(0, 4).join(", ")} and ${list.length - 4} more` : list.join(", "));
+    const out = [];
+    const g = p.graph;
+    if (g) {
+      if (g.error) out.push(["bad", `Graph permissions not checked: ${g.error}`]);
+      else if (g.missing.length) out.push(["bad", `Missing Graph application permissions (add them, then Grant admin consent): ${g.missing.join(", ")}`]);
+      else out.push(["good", `Graph: all ${g.needed.length} application permissions granted`]);
+    }
+    const a = p.azure;
+    if (a && a.error) out.push(["bad", `Azure roles not checked: ${a.error}`]);
+    else if (a && a.needed.length) {
+      if (!a.subscriptions && !a.notVisible.length) out.push(["bad", "Azure: the app sees no subscription. Give it Reader on the subscriptions or on a management group"]);
+      for (const m of a.missing) out.push(["bad", `Missing ${m.role} on ${m.subscriptions.length} of ${a.subscriptions} subscriptions: ${short(m.subscriptions)} (a role given through a group is not seen here)`]);
+      if (a.notVisible.length) out.push(["bad", `Cannot see ${a.notVisible.length} of the configured subscriptions: ${short(a.notVisible)}`]);
+      if (a.failed.length) out.push(["bad", `Role assignments not readable on ${short(a.failed)}`]);
+      if (a.subscriptions && !a.missing.length) out.push(["good", `Azure: ${a.needed.join(", ")} on all ${a.subscriptions} subscriptions${a.more ? ` checked (${a.more} more not checked)` : ""}`]);
+    }
+    return { html: out.map(([c, t]) => `<div class="perm-line ${c}">${esc(t)}</div>`).join(""), bad: out.some(([c]) => c === "bad") };
+  }
+
   function renderTenants() {
     const el = $("#tenants-list");
     if (!el) return;
@@ -253,8 +276,10 @@ const Settings = (() => {
       out.textContent = "Testing…";
       try {
         const r = await postJson(`/api/tenants/${encodeURIComponent(d.tenantTest)}/test`, {});
-        out.className = `test-result ${r.ok && r.graph === "ok" ? "good" : "bad"}`;
-        out.textContent = r.ok ? (r.graph === "ok" ? "OK: Azure and Graph tokens" : `Azure OK; Graph: ${r.graph}`) : `Failed: ${r.error || "unknown error"}`;
+        const perms = permLines(r.permissions);
+        out.className = `test-result ${r.ok && r.graph === "ok" && !perms.bad ? "good" : "bad"}`;
+        out.textContent = r.ok ? (r.graph === "ok" ? "Signs in: Azure and Graph tokens" : `Azure OK; Graph: ${r.graph}`) : `Failed: ${r.error || "unknown error"}`;
+        out.insertAdjacentHTML("beforeend", perms.html);
       } catch (err) {
         out.className = "test-result bad";
         out.textContent = `Failed: ${err.message}`;
@@ -345,8 +370,10 @@ const Settings = (() => {
         ? `${r.source} ${r.authType === "managed-identity" ? "managed identity" : "SPN"} ${r.clientId || (r.authType === "managed-identity" ? "(system-assigned)" : "")}`.trim()
         : "";
       if (r.ok) {
-        out.className = "test-result good";
-        out.textContent = `OK: ${who} got a token`;
+        const perms = permLines(r.permissions);
+        out.className = `test-result ${perms.bad ? "bad" : "good"}`;
+        out.textContent = `${who} got a token`;
+        out.insertAdjacentHTML("beforeend", perms.html);
       } else {
         out.className = "test-result bad";
         out.textContent = `Failed${who ? ` (${who})` : ""}: ${r.error || "unknown error"}`;

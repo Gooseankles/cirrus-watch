@@ -9,6 +9,8 @@ const secretStore = require("./src/secretStore");
 const { testSpn, testTenant } = require("./src/credentials");
 const tenants = require("./src/tenants");
 const access = require("./src/access");
+const audit = require("./src/audit");
+const { needsOf } = require("./src/toolPermissions");
 const { FileSessionStore } = require("./src/sessionStore");
 const { registerScanTool, registerActionTool, readKeys, decorate } = require("./src/toolRegistry");
 
@@ -91,6 +93,7 @@ app.get("/api/me", (req, res) => {
 // Everything below this line needs a signed-in session (auth/me routes are
 // exempted inside requireAuth itself).
 app.use(auth.requireAuth);
+app.use(audit.middleware);
 app.use(express.static(path.join(__dirname, "public")));
 
 // ?tenant=<customer key> = that tenant's own tool settings; none or home = the
@@ -180,7 +183,8 @@ const registeredTools = [
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 
-app.get("/api/tools", (req, res) => res.json(registeredTools));
+for (const t of registeredTools) if (!needsOf(t.id)) console.warn(`[${t.id}] has no entry in src/toolPermissions.js`);
+app.get("/api/tools", (req, res) => res.json(registeredTools.map((t) => ({ ...t, needs: needsOf(t.id) }))));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
 // Monthly report over the tenants the person may see (?tenant= narrows):
@@ -235,6 +239,18 @@ app.post("/api/cost/history/refresh", access.requireRunner, (req, res) => {
 require("node-cron").schedule("30 7 * * *", () => costHistory.collectAll().catch((err) =>
   log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` })
 ));
+
+app.post("/api/audit/page", audit.pageView);
+// Audit log (Admin): who signed in, looked at what and changed what.
+app.get("/api/audit", auth.requireRole("Admin"), (req, res) => {
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.since || "")) ? String(req.query.since) : null;
+  const str = (k) => (typeof req.query[k] === "string" && req.query[k] ? req.query[k] : null);
+  res.json({
+    entries: audit.readAll({ limit: Math.min(Number(req.query.limit) || 500, 5000), user: str("user"), action: str("action"), since }),
+    ...audit.facets(),
+    retentionDays: audit.retentionDays(),
+  });
+});
 
 app.get("/api/logs", (req, res) => {
   // Someone limited to some tenants sees only those tenants' entries.

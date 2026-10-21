@@ -40,6 +40,7 @@ const ICON_PATHS = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   gauge: '<path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
   history: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/>',
@@ -535,6 +536,9 @@ function render() {
   } else if (r.page === "cost") {
     pageId = "page-cost";
     show = () => Cost.show();
+  } else if (r.page === "audit" && state.me && state.me.isAdmin) {
+    pageId = "page-audit";
+    show = () => Audit.show();
   } else if (r.page === "settings" && state.me && state.me.isAdmin) {
     pageId = "page-settings";
     show = () => Settings.show();
@@ -546,7 +550,11 @@ function render() {
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === pageId));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.route === key));
   document.body.classList.remove("nav-open");
-  if (state.route !== key) window.scrollTo(0, 0);
+  if (state.route !== key) {
+    window.scrollTo(0, 0);
+    // For the admins' audit log: which page this person opened.
+    postJson("/api/audit/page", { route: key === "report" && r.arg ? `report/${r.arg}` : key, tenant: state.tenant || undefined }).catch(() => {});
+  }
   state.route = key;
   Charts.hideTip();
   if (show) show();
@@ -566,7 +574,7 @@ function buildNav() {
       ],
     })),
   ];
-  if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "settings", label: "Settings", icon: "settings" }] });
+  if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "settings", label: "Settings", icon: "settings" }] });
   $("#nav").innerHTML = groups
     .map(
       (g) =>
@@ -777,6 +785,7 @@ function scanSkeleton(tool) {
     </div>
     <div class="status-msg" id="scan-status"></div>
     <div class="status-msg" id="scan-tenant-errors"></div>
+    <div id="scan-perms"></div>
     <div class="stat-row" id="scan-stats"></div>
     <div class="card">
       <div class="card-head">
@@ -897,6 +906,7 @@ function renderFindings(id) {
   }
   // A tenant whose last scan failed keeps its earlier results; say so.
   const failed = Object.entries(t.tenantErrors || {});
+  renderPermsHint(id);
   setStatus($("#scan-tenant-errors"), failed.length ? `Last scan failed in ${failed.map(([k, e]) => `${e.tenantName || k} (${fmt.rel(e.at)}: ${e.error})`).join("; ")}. Its earlier results are shown.` : "", "error");
   if (t.error) {
     $("#scan-stats").innerHTML = "";
@@ -1486,6 +1496,27 @@ async function runTool(id) {
     renderScan(id);
   }
 }
+// Next to a failed scan: the permissions its identity needs, the usual cause.
+function permsHint(id) {
+  const t = toolState(id);
+  const n = (TOOL_BY_ID[id] || {}).needs;
+  const failed = t.runError || Object.keys(t.tenantErrors || {}).length || (t.data.findings || []).some((f) => f.kind === "scan-error");
+  if (!n || !failed) return "";
+  const codes = (xs) => xs.map((x) => `<code>${esc(x)}</code>`).join(" ");
+  const rows = [
+    n.graph && n.graph.length ? `<div class="perm-row"><span class="k">Microsoft Graph application permissions, with admin consent</span><span>${codes(n.graph)}</span></div>` : "",
+    n.azure && n.azure.length ? `<div class="perm-row"><span class="k">Azure roles on each subscription (or a management group above them)</span><span>${codes(n.azure)}</span></div>` : "",
+    n.licence ? `<div class="perm-row"><span class="k">Licence</span><span>${esc(n.licence)}</span></div>` : "",
+  ].join("");
+  const where = state.me && state.me.multiTenant ? " In a customer tenant that is the customer's own app registration." : "";
+  const how = !(state.me && state.me.isAdmin) ? " An admin can check it in Settings." : state.me.multiTenant ? " Settings → Customer tenants → Test (or Test connection for the home tenant) lists what is missing." : " Settings → Test connection lists what is missing.";
+  return `<div class="perm-hint">${icon("shield")}<div><b>Does the scan identity have these permissions?</b>${rows}<p class="muted">A missing permission, role or licence is the usual reason a scan fails.${where}${how}</p></div></div>`;
+}
+function renderPermsHint(id) {
+  const el = $("#scan-perms");
+  if (el && $("#page-scan").dataset.tool === id) el.innerHTML = permsHint(id);
+}
+
 function renderRunState(id) {
   const t = toolState(id);
   const btn = $("#scan-run");
@@ -1508,6 +1539,7 @@ function renderRunState(id) {
       setStatus(st, `Run finished: ${fmt.int(t.data.findings.length)} findings (+${fmt.int(last.added || 0)} new, −${fmt.int(last.resolved || 0)} resolved).`, "ok");
     } else setStatus(st, "");
   }
+  renderPermsHint(id);
 }
 function tickRunning() {
   const id = $("#page-scan").dataset.tool;
@@ -1526,6 +1558,10 @@ async function init() {
     window.location.href = "/login.html";
     return;
   }
+  // What each tool's identity needs, for the hint next to a failed scan.
+  try {
+    for (const x of await apiJson("/api/tools")) if (TOOL_BY_ID[x.id]) TOOL_BY_ID[x.id].needs = x.needs;
+  } catch {}
   initTenant();
   renderTenantTabs();
   $("#tenant-tabs").addEventListener("click", (e) => {

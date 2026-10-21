@@ -14,6 +14,7 @@ const { ClientSecretCredential, ClientAssertionCredential, ManagedIdentityCreden
 const settings = require("./settings");
 const secretStore = require("./secretStore");
 const tenantContext = require("./tenantContext");
+const permissionCheck = require("./permissionCheck");
 
 const STORAGE_TOOL_ID = "history-storage";
 const cache = new Map();
@@ -133,20 +134,25 @@ function errorText(err) {
 }
 
 // For the Settings tab's Test button: which identity a tool resolves to, and
-// whether it can get an ARM token. Never returns a secret.
+// whether it can get an ARM token, plus which permissions its tools need are
+// missing (all tools for the shared identity). Never returns a secret.
 async function testSpn(toolId) {
   let spn;
   try {
     spn = resolveSpn(toolId);
-    const scope = toolId === STORAGE_TOOL_ID ? "https://storage.azure.com/.default" : "https://management.azure.com/.default";
-    await build(spn).getToken(scope);
-    return { ok: true, ...describe(spn) };
+    const storage = toolId === STORAGE_TOOL_ID;
+    const cred = build(spn);
+    await cred.getToken(storage ? "https://storage.azure.com/.default" : "https://management.azure.com/.default");
+    const configured = (settings.get("AZURE_SUBSCRIPTION_IDS") || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const permissions = storage ? null : await permissionCheck.check(cred, { toolIds: toolId ? [toolId] : [], configured });
+    return { ok: true, ...describe(spn), permissions };
   } catch (err) {
     return { ok: false, ...(spn ? describe(spn) : { source: null, authType: null, clientId: null }), error: errorText(err) };
   }
 }
 
-// For a customer tenant's Test button: an ARM token and a Graph token.
+// For a customer tenant's Test button: an ARM token, a Graph token and the
+// permissions every tool needs there.
 async function testTenant(tenant) {
   let spn;
   try {
@@ -159,7 +165,8 @@ async function testTenant(tenant) {
     } catch (err) {
       graph = errorText(err);
     }
-    return { ok: true, ...describe(spn), graph };
+    const permissions = await permissionCheck.check(cred, { configured: tenant.subscriptionIds });
+    return { ok: true, ...describe(spn), graph, permissions };
   } catch (err) {
     return { ok: false, ...(spn ? describe(spn) : { source: null, authType: "secret", clientId: tenant.clientId || null }), error: errorText(err) };
   }

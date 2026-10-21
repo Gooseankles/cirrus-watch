@@ -91,11 +91,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.16.1.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.17.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.16.1.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.17.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -144,6 +144,14 @@ This is a separate app registration from the identity the scans use: it only sig
    sign in.
 6. Users and groups → assign people or groups to Admin or User. Roles live only in Entra; the dashboard reads the
    `roles` claim on the ID token.
+
+### Audit log
+
+Admin → **Audit log** shows who signed in (and refused or failed sign-ins), which pages they opened (each scan,
+the monthly report, cost history, a past run, a subscription's cost), whom they looked up in Access lookup, and
+what they changed: Run now, accepted, snoozed and reopened findings, settings (which ones, never the values),
+customer tenants and Test buttons. A refused request (403) is kept too. Opening the same page again within ten
+minutes counts once. Kept `AUDIT_RETENTION_DAYS` (default 365); only Admin can read it.
 
 ## Customer tenants
 
@@ -194,7 +202,10 @@ identity (by default the web app's managed identity, or a service principal):
 
 Every tool can have its own identity (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends in
 `.env`), and a tool without one uses the shared identity. Missing permissions show up as an error entry on the
-tool's page and in the activity log, never as an empty result.
+tool's page and in the activity log, never as an empty result. A failed scan lists the permissions, roles and
+licence that tool needs, and the Test buttons in Settings (shared SPN, SPN overrides, customer tenants) check them:
+which Graph application permissions the identity was granted (from its token) and which Azure roles it holds on
+each subscription it can see.
 
 ## Where data is kept
 
@@ -212,7 +223,8 @@ tool's page and in the activity log, never as an empty result.
   secrets and retries every minute. `GET /api/secret-store` (Admin) shows which store is in use.
 - **Accepted and snoozed findings**: with each tenant's scan results (`suppressions/<tool>.json`).
 - **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`.
-- **Activity log**: JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
+- **Activity log** (scan runs): JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
+- **Audit log** (who opened and changed what): `audit.jsonl` next to it, kept `AUDIT_RETENTION_DAYS`.
 
 `.env`, `data/` and `logs/` are ignored by git; never commit real secrets.
 
@@ -220,5 +232,6 @@ tool's page and in the activity log, never as an empty result.
 
 A scan tool is a file in `src/tools/` exporting `{ id, label, schedule, run() }`, where `run()` returns a list of
 findings; register it with `registerScanTool` in `server.js` and add it to the `TOOLS` list in `public/app.js`
-(each new finding kind gets a `KINDS` entry there and its controls in `public/compliance.js`).
+(each new finding kind gets a `KINDS` entry there and its controls in `public/compliance.js`). List what its
+identity needs in `src/toolPermissions.js` (the server warns at start-up when a tool has no entry).
 An on-demand tool exports `{ id, label, registerRoutes(app) }` and uses `registerActionTool`.

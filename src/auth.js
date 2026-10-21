@@ -12,6 +12,7 @@ const crypto = require("crypto");
 const msal = require("@azure/msal-node");
 const { ManagedIdentityCredential } = require("@azure/identity");
 const { hasSignInRole } = require("./access");
+const audit = require("./audit");
 
 const TENANT_ID = process.env.DASHBOARD_AZURE_TENANT_ID || process.env.AZURE_TENANT_ID;
 const CLIENT_ID = process.env.DASHBOARD_AZURE_CLIENT_ID;
@@ -133,6 +134,7 @@ async function handleCallback(req, res) {
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
     if (!hasSignInRole(roles)) {
       console.warn(`SSO: refused ${claims.preferred_username || "unknown"}: no dashboard app role in the token`);
+      audit.record(req, { action: "sign-in-refused", user: claims.preferred_username || "unknown", detail: "no dashboard app role" });
       return res.redirect("/login.html?error=no-role");
     }
     req.session.regenerate((err) => {
@@ -143,6 +145,7 @@ async function handleCallback(req, res) {
         roles,
         via: "sso",
       };
+      audit.record(req, { action: "sign-in" });
       res.redirect("/");
     });
   } catch (err) {
@@ -184,6 +187,7 @@ function handleLocalLogin(req, res) {
   const { username, password } = req.body || {};
   if (username !== "admin" || typeof password !== "string" || !timingSafeEquals(password, expected)) {
     recordLoginFailure(req.ip);
+    audit.record(req, { action: "sign-in-failed", user: String(username || "").slice(0, 100) || "unknown", detail: "local admin: wrong username or password" });
     return res.status(401).json({ error: "wrong username or password" });
   }
   loginFailures.delete(req.ip);
@@ -191,12 +195,14 @@ function handleLocalLogin(req, res) {
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: "could not start a session" });
     req.session.user = { name: "admin", upn: null, roles: ["Admin"], via: "local" };
+    audit.record(req, { action: "sign-in" });
     res.json({ ok: true });
   });
 }
 
 function handleLogout(req, res) {
   const user = req.session && req.session.user;
+  if (user) audit.record(req, { action: "sign-out" });
   req.session.destroy(() => {
     if (user && user.via === "sso" && ssoConfigured()) {
       const postLogout = encodeURIComponent(`${siteOrigin()}/`);

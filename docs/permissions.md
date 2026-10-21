@@ -85,7 +85,11 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
 
 `terraform output customer_onboarding` prints these steps per customer, with that customer's subscription IDs
 filled in. Settings → Customer tenants → Test checks that the app can sign in to Azure and to Graph; a missing role or Graph
-permission shows up later as an error entry on that tool's page, never as an empty result.
+permission shows up later as an error entry on that tool's page, never as an empty result. Test also lists what is
+missing: Graph application permissions from the `roles` claim of the app's Graph token (only consented ones are in
+it), and the roles above on each subscription the app can see (assignments on a management group above count; a role
+given through a group is not seen). The shared SPN's and each SPN override's Test connection do the same for the
+tools they serve, and a failed scan shows the permissions its tool needs.
 
 A customer delegated to your tenant with **Azure Lighthouse** needs none of this: give the shared SPN the Azure roles
 in the delegation and it scans those subscriptions like its own (Graph-based tools then only see your home tenant).

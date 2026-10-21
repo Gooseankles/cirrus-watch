@@ -37,6 +37,13 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `GroupMember.Read.All` | Group memberships (access lookup, access review) |
 | `Application.Read.All` | App registration secret and certificate expiry |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
+| `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2) |
+| `AuditLog.Read.All` | Stale accounts (last sign-in) and admins' MFA registration; both need Entra ID P1 or P2 |
+| `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
+| `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
+
+All of these only read. Without P1 the stale accounts scan and the MFA check report that the licence is
+missing; the other checks still run.
 
 No Entra directory role is needed.
 
@@ -52,7 +59,8 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
    scanning that tenant when it runs out. (A managed identity or federated credential cannot be used across tenants;
    Entra refuses it with AADSTS700236.)
 3. **Entra (Microsoft Graph)**: API permissions → Microsoft Graph → **Application** permissions `User.Read.All`,
-   `GroupMember.Read.All`, `Application.Read.All`, `EntitlementManagement.Read.All`, then **Grant admin consent**
+   `GroupMember.Read.All`, `Application.Read.All`, `EntitlementManagement.Read.All`, `RoleManagement.Read.Directory`,
+   `AuditLog.Read.All`, `Policy.Read.All`, `DelegatedPermissionGrant.Read.All`, then **Grant admin consent**
    (needs a Privileged Role Administrator or Global Administrator in that tenant). No directory role.
 4. **Subscriptions (Azure RBAC)**: `Reader`, `Cost Management Reader` and `Key Vault Reader` for the app's
    service principal on each subscription to scan, or on a management group (the tenant root group's ID is the

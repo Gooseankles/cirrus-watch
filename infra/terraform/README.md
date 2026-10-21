@@ -156,7 +156,8 @@ Some tenants hand out app registrations only through a request process. Then:
 
 Granting the Graph permissions to the shared SPN is a separate Entra admin action (Privileged Role
 Administrator); if that is also done by request, set `grant_graph_permissions = false` and ask for
-`User.Read.All`, `GroupMember.Read.All`, `Application.Read.All` and `EntitlementManagement.Read.All` as
+`User.Read.All`, `GroupMember.Read.All`, `Application.Read.All`, `EntitlementManagement.Read.All`,
+`RoleManagement.Read.Directory`, `AuditLog.Read.All`, `Policy.Read.All` and `DelegatedPermissionGrant.Read.All` as
 application permissions for the `web_app_principal_id` output.
 
 ## Run
@@ -194,7 +195,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.14.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.15.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -213,7 +214,7 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.14.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.15.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`, `secret_vault_uri`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.

@@ -67,7 +67,8 @@ variable "scan_subscription_ids" {
 variable "grant_graph_permissions" {
   description = <<-EOT
     Give the system-assigned identity the Microsoft Graph application permissions the tools use (user and group
-    names, group members, app registration secrets, access packages). Needs a Privileged Role Administrator or
+    names, group members, app registration secrets, access packages, directory roles, sign-in activity, Conditional
+    Access and consent settings, delegated consents). Needs a Privileged Role Administrator or
     Global Administrator running terraform.
   EOT
   type        = bool
@@ -94,6 +95,10 @@ variable "graph_permissions" {
     "GroupMember.Read.All",
     "Application.Read.All",
     "EntitlementManagement.Read.All",
+    "RoleManagement.Read.Directory",
+    "AuditLog.Read.All",
+    "Policy.Read.All",
+    "DelegatedPermissionGrant.Read.All",
   ]
 }
 

@@ -8,6 +8,7 @@ const FRAMEWORKS = { cis: "CIS Controls v8", nis2: "NIS2 Art. 21(2)" };
 const CONTROLS = {
   "cis:1.1": "Detailed enterprise asset inventory",
   "cis:2.2": "Authorised software is currently supported",
+  "cis:2.5": "Allowlist authorised software",
   "cis:3.3": "Data access control lists",
   "cis:3.10": "Encrypt sensitive data in transit",
   "cis:3.11": "Encrypt sensitive data at rest",
@@ -45,6 +46,10 @@ const POLICY = ["cis:4.1", "nis2:a", "nis2:f"];
 const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i"];
 const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e"];
 const BACKUP = ["cis:11.2", "nis2:c"];
+const ADMINS = ["cis:5.4", "cis:6.8", "nis2:i"];
+const DORMANT = ["cis:5.3", "nis2:i"];
+const MFA = ["cis:6.3", "cis:6.5", "nis2:j"];
+const APPS = ["cis:5.5", "cis:6.8", "nis2:d", "nis2:i"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
   "orphaned-nic": ASSETS,
@@ -120,6 +125,29 @@ const KIND_CONTROLS = {
   "activity-log-not-exported": ["cis:8.2", "nis2:b"],
   "quota-near-limit": ["nis2:c"],
   "quota-at-limit": ["nis2:c"],
+  "too-many-global-admins": ADMINS,
+  "too-few-global-admins": ["cis:5.4", "nis2:c"],
+  "privileged-guest": ADMINS,
+  "privileged-app": ["cis:5.5", "cis:6.8", "nis2:i"],
+  "privileged-group": ADMINS,
+  "privileged-disabled": ["cis:6.2", "nis2:i"],
+  "privileged-standing": ADMINS,
+  "privileged-no-mfa": ["cis:6.5", "nis2:j"],
+  "stale-user": DORMANT,
+  "stale-guest": DORMANT,
+  "never-signed-in": DORMANT,
+  "guest-invite-pending": DORMANT,
+  "ca-none": MFA,
+  "ca-no-mfa-all-users": MFA,
+  "ca-no-admin-mfa": ["cis:6.5", "nis2:j"],
+  "ca-legacy-auth-not-blocked": MFA,
+  "ca-report-only": ["cis:4.1", "nis2:j"],
+  "ca-many-exclusions": ["cis:6.3", "nis2:j"],
+  "security-defaults-only": ["nis2:j"],
+  "app-takeover-permission": APPS,
+  "app-broad-data-permission": APPS,
+  "app-risky-delegated-consent": APPS,
+  "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {

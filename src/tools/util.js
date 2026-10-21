@@ -56,8 +56,16 @@ function itemErrors(toolId, key, what, failures, total) {
   return [scanError(toolId, key, `${failures.length} of ${total} ${what} not checked`, first.message, first.item && first.item.subscriptionId)];
 }
 
+// Graph errors in plain words: which permission or licence is missing.
+function graphHint(err, permission) {
+  const msg = String((err && err.message) || err);
+  if (/RequestFromNonPremiumTenant|premium license|NonPremium/i.test(msg)) return `needs Microsoft Entra ID P1 or P2 in this tenant (${msg.slice(0, 160)})`;
+  if (/\(403\)|Authorization_RequestDenied|Forbidden/i.test(msg)) return `Graph refused it: the scan identity needs the application permission ${permission} with admin consent (${msg.slice(0, 160)})`;
+  return msg.slice(0, 300);
+}
+
 const nameOf = (id) => String(id || "").split("/").pop();
 
 const daysUntil = (date, now = Date.now()) => Math.floor((Date.parse(date) - now) / 86400000);
 
-module.exports = { numberSetting, mapLimit, runChecks, scanError, itemErrors, nameOf, daysUntil };
+module.exports = { numberSetting, mapLimit, runChecks, scanError, itemErrors, graphHint, nameOf, daysUntil };

@@ -172,6 +172,10 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/diagnosticSettings")),
   registerScanTool(app, require("./src/tools/quotas")),
   registerScanTool(app, require("./src/tools/changeLog")),
+  registerScanTool(app, require("./src/tools/privilegedRoles")),
+  registerScanTool(app, require("./src/tools/staleAccounts")),
+  registerScanTool(app, require("./src/tools/conditionalAccess")),
+  registerScanTool(app, require("./src/tools/appPermissions")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

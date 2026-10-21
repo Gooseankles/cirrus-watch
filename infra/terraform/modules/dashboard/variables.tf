@@ -84,6 +84,10 @@ variable "graph_permissions" {
     "GroupMember.Read.All",
     "Application.Read.All",
     "EntitlementManagement.Read.All",
+    "RoleManagement.Read.Directory",
+    "AuditLog.Read.All",
+    "Policy.Read.All",
+    "DelegatedPermissionGrant.Read.All",
   ]
 }
 

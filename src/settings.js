@@ -66,6 +66,9 @@ const FIELDS = [
   { key: "DIAGNOSTICS_RESOURCE_TYPES", label: "Resource types that must keep logs", group: "Diagnostic settings", hint: "Comma-separated, e.g. microsoft.network/azurefirewalls. Blank = AKS, app gateways, firewalls, Front Door/CDN, API Management, backup vaults, Event Hubs, Service Bus, SQL databases, storage" },
   { key: "QUOTA_WARN_PCT", label: "Warn at % of a quota", group: "Quotas", hint: "95% and over is critical; blank = 80" },
   { key: "CHANGE_LOG_HOURS", label: "Changes from the last (hours)", group: "Change log", hint: "Match the schedule (daily); blank = 24, at most 336" },
+  { key: "STALE_ACCOUNT_DAYS", label: "Member accounts are stale after (days)", group: "Stale accounts", hint: "Days without a sign-in; blank = 90" },
+  { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
+  { key: "CA_MAX_EXCLUSIONS", label: "Flag a policy excluding more than", group: "Conditional Access", hint: "Excluded users, groups and roles together; blank = 5" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
 // may set differently.
@@ -92,6 +95,10 @@ const TOOL_SPNS = [
   { id: "diagnostic-settings", label: "Diagnostic settings" },
   { id: "quotas", label: "Quotas" },
   { id: "change-log", label: "Change log" },
+  { id: "privileged-roles", label: "Privileged roles" },
+  { id: "stale-accounts", label: "Stale accounts" },
+  { id: "conditional-access", label: "Conditional Access" },
+  { id: "app-permissions", label: "App permissions" },
   { id: "history-storage", label: "History storage" },
 ];
 

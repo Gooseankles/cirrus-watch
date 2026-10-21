@@ -26,6 +26,10 @@ are needed.
 | Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage |
 | Diagnostic settings | Daily | Resources whose logs go nowhere, subscriptions whose activity log is not exported |
 | Quotas | Daily | Compute, network and storage quotas close to their limit in the regions you use |
+| Privileged roles | Daily | Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA |
+| Stale accounts | Daily | Members and guests with no sign-in for 90 days, accounts that never signed in, guest invitations never accepted (needs Entra ID P1) |
+| Conditional Access | Daily | No MFA for everyone or for admins, legacy sign-in not blocked, report-only policies, long exclusion lists |
+| App permissions | Daily | Apps with Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, users allowed to consent to any app |
 | Change log | Daily | What people and apps created, changed or deleted in the last 24 hours, security changes marked (for information; not in totals or the report) |
 | Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
 | Access lookup | On demand | Every Azure role a person holds, directly or through a group, across all subscriptions |
@@ -86,11 +90,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.14.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.15.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.14.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.15.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -175,8 +179,10 @@ identity (by default the web app's managed identity, or a service principal):
   diagnostic settings, quotas and the change log need nothing more.
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
-  `Application.Read.All` and `EntitlementManagement.Read.All` (the last only matters with Entra ID Governance /
-  P2 access packages).
+  `Application.Read.All`, `EntitlementManagement.Read.All` (only matters with Entra ID Governance / P2 access
+  packages), `RoleManagement.Read.Directory` (privileged roles), `AuditLog.Read.All` (stale accounts, admin MFA;
+  needs Entra ID P1), `Policy.Read.All` (Conditional Access, consent settings) and
+  `DelegatedPermissionGrant.Read.All` (app consents). All read-only.
 - **Key Vault**: `Key Vault Reader` (lists item names and expiry dates, never secret values) on RBAC vaults, or an
   access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
   Vault settings, access and logging checks need only Reader.

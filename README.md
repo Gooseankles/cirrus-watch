@@ -97,11 +97,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.18.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.18.0.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.18.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.18.0.1" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -182,6 +182,11 @@ cost thresholds and the like); blank = the Home value. Sign-in, storage and the 
 tab only. A tenant added
 only in Settings works, but has no Admin-&lt;key&gt; / User-&lt;key&gt; roles, so only global Admin and User see it. A customer tenant delegated to your tenant with Azure Lighthouse
 can instead be scanned by the home identity like any other subscription; then it does not need to be added here.
+
+## Architecture
+
+How the pieces fit together (Azure resources, identities, sign-in, a scan run, customer tenants, network, build and
+release, the code inside, where data is kept), with diagrams: **[docs/architecture.md](docs/architecture.md)**.
 
 ## Permissions
 

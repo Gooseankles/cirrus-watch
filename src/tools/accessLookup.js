@@ -5,6 +5,7 @@ const tenantContext = require("../tenantContext");
 const access = require("../access");
 
 const TOOL_ID = "access-lookup";
+const ID_BATCH = 200; // principal ids per Resource Graph query
 
 const KNOWN_ROLES = {
   "8e3af657-a8ff-443c-a75c-2fe8c4bcb635": "Owner",
@@ -34,16 +35,24 @@ async function lookup(upn) {
   const groups = await graphGetAll(`/users/${user.id}/transitiveMemberOf?$select=id,displayName`, TOOL_ID);
   const principalIds = [user.id, ...groups.map((g) => g.id)];
 
-  const rows = await resourceGraphQuery(
-    `
+  // Someone in hundreds of groups made one huge IN list (slow, and near the
+  // query size limit): ask in batches instead.
+  const rows = [];
+  for (let i = 0; i < principalIds.length; i += ID_BATCH) {
+    const batch = principalIds.slice(i, i + ID_BATCH);
+    rows.push(
+      ...(await resourceGraphQuery(
+        `
     AuthorizationResources
     | where type == 'microsoft.authorization/roleassignments'
-    | where properties.principalId in (${principalIds.map((id) => `'${id}'`).join(",")})
+    | where properties.principalId in (${batch.map((id) => `'${id}'`).join(",")})
     | project principalId = properties.principalId, roleDefinitionId = tostring(properties.roleDefinitionId),
         scope = properties.scope, subscriptionId
   `,
-    { toolId: TOOL_ID }
-  );
+        { toolId: TOOL_ID }
+      ))
+    );
+  }
 
   const groupNameById = Object.fromEntries(groups.map((g) => [g.id, g.displayName]));
   const subNames = await subscriptionNames(TOOL_ID).catch(() => new Map());

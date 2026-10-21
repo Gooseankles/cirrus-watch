@@ -8,6 +8,7 @@ const { mapLimit, runChecks, scanError, itemErrors, graphHint } = require("./uti
 
 const TOOL_ID = "privileged-roles";
 const MAX_USERS = 500; // privileged users looked up for type and status
+const MAX_GROUPS = 100; // privileged groups whose members are read
 const GLOBAL_ADMIN = "62e90394-69f5-4237-9190-012177145e10";
 
 // Role templates that can take over the tenant or its data, used when Graph
@@ -75,10 +76,25 @@ async function enrichUsers(assignments) {
   return itemErrors(TOOL_ID, "users", "privileged users looked up", failures, Math.min(ids.length, MAX_USERS));
 }
 
+// Members of groups that hold a privileged role get that role too: they count
+// as Global Administrators and get the MFA check. group id -> users.
+async function groupMembers(assignments) {
+  const ids = [...new Set(assignments.filter((a) => a.principal && kindOf(a.principal) === "group").map((a) => a.principal.id))];
+  const members = new Map();
+  const failures = await mapLimit(ids.slice(0, MAX_GROUPS), 4, async (id) => {
+    members.set(id, await graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=id,displayName,userPrincipalName,userType,accountEnabled&$top=999`, TOOL_ID));
+  });
+  const errors = failures.length ? itemErrors(TOOL_ID, "group-members", "privileged groups expanded", failures, Math.min(ids.length, MAX_GROUPS)) : [];
+  for (const e of errors) e.detail = graphHint({ message: e.detail }, "GroupMember.Read.All");
+  return { members, errors };
+}
+
 async function roleFindings() {
   const [{ roleById, assignments: all }, pim] = await Promise.all([loadRoles(), loadPim()]);
   const assignments = all.filter((a) => (roleById.get(a.roleDefinitionId) || {}).privileged);
   const findings = await enrichUsers(assignments);
+  const groups = await groupMembers(assignments);
+  findings.push(...groups.errors);
   const globalAdmins = new Set();
   const privilegedUsers = new Map(); // user id -> { user, roles }
   for (const a of assignments) {
@@ -101,7 +117,13 @@ async function roleFindings() {
     } else if (kindOf(p) === "app") {
       findings.push({ ...base, kind: "privileged-app", id: `${a.id}#app`, detail: `App (service principal) holds ${role.name}${scope}. Anyone with its secret has that role; check the app needs it` });
     } else {
-      findings.push({ ...base, kind: "privileged-group", id: `${a.id}#group`, detail: `Group holds ${role.name}${scope}: its owners and members get the role. Keep the group role-assignable with few owners` });
+      const users = groups.members.get(p.id) || [];
+      findings.push({ ...base, kind: "privileged-group", id: `${a.id}#group`, detail: `Group holds ${role.name}${scope}: its ${users.length ? `${users.length} user member(s)` : "members"} and owners get the role. Keep the group role-assignable with few owners` });
+      for (const u of users) {
+        if (role.template === GLOBAL_ADMIN && !scope && u.accountEnabled !== false) globalAdmins.add(u.id);
+        if (!privilegedUsers.has(u.id)) privilegedUsers.set(u.id, { user: u, roles: [] });
+        privilegedUsers.get(u.id).roles.push(`${role.name} (via ${labelOf(p)})`);
+      }
     }
   }
   const n = globalAdmins.size;

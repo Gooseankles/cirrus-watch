@@ -21,7 +21,7 @@ const NEEDS = {
   quotas: { azure: READER },
   "change-log": { azure: READER },
   "privileged-roles": {
-    graph: ["RoleManagement.Read.Directory", "User.Read.All", "Application.Read.All", "AuditLog.Read.All"],
+    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All"],
     licence: "Entra ID P1 for the MFA check, P2 for PIM",
   },
   "stale-accounts": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (sign-in activity)" },

@@ -21,8 +21,16 @@ async function costForSubscription(subscriptionId, from, to) {
       grouping: [{ type: "Dimension", name: "ResourceGroupName" }],
     },
   };
-  const data = await armPost(url, body, TOOL_ID);
-  return data.properties || { columns: [], rows: [] };
+  // Large results come in pages: properties.nextLink is posted again with the
+  // same body until it is gone (the first page alone missed resource groups).
+  const result = { columns: [], rows: [] };
+  for (let next = url, pages = 0; next && pages < 50; pages++) {
+    const props = (await armPost(next, body, TOOL_ID)).properties || {};
+    if (!result.columns.length) result.columns = props.columns || [];
+    result.rows.push(...(props.rows || []));
+    next = props.nextLink || null;
+  }
+  return result;
 }
 
 // Cost Management returns UsageDate as a number like 20261019.

@@ -112,8 +112,14 @@ async function collectSubscription(subscriptionId, today) {
     }
   }
 
-  // Replace every month the fetched range covers.
-  const fromMonth = monthOf(isoDate(oldestOk));
+  // Replace every month the fetched range covers whole. Year windows after
+  // the first start mid-month, so when an older one failed the month the
+  // oldest good window starts in is only partly fetched: it is left out
+  // instead of being kept as a too-low month.
+  const oldestDay = isoDate(oldestOk);
+  const fromMonth = oldestDay.endsWith("-01")
+    ? monthOf(oldestDay)
+    : monthOf(isoDate(new Date(Date.UTC(oldestOk.getUTCFullYear(), oldestOk.getUTCMonth() + 1, 1))));
   for (const day of Object.keys(doc.daily)) if (monthOf(day) >= fromMonth) delete doc.daily[day];
   for (const m of Object.keys(doc.monthlyByService)) if (m >= fromMonth) delete doc.monthlyByService[m];
   for (const m of Object.keys(doc.monthlyByRg)) if (m >= fromMonth) delete doc.monthlyByRg[m];

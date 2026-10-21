@@ -62,5 +62,6 @@ user_principal_ids  = []
 # admin_password = "a-long-random-password"
 
 # extra_app_settings = {
-#   AZURE_REQUIRED_TAGS = "CostCenter,Owner,Environment"
+#   AZURE_REQUIRED_TAGS  = "CostCenter,Owner,Environment"
+#   AUDIT_RETENTION_DAYS = "365" # Admin > Audit log; 30 to 3650 days
 # }

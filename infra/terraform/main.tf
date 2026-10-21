@@ -1,6 +1,6 @@
 # Deploys the dashboard with the module in modules/dashboard. To use the module
 # from another configuration instead:
-#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
+#   source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.0"
 module "dashboard" {
   source = "./modules/dashboard"
 
@@ -28,7 +28,21 @@ module "dashboard" {
   extra_app_settings      = var.extra_app_settings
   allowed_ip_ranges       = var.allowed_ip_ranges
   allowed_subnet_ids      = var.allowed_subnet_ids
-  tags                 = var.tags
+
+  customers                   = var.customers
+  create_customer_scan_app    = var.create_customer_scan_app
+  customer_scan_app_client_id = var.customer_scan_app_client_id
+  create_role_groups          = var.create_role_groups
+  role_group_prefix           = var.role_group_prefix
+
+  private_network            = var.private_network
+  vnet_address_space         = var.vnet_address_space
+  vnet_integration_subnet_id = var.vnet_integration_subnet_id
+  private_endpoint_subnet_id = var.private_endpoint_subnet_id
+  blob_private_dns_zone_id   = var.blob_private_dns_zone_id
+  vnet_route_all             = var.vnet_route_all
+
+  tags = var.tags
 }
 
 # The resources lived in this folder before it became a module; these keep an

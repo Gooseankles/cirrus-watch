@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.10.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.11.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -80,10 +80,15 @@ To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access
 
 ## Signing in and roles
 
-- **Admin**: everything, plus Run now, cost history refresh and the Settings page.
-- **User**: read-only.
+- **Admin**: everything, every tenant, plus Run now, cost history refresh and the Settings page.
+- **User**: read-only, every tenant.
+- **Admin-&lt;key&gt;**: one customer tenant (see "Customer tenants" below): read it and run its scans.
+- **User-&lt;key&gt;**: one customer tenant, read-only.
 
-An SSO account with neither role is refused, even when the Enterprise App does not require assignment.
+A person can hold several roles, for example `User-acme` and `Admin-globex`, and then sees only those tenants.
+Role values are matched without regard to case. An SSO account with no role is refused, even when the Enterprise
+App does not require assignment. With Terraform, each role gets an Entra security group (`create_role_groups`), so
+access is given by adding people to groups.
 
 Two ways to sign in, either or both:
 
@@ -103,12 +108,34 @@ This is a separate app registration from the identity the scans use: it only sig
 2. Either create a client secret (`DASHBOARD_AZURE_CLIENT_SECRET`), or, on App Service, go secretless: attach a
    user-assigned managed identity to the web app, add a federated credential for it on the app registration
    (scenario "Managed identity") and set its client ID as `DASHBOARD_FEDERATED_MI_CLIENT_ID`.
-3. App roles → create `Admin` and `User` (allowed member types: Users/Groups).
+3. App roles → create `Admin` and `User`, plus `Admin-<key>` and `User-<key>` per customer tenant (allowed member
+   types: Users/Groups).
 4. Set `DASHBOARD_AZURE_TENANT_ID` and `DASHBOARD_AZURE_CLIENT_ID`.
 5. Enterprise applications → this app → Properties → **Assignment required** = Yes, so only people you add can
    sign in.
 6. Users and groups → assign people or groups to Admin or User. Roles live only in Entra; the dashboard reads the
    `roles` claim on the ID token.
+
+## Customer tenants
+
+One dashboard can scan other organizations' tenants as well as its own, so it is hosted in one place. Each tenant
+gets a tab at the top of the page ("All tenants" shows them together, with the tenant next to each row), its own
+storage container, and its own roles (above). Its scans run in that tenant with that tenant's identity; the home
+tenant keeps using the shared SPN.
+
+How the dashboard signs in to a customer tenant:
+
+- **Federated (default, no secret)**: one multi-tenant app registration, "the scan app", trusts a user-assigned
+  managed identity of the web app through a federated credential. Each customer's Global Administrator consents
+  to the scan app once (which creates it in their tenant), and someone with Owner or User Access Administrator
+  there grants it Reader, Cost Management Reader and Key Vault Reader. Terraform prints the exact link and
+  commands per customer (`terraform output customer_onboarding`); it never touches a customer tenant.
+  A customer can also use its own app registration with a federated credential that trusts the same identity.
+- **Client secret**: an app registration in the customer tenant with a secret (Settings only).
+
+Customers come from Terraform (`customers`, passed to the app as `DASHBOARD_TENANTS`) or are added in Settings →
+Customer tenants, where each one can be tested. A customer tenant delegated to your tenant with Azure Lighthouse
+can instead be scanned by the home identity like any other subscription; then it does not need to be added here.
 
 ## Permissions
 
@@ -133,7 +160,10 @@ tool's page and in the activity log, never as an empty result.
 
 - **Scan results and run history, cost history**: in an Azure Storage blob container when `STORAGE_ACCOUNT_URL` is
   set (reached with an Entra token; account keys can stay off), otherwise under `DATA_DIR` (default `./data`).
-  Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
+  Each customer tenant has its own container, `dashboard-<key>` (on disk `DATA_DIR/tenants/<key>`), so one
+  customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
+  With Terraform's `private_network = true` the storage account is reached only through a private endpoint and
+  its public network access is off.
 - **Settings page overrides and sign-in sessions**: under `DATA_DIR`.
 - **Activity log**: JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 

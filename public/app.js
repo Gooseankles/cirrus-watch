@@ -174,7 +174,67 @@ const LOG_TOOLS = {
 };
 
 /* ---------- state and API ---------- */
-const state = { me: null, tools: {}, logs: [], logsAt: null, route: null };
+const state = { me: null, tools: {}, logs: [], logsAt: null, route: null, tenant: "" };
+
+/* ---------- tenants ---------- */
+// "" = every tenant the person may see; otherwise one tenant key. Kept per
+// browser so the page opens on the same tab.
+const TENANT_PREF = "dashboard.tenant";
+const tenantList = () => (state.me && Array.isArray(state.me.tenants) ? state.me.tenants : []);
+const showTenants = () => tenantList().length > 1;
+// Rows name their tenant when the page shows more than one.
+const multiView = () => showTenants() && !state.tenant;
+function canRun() {
+  const me = state.me || {};
+  if (!state.tenant) return Boolean(me.canRun);
+  const t = tenantList().find((x) => x.key === state.tenant);
+  return Boolean(t && t.canRun);
+}
+function initTenant() {
+  let saved = "";
+  try {
+    saved = localStorage.getItem(TENANT_PREF) || "";
+  } catch {
+    /* storage blocked */
+  }
+  state.tenant = showTenants() && tenantList().some((t) => t.key === saved) ? saved : "";
+}
+function renderTenantTabs() {
+  const bar = $("#tenant-tabs");
+  if (!bar) return;
+  bar.classList.toggle("hidden", !showTenants());
+  if (!showTenants()) return;
+  const tabs = [{ key: "", name: "All tenants" }, ...tenantList()];
+  bar.innerHTML = tabs
+    .map((t) => `<button class="tenant-tab${state.tenant === t.key ? " active" : ""}${t.enabled === false ? " off" : ""}" data-tenant="${esc(t.key)}" role="tab" aria-selected="${state.tenant === t.key}"${t.enabled === false ? ' title="Not scanned (turned off)"' : ""}>${esc(t.name)}</button>`)
+    .join("");
+}
+function setTenant(key) {
+  if (key === state.tenant) return;
+  state.tenant = key;
+  try {
+    localStorage.setItem(TENANT_PREF, key);
+  } catch {
+    /* storage blocked */
+  }
+  // Everything shown so far was for the other tab.
+  state.tools = {};
+  state.logs = [];
+  state.logsAt = null;
+  Cost.reset();
+  delete $("#page-scan").dataset.tool;
+  renderTenantTabs();
+  renderMe();
+  render();
+  for (const t of TOOLS) if (!toolState(t.id).loaded) loadTool(t.id);
+}
+// The tenant tab goes on every data request (the server also limits it to
+// what the person may see).
+const TENANTLESS = /^\/api\/(me|settings|tenants|storage)(\/|\?|$)/;
+function withTenant(path) {
+  if (!state.tenant || !path.startsWith("/api/") || TENANTLESS.test(path)) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}tenant=${encodeURIComponent(state.tenant)}`;
+}
 
 function toolState(id) {
   if (!state.tools[id]) {
@@ -188,7 +248,7 @@ function toolState(id) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  const res = await fetch(withTenant(path), opts);
   if (res.status === 401) {
     window.location.href = "/login.html";
     throw new Error("sign in required");
@@ -214,6 +274,7 @@ function loadTool(id) {
     try {
       const [data, history] = await Promise.all([apiJson(`/api/tools/${id}/findings`), apiJson(`/api/tools/${id}/history`)]);
       t.data = { ranAt: data.ranAt || null, findings: Array.isArray(data.findings) ? data.findings : [] };
+      t.tenantErrors = data.tenantErrors && typeof data.tenantErrors === "object" ? data.tenantErrors : {};
       t.history = Array.isArray(history) ? history : [];
       t.error = null;
     } catch (err) {
@@ -249,7 +310,8 @@ function statTile(o) {
 function subCell(f) {
   const name = f.subscriptionName || f.subscriptionId || "Tenant";
   const showId = Boolean(f.subscriptionName && f.subscriptionId);
-  return `<div class="sub-cell"><div class="primary">${esc(name)}</div>${showId ? `<div class="secondary">${esc(f.subscriptionId)}</div>` : ""}</div>`;
+  const tenant = multiView() && f.tenantName ? `<span class="tenant-badge">${esc(f.tenantName)}</span>` : "";
+  return `<div class="sub-cell"><div class="primary">${tenant}${esc(name)}</div>${showId ? `<div class="secondary">${esc(f.subscriptionId)}</div>` : ""}</div>`;
 }
 const isNew = (f, ranAt) => Boolean(ranAt && f.firstSeen === ranAt);
 function nameCell(f, ranAt, secondary) {
@@ -298,7 +360,7 @@ function fillSubSelect(all, t) {
   sel.value = t.filters.sub;
 }
 function searchText(f) {
-  const parts = [f.name, f.id, f.detail, f.resourceGroup, f.subscriptionName, f.subscriptionId, f.kind, f.upn, f.principalId, f.scope, f.scopeText, f.role, f.probe];
+  const parts = [f.name, f.id, f.detail, f.resourceGroup, f.tenantName, f.subscriptionName, f.subscriptionId, f.kind, f.upn, f.principalId, f.scope, f.scopeText, f.role, f.probe];
   if (Array.isArray(f.members)) for (const m of f.members) parts.push(m.name, m.upn);
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
@@ -401,7 +463,8 @@ function setNavCount(id, n) {
 function renderMe() {
   const me = state.me || {};
   $("#me-name").textContent = me.name || "Signed in";
-  $("#me-role").textContent = me.isAdmin ? "Admin" : (me.roles || []).join(", ") || "Reader";
+  $("#me-role").textContent = me.isAdmin ? "Admin" : canRun() ? "Can run scans" : (me.roles || []).length ? "Read-only" : "Reader";
+  $("#me-role").title = (me.roles || []).join(", ");
   $("#me-avatar").textContent = initials(me.name || "?");
   $("#me-version").textContent = me.version ? `v${me.version}` : "";
 }
@@ -489,7 +552,7 @@ function renderOverviewCost() {
   const el = $("#ov-cost");
   const s = Cost.summary();
   if (!s || !s.subs.length) {
-    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${state.me && state.me.isAdmin ? " Refresh it from the cost history page." : ""}</div>`;
+    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${canRun() ? " Refresh it from the cost history page." : ""}</div>`;
     return;
   }
   el.innerHTML = `
@@ -553,8 +616,13 @@ function lookupHtml(r) {
   const direct = a.filter((x) => x.via === "direct").length;
   const subs = new Set(a.map((x) => x.subscriptionId).filter(Boolean)).size;
   const owners = a.filter((x) => /^owner/i.test(x.role || "")).length;
+  // Several tenants searched: where the person was found.
+  const where = Array.isArray(r.tenants) && r.tenants.length > 1
+    ? `<div class="inline-list lookup-tenants">${r.tenants.map((t) => `<span class="tag" title="${esc(t.error || "")}"><span class="dot ${t.status === "found" ? "success" : t.status === "error" ? "error" : ""}"></span>${esc(t.name)}: ${esc(t.status)}</span>`).join("")}</div>`
+    : "";
   return `
     <div class="person"><div class="avatar">${esc(initials(user.displayName || user.upn))}</div><div><div class="p-name">${esc(user.displayName || "")}</div><div class="p-upn">${esc(user.upn || "")}</div></div></div>
+    ${where}
     <div class="stat-row">
       ${statTile({ label: "Role assignments", value: fmt.int(a.length) })}
       ${statTile({ label: "Direct", value: fmt.int(direct) })}
@@ -587,6 +655,7 @@ function scanSkeleton(tool) {
       <div class="page-actions"><div class="last-run" id="scan-lastrun"></div><button class="btn primary" id="scan-run">${icon("play")} Run now</button></div>
     </div>
     <div class="status-msg" id="scan-status"></div>
+    <div class="status-msg" id="scan-tenant-errors"></div>
     <div class="stat-row" id="scan-stats"></div>
     <div class="card">
       <div class="card-head">
@@ -684,7 +753,7 @@ function renderFindings(id) {
   const t = toolState(id);
   const tool = TOOL_BY_ID[id];
   const view = VIEWS[id] || GENERIC;
-  const isAdmin = Boolean(state.me && state.me.isAdmin);
+  const runner = canRun();
   renderRunState(id);
   $("#scan-lastrun").innerHTML = t.data.ranAt
     ? `Last run <b title="${esc(t.data.ranAt)}">${esc(fmt.rel(t.data.ranAt))}</b><br>${esc(tool.schedule)}`
@@ -694,6 +763,9 @@ function renderFindings(id) {
     $("#scan-body").innerHTML = `<div class="empty-state">Loading…</div>`;
     return;
   }
+  // A tenant whose last scan failed keeps its earlier results; say so.
+  const failed = Object.entries(t.tenantErrors || {});
+  setStatus($("#scan-tenant-errors"), failed.length ? `Last scan failed in ${failed.map(([k, e]) => `${e.tenantName || k} (${fmt.rel(e.at)}: ${e.error})`).join("; ")}. Its earlier results are shown.` : "", "error");
   if (t.error) {
     $("#scan-stats").innerHTML = "";
     $("#scan-body").innerHTML = `<div class="empty-state big"><h3>Could not load this scan</h3><p class="muted">${esc(t.error)}</p></div>`;
@@ -704,7 +776,7 @@ function renderFindings(id) {
     $("#scan-kinds").innerHTML = "";
     $("#scan-extra").innerHTML = "";
     $("#scan-count").textContent = "";
-    $("#scan-body").innerHTML = `<div class="empty-state big"><h3>No results yet</h3><p>This scan has not run on this server.${isAdmin ? " Run it now, or wait for the schedule (" + esc(tool.schedule.toLowerCase()) + ")." : " It runs on schedule: " + esc(tool.schedule.toLowerCase()) + "."}</p></div>`;
+    $("#scan-body").innerHTML = `<div class="empty-state big"><h3>No results yet</h3><p>This scan has not run on this server.${runner ? " Run it now, or wait for the schedule (" + esc(tool.schedule.toLowerCase()) + ")." : " It runs on schedule: " + esc(tool.schedule.toLowerCase()) + "."}</p></div>`;
     return;
   }
   $("#scan-stats").innerHTML = view.stats(all, t);
@@ -1087,7 +1159,7 @@ async function runTool(id) {
         break;
       }
       const logs = await apiJson("/api/logs?limit=30").catch(() => []);
-      const failed = (Array.isArray(logs) ? logs : []).find((l) => l.tool === id && l.level === "error" && new Date(l.time).getTime() >= t.runStarted - 2000);
+      const failed = (Array.isArray(logs) ? logs : []).find((l) => l.tool === id && l.level === "error" && l.final !== false && new Date(l.time).getTime() >= t.runStarted - 2000);
       if (failed) throw new Error(failed.message || "the run failed");
     }
     if (!t.runFinished) throw new Error("timed out waiting for the run to finish");
@@ -1105,8 +1177,7 @@ function renderRunState(id) {
   const btn = $("#scan-run");
   const st = $("#scan-status");
   if (!btn || $("#page-scan").dataset.tool !== id) return;
-  const isAdmin = Boolean(state.me && state.me.isAdmin);
-  btn.classList.toggle("hidden", !isAdmin);
+  btn.classList.toggle("hidden", !canRun());
   if (t.running) {
     const secs = Math.max(0, Math.round((Date.now() - t.runStarted) / 1000));
     btn.disabled = true;
@@ -1141,6 +1212,12 @@ async function init() {
     window.location.href = "/login.html";
     return;
   }
+  initTenant();
+  renderTenantTabs();
+  $("#tenant-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-tenant]");
+    if (b) setTenant(b.dataset.tenant);
+  });
   renderMe();
   buildNav();
   wireShell();

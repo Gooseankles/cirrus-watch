@@ -51,11 +51,16 @@ resource "azurerm_linux_web_app" "this" {
   https_only          = true
   tags                = var.tags
 
-  # System-assigned: the scan tools (blank client ID in Settings).
-  # User-assigned: SSO only.
+  # Outbound through the VNet (private_network): reaches the history storage
+  # by its private endpoint.
+  virtual_network_subnet_id = local.app_subnet_id
+
+  # System-assigned: the scan tools in the home tenant (blank client ID in
+  # Settings). User-assigned: SSO, and (with customers) signing in to
+  # customer tenants as the scan app.
   identity {
     type         = "SystemAssigned, UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.sso.id]
+    identity_ids = concat([azurerm_user_assigned_identity.sso.id], local.has_customers ? [azurerm_user_assigned_identity.customers[0].id] : [])
   }
 
   site_config {
@@ -63,6 +68,10 @@ resource "azurerm_linux_web_app" "this" {
     ftps_state          = "Disabled"
     minimum_tls_version = "1.2"
     http2_enabled       = true
+
+    # All outbound traffic through the VNet (needs a NAT gateway or firewall
+    # there to reach Docker Hub and Azure); off = only private addresses.
+    vnet_route_all_enabled = var.private_network && var.vnet_route_all
 
     # Access restrictions: with any allowed IP or subnet, everything else is
     # refused before it reaches the app. The Kudu (scm) site follows the same rules.
@@ -114,6 +123,11 @@ resource "azurerm_linux_web_app" "this" {
       STORAGE_CONTAINER      = azurerm_storage_container.history[0].name
       HISTORY_RETENTION_DAYS = tostring(var.history_retention_days)
     } : {},
+    local.has_customers ? {
+      DASHBOARD_TENANTS             = jsonencode(local.dashboard_tenants)
+      TENANT_APP_CLIENT_ID          = local.customer_scan_app_client_id
+      TENANT_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.customers[0].client_id
+    } : {},
     length(var.scan_subscription_ids) > 0 ? { AZURE_SUBSCRIPTION_IDS = join(",", var.scan_subscription_ids) } : {},
     var.admin_password != "" ? { DASHBOARD_ADMIN_PASSWORD = var.admin_password } : {},
     var.extra_app_settings,
@@ -152,7 +166,17 @@ resource "azurerm_storage_account" "history" {
   allow_nested_items_to_be_public = false
   shared_access_key_enabled       = false # Entra (managed identity) only
   default_to_oauth_authentication = true
-  tags                            = var.tags
+  # private_network: only the private endpoint reaches it.
+  public_network_access = var.private_network ? "Disabled" : "Enabled"
+  tags                  = var.tags
+
+  dynamic "network_rules" {
+    for_each = var.private_network ? [1] : []
+    content {
+      default_action = "Deny"
+      bypass         = ["AzureServices"]
+    }
+  }
 
   blob_properties {
     versioning_enabled = false

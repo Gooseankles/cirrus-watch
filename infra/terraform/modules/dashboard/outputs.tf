@@ -44,9 +44,11 @@ output "sso_app_request" {
       Front-channel logout / home page: ${local.site_url}
     - No API permissions needed beyond the default sign-in (openid, profile).
     - App roles (allowed member types Users/Groups):
-        value "Admin"  - run scans and change settings
-        value "User"   - read-only
-    - Enterprise application: "Assignment required" = Yes; assign the people or groups to Admin or User.
+        value "Admin"  - everything: every tenant, Run now, Settings
+        value "User"   - read-only, every tenant%{for k, c in var.customers}
+        value "Admin-${k}"  - ${c.name}: read and run its scans
+        value "User-${k}"   - ${c.name}: read-only%{endfor}
+    - Enterprise application: "Assignment required" = Yes; assign groups (or people) to the roles.
     - Credential, preferred (no secret): Federated credential, scenario "Managed identity" / "Other issuer":
         issuer:   ${local.sso_fic_issuer}
         subject:  ${local.sso_fic_subject}   (object ID of managed identity id-${var.name}-sso)
@@ -59,4 +61,55 @@ output "sso_app_request" {
 output "sso_identity_client_id" {
   description = "Client ID of the user-assigned identity used for secretless SSO."
   value       = azurerm_user_assigned_identity.sso.client_id
+}
+
+output "role_groups" {
+  description = "Entra security group per dashboard role (role => group object ID). Add people to these groups; one person can be in several customers' groups."
+  value       = { for role, g in azuread_group.role : role => g.object_id }
+}
+
+output "customer_scan_app_client_id" {
+  description = "Client ID of the multi-tenant scan app that signs in to customer tenants (null without customers)."
+  value       = local.has_customers ? local.customer_scan_app_client_id : null
+}
+
+output "customer_scan_identity_client_id" {
+  description = "Client ID of the managed identity the scan app trusts (null without customers)."
+  value       = local.has_customers ? azurerm_user_assigned_identity.customers[0].client_id : null
+}
+
+output "customer_containers" {
+  description = "History storage container per customer."
+  value       = local.customer_containers
+}
+
+output "customer_onboarding" {
+  description = "Per customer: what an admin in that tenant does once (consent and read roles). Terraform does not touch customer tenants."
+  value = {
+    for k, c in var.customers : k => c.client_id == "" ? join("\n", concat([
+      "${c.name} (tenant ${c.tenant_id})",
+      "1. A Global Administrator there opens this link and accepts (creates the scan app in their tenant, grants its Graph read permissions):",
+      "   https://login.microsoftonline.com/${c.tenant_id}/adminconsent?client_id=${local.customer_scan_app_client_id}",
+      "2. Grant it read roles (an Owner or User Access Administrator, signed in to that tenant), per subscription or on a management group:",
+      ], [
+      for pair in setproduct(length(c.subscription_ids) > 0 ? c.subscription_ids : ["<subscription-id>"], local.scan_roles) :
+      "   az role assignment create --assignee ${local.customer_scan_app_client_id} --role \"${pair[1]}\" --scope /subscriptions/${pair[0]}"
+      ])) : join("\n", [
+      "${c.name} (tenant ${c.tenant_id}) uses its own app registration ${c.client_id}.",
+      "In that tenant, add a federated credential to it (Certificates & secrets > Federated credentials > Other issuer):",
+      "   issuer:   ${local.sso_fic_issuer}",
+      "   subject:  ${local.customer_fic_subject}   (object ID of managed identity id-${var.name}-customers)",
+      "   audience: api://AzureADTokenExchange",
+      "Then grant that app Graph application permissions (${join(", ", var.graph_permissions)}) with admin consent, and Reader, Cost Management Reader and Key Vault Reader on the subscriptions.",
+    ])
+  }
+}
+
+output "private_network" {
+  description = "VNet integration subnet and storage private endpoint (null when private_network = false)."
+  value = var.private_network ? {
+    app_subnet_id         = local.app_subnet_id
+    private_endpoint_id   = local.history_private ? azurerm_private_endpoint.history_blob[0].id : null
+    storage_public_access = "Disabled"
+  } : null
 }

@@ -4,6 +4,7 @@
 const axios = require("axios");
 const { getCredential } = require("./credentials");
 const settings = require("./settings");
+const tenantContext = require("./tenantContext");
 
 const ARM_SCOPE = "https://management.azure.com/.default";
 const RESOURCE_GRAPH_API_VERSION = "2021-03-01";
@@ -61,7 +62,11 @@ function armPost(url, data, toolId) {
   return armRequest("post", url, data, toolId);
 }
 
+// The subscriptions configured for the tenant being scanned (a customer
+// tenant's own list, or AZURE_SUBSCRIPTION_IDS at home); empty = all.
 function configuredSubscriptionIds() {
+  const tenant = tenantContext.current();
+  if (!tenantContext.isHome(tenant)) return [...(tenant.subscriptionIds || [])];
   return (settings.get("AZURE_SUBSCRIPTION_IDS") || "")
     .split(",")
     .map((s) => s.trim())
@@ -109,10 +114,11 @@ async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
 // Subscription ID -> display name, for every subscription the identity can
 // see. Cached per identity for a while: pages ask for it on every load.
 const SUB_NAME_TTL_MS = 15 * 60 * 1000;
-const subNameCache = new Map(); // toolId -> { at, names }
+const subNameCache = new Map(); // tenant|toolId -> { at, names }
 
 async function subscriptionNames(toolId) {
-  const key = toolId || "";
+  const tenant = tenantContext.current();
+  const key = `${tenantContext.isHome(tenant) ? tenantContext.HOME : tenant.key}|${toolId || ""}`;
   const hit = subNameCache.get(key);
   if (hit && Date.now() - hit.at < SUB_NAME_TTL_MS) return hit.names;
   const rows = await resourceGraphQuery(

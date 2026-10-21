@@ -475,3 +475,22 @@ table.data .secondary.bad { color: var(--critical-text); }
 #scan-new svg { transform: none; }
 .card-head h2 .meta { margin-left: 6px; font-weight: 400; }
 .cost-table-wrap { margin-top: 10px; }
+
+/* --- Tenant tabs (several tenants) --- */
+.tenant-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 0 0 18px; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+.tenant-tab {
+  flex: none; padding: 8px 14px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; color: var(--text-2); cursor: pointer; font-size: 0.84rem; font-weight: 500; white-space: nowrap;
+}
+.tenant-tab:hover { color: var(--text); }
+.tenant-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tenant-tab.off { color: var(--muted); font-style: italic; }
+.tenant-badge {
+  display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 500;
+  color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); vertical-align: 1px;
+}
+.tenant-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; align-items: center; }
+.tenant-actions .test-result { flex-basis: 100%; text-align: right; }
+.tenant-form { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--text-2); }
+.lookup-tenants { margin: 10px 0 4px; }

@@ -1,5 +1,8 @@
 const { graphGet, graphGetAll } = require("../graphClient");
 const { resourceGraphQuery, subscriptionNames } = require("../armClient");
+const tenants = require("../tenants");
+const tenantContext = require("../tenantContext");
+const access = require("../access");
 
 const TOOL_ID = "access-lookup";
 
@@ -10,8 +13,24 @@ const KNOWN_ROLES = {
   "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9": "User Access Administrator",
 };
 
+// In another tenant the person is often a guest with a different UPN; fall
+// back to their mail address there.
+async function findUser(upn) {
+  const select = "$select=id,displayName,userPrincipalName";
+  try {
+    return await graphGet(`/users/${encodeURIComponent(upn)}?${select}`, TOOL_ID);
+  } catch (err) {
+    if (!/\(404\)/.test(err.message) || !upn.includes("@")) throw err;
+    const q = upn.replace(/'/g, "''");
+    const found = await graphGet(`/users?$filter=${encodeURIComponent(`mail eq '${q}' or otherMails/any(m:m eq '${q}')`)}&${select}`, TOOL_ID);
+    if (!found.value || !found.value.length) return null;
+    return found.value[0];
+  }
+}
+
 async function lookup(upn) {
-  const user = await graphGet(`/users/${encodeURIComponent(upn)}?$select=id,displayName,userPrincipalName`, TOOL_ID);
+  const user = await findUser(upn);
+  if (!user) return null;
   const groups = await graphGetAll(`/users/${user.id}/transitiveMemberOf?$select=id,displayName`, TOOL_ID);
   const principalIds = [user.id, ...groups.map((g) => g.id)];
 
@@ -45,12 +64,41 @@ async function lookup(upn) {
   };
 }
 
+// Every tenant the person asking may see; one result per tenant.
+async function lookupAll(upn, keys) {
+  const targets = tenants.scanTargets().filter((t) => access.inScope(keys, t.key));
+  const multi = tenants.isMultiTenant();
+  const out = { user: null, groups: [], assignments: [], tenants: [] };
+  for (const t of targets) {
+    try {
+      const r = await tenantContext.runIn(t, () => lookup(upn));
+      if (!r) {
+        out.tenants.push({ key: t.key, name: t.name, status: "not found" });
+        continue;
+      }
+      out.user ||= r.user;
+      out.groups.push(...r.groups.map((g) => (multi ? `${g} (${t.name})` : g)));
+      out.assignments.push(...r.assignments.map((a) => ({ ...a, ...(multi && { tenant: t.key, tenantName: t.name }) })));
+      out.tenants.push({ key: t.key, name: t.name, status: "found" });
+    } catch (err) {
+      const notFound = /\(404\)/.test(err.message);
+      out.tenants.push({ key: t.key, name: t.name, status: notFound ? "not found" : "error", ...(!notFound && { error: err.message.slice(0, 300) }) });
+    }
+  }
+  return out;
+}
+
 function registerRoutes(app) {
   app.get("/api/tools/access-lookup/run", async (req, res) => {
     const upn = req.query.upn;
-    if (!upn) return res.status(400).json({ error: "upn query param is required" });
+    if (!upn || typeof upn !== "string") return res.status(400).json({ error: "upn query param is required" });
     try {
-      const result = await lookup(upn);
+      const result = await lookupAll(upn.trim(), access.readScope(req));
+      if (!result.user) {
+        const errors = result.tenants.filter((t) => t.status === "error");
+        if (errors.length) return res.status(500).json({ error: errors.map((t) => (result.tenants.length > 1 ? `${t.name}: ${t.error}` : t.error)).join("; ") });
+        return res.status(404).json({ error: `${upn} was not found${result.tenants.length > 1 ? " in any tenant" : ""}` });
+      }
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });

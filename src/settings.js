@@ -13,14 +13,22 @@ const SETTINGS_PATH = path.join(DATA_DIR, "settings.json");
 const AUTH_TYPES = [
   { value: "secret", label: "Client secret" },
   { value: "managed-identity", label: "Managed identity" },
+  { value: "federated", label: "Federated (app registration trusts a managed identity)" },
 ];
+const SECRET_ONLY = ["secret"];
+const NEEDS_TENANT = ["secret", "federated"];
+const FEDERATED_ONLY = ["federated"];
 
 const FIELDS = [
   { key: "AZURE_AUTH_TYPE", label: "Auth type", group: "Azure service principal (shared)", options: AUTH_TYPES, defaultValue: "secret" },
-  { key: "AZURE_CLIENT_ID", label: "Client ID", group: "Azure service principal (shared)", hint: "Managed identity: the user-assigned identity's client ID, blank = system-assigned" },
-  { key: "AZURE_CLIENT_SECRET", label: "Client secret", group: "Azure service principal (shared)", secret: true, secretAuthOnly: true },
-  { key: "AZURE_TENANT_ID", label: "Tenant ID", group: "Azure service principal (shared)", secretAuthOnly: true },
+  { key: "AZURE_CLIENT_ID", label: "Client ID", group: "Azure service principal (shared)", hint: "Managed identity: the user-assigned identity's client ID, blank = system-assigned. Federated: the app registration's client ID" },
+  { key: "AZURE_CLIENT_SECRET", label: "Client secret", group: "Azure service principal (shared)", secret: true, authOnly: SECRET_ONLY },
+  { key: "AZURE_TENANT_ID", label: "Tenant ID", group: "Azure service principal (shared)", authOnly: NEEDS_TENANT },
+  { key: "AZURE_FEDERATED_MI_CLIENT_ID", label: "Managed identity it trusts", group: "Azure service principal (shared)", authOnly: FEDERATED_ONLY, hint: "Client ID of the user-assigned identity in the app registration's federated credential; blank = DASHBOARD_FEDERATED_MI_CLIENT_ID" },
   { key: "AZURE_SUBSCRIPTION_IDS", label: "Subscriptions to scan", group: "Azure service principal (shared)", hint: "Comma-separated subscription IDs; blank = every subscription the SPN can see" },
+
+  { key: "HOME_TENANT_NAME", label: "Name of this tenant", group: "Home tenant", hint: "Shown next to its findings when customer tenants are added (Customer tenants below); blank = Home. Its role values are Admin-home and User-home" },
+  { key: "HOME_TENANT_SCAN", label: "Scan this tenant", group: "Home tenant", options: [{ value: "on", label: "Yes" }, { value: "off", label: "No, only the customer tenants" }], defaultValue: "on" },
 
   { key: "STORAGE_ACCOUNT_URL", label: "Storage account blob URL", group: "History storage", hint: "e.g. https://stdashboard.blob.core.windows.net; blank = keep results on the app's own disk" },
   { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
@@ -46,7 +54,8 @@ const FIELDS = [
 ];
 
 // Optional least-privilege SPN per tool. A tool uses its own SPN only when
-// its client ID is set; otherwise it uses the shared one above.
+// its client ID is set; otherwise it uses the shared one above. These apply to
+// the home tenant; a customer tenant uses its own identity for every tool.
 const TOOL_SPNS = [
   { id: "access-lookup", label: "Access lookup" },
   { id: "orphaned-resources", label: "Orphaned resources" },
@@ -72,8 +81,9 @@ for (const tool of TOOL_SPNS) {
   FIELDS.push(
     { key: `${p}AZURE_AUTH_TYPE`, label: "Auth type", ...common, options: AUTH_TYPES, defaultValue: "secret" },
     { key: `${p}AZURE_CLIENT_ID`, label: "Client ID", ...common, hint: "Blank = use the shared SPN. Managed identity: the user-assigned identity's client ID" },
-    { key: `${p}AZURE_CLIENT_SECRET`, label: "Client secret", ...common, secret: true, secretAuthOnly: true },
-    { key: `${p}AZURE_TENANT_ID`, label: "Tenant ID", ...common, secretAuthOnly: true, hint: "Blank = shared tenant" }
+    { key: `${p}AZURE_CLIENT_SECRET`, label: "Client secret", ...common, secret: true, authOnly: SECRET_ONLY },
+    { key: `${p}AZURE_TENANT_ID`, label: "Tenant ID", ...common, authOnly: NEEDS_TENANT, hint: "Blank = shared tenant" },
+    { key: `${p}AZURE_FEDERATED_MI_CLIENT_ID`, label: "Managed identity it trusts", ...common, authOnly: FEDERATED_ONLY, hint: "Blank = DASHBOARD_FEDERATED_MI_CLIENT_ID" }
   );
 }
 const KEYS = FIELDS.map((f) => f.key);

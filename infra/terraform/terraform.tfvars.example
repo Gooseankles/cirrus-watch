@@ -31,6 +31,26 @@ shared_spn_access = [
 admin_principal_ids = ["00000000-0000-0000-0000-000000000000"]
 user_principal_ids  = []
 
+# Other organizations' tenants to scan too. Each gets a tab, a storage
+# container and the roles Admin-<key> / User-<key>. After apply, send each
+# customer their part of `terraform output customer_onboarding`.
+# customers = {
+#   acme = {
+#     name          = "Acme AS"
+#     tenant_id     = "00000000-0000-0000-0000-000000000000"
+#     admin_members = []  # user object IDs: read and run Acme's scans
+#     user_members  = []  # user object IDs: read Acme only
+#   }
+# }
+
+# A security group per role (needs Entra ID P1/P2); false = assign people directly.
+# create_role_groups = true
+
+# Storage reached only through a private endpoint (public access off), web app
+# joined to a VNet. Set the two subnet IDs to use an existing VNet instead.
+# private_network    = true
+# vnet_address_space = ["10.90.0.0/24"]
+
 # Only these public IPs (or ranges) can reach the site; everyone else gets 403
 # before the app. Empty = open to the internet (sign-in still required).
 # allowed_ip_ranges = ["203.0.113.10", "198.51.100.0/24"]

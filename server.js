@@ -5,9 +5,11 @@ const path = require("path");
 const log = require("./src/log");
 const auth = require("./src/auth");
 const settings = require("./src/settings");
-const { testSpn } = require("./src/credentials");
+const { testSpn, testTenant } = require("./src/credentials");
+const tenants = require("./src/tenants");
+const access = require("./src/access");
 const { FileSessionStore } = require("./src/sessionStore");
-const { registerScanTool, registerActionTool } = require("./src/toolRegistry");
+const { registerScanTool, registerActionTool, readKeys } = require("./src/toolRegistry");
 
 const app = express();
 app.disable("x-powered-by");
@@ -69,13 +71,18 @@ app.post("/auth/local-login", auth.handleLocalLogin);
 app.get("/auth/logout", auth.handleLogout);
 app.get("/api/me", (req, res) => {
   const user = req.session && req.session.user;
+  const acc = access.accessOf(user);
   res.json({
     ssoConfigured: auth.ssoConfigured(),
     localAdminConfigured: auth.localAdminConfigured(),
     signedIn: Boolean(user),
     name: user ? user.name : null,
     roles: user ? user.roles : [],
-    isAdmin: Boolean(user && user.roles.includes("Admin")),
+    isAdmin: Boolean(user && acc.admin),
+    canRun: Boolean(user && acc.canRun),
+    // Tenants this person may see; the page shows a tab per tenant when there is more than one.
+    tenants: user ? access.visibleTenants(user) : [],
+    multiTenant: Boolean(user) && tenants.isMultiTenant(),
     version: VERSION,
   });
 });
@@ -104,6 +111,41 @@ app.post("/api/settings/test-spn", auth.requireRole("Admin"), async (req, res) =
   res.json(await testSpn(toolId));
 });
 
+// Customer tenants (Settings). Secrets go in, never come back out.
+const withStorage = (list) => {
+  const store = require("./src/findingsStore");
+  const blob = Boolean(settings.get("STORAGE_ACCOUNT_URL"));
+  return list.map((t) => ({ ...t, container: blob ? store.containerName(t.key) : `tenants/${t.key}` }));
+};
+app.get("/api/tenants", auth.requireRole("Admin"), (req, res) => {
+  res.json({
+    tenants: withStorage(tenants.listForSettings()),
+    defaults: {
+      clientId: process.env.TENANT_APP_CLIENT_ID || "",
+      miClientId: process.env.TENANT_FEDERATED_MI_CLIENT_ID || process.env.DASHBOARD_FEDERATED_MI_CLIENT_ID || "",
+    },
+  });
+});
+app.post("/api/tenants", auth.requireRole("Admin"), (req, res) => {
+  try {
+    res.json({ tenants: withStorage(tenants.upsert(req.body || {})) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.delete("/api/tenants/:key", auth.requireRole("Admin"), (req, res) => {
+  try {
+    res.json({ tenants: withStorage(tenants.remove(req.params.key)) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.post("/api/tenants/:key/test", auth.requireRole("Admin"), async (req, res) => {
+  const t = tenants.customers().find((x) => x.key === String(req.params.key).toLowerCase());
+  if (!t) return res.status(404).json({ ok: false, error: "no such tenant" });
+  res.json(await testTenant(t));
+});
+
 const registeredTools = [
   registerScanTool(app, require("./src/tools/orphanedResources")),
   registerScanTool(app, require("./src/tools/tagCompliance")),
@@ -121,11 +163,14 @@ app.get("/api/tools", (req, res) => res.json(registeredTools));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
 // Cost history: every subscription's daily cost plus monthly by service and
-// resource group, kept in the history storage. Refreshed nightly.
+// resource group, kept in each tenant's own history store. Refreshed nightly.
 const costHistory = require("./src/costHistory");
 app.get("/api/cost/history", async (req, res) => {
   try {
-    res.json({ ...(await costHistory.index()), running: costHistory.isRunning() });
+    const idx = await costHistory.index(readKeys(req));
+    const multi = tenants.isMultiTenant();
+    const name = (list) => (multi ? list.map((x) => ({ ...x, tenantName: tenants.nameOf(x.tenant) })) : list);
+    res.json({ updatedAt: idx.updatedAt, subscriptions: name(idx.subscriptions), failures: name(idx.failures), running: costHistory.isRunning() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,23 +179,28 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.get("/api/cost/history/:subscriptionId", async (req, res) => {
   if (!GUID.test(req.params.subscriptionId)) return res.status(400).json({ error: "not a subscription ID" });
   try {
-    const doc = await costHistory.subscription(req.params.subscriptionId);
-    if (!doc) return res.status(404).json({ error: "no cost history for that subscription yet" });
+    const doc = await costHistory.subscription(req.params.subscriptionId, readKeys(req));
+    if (!doc) {
+      return res.status(404).json({ error: "no cost history for that subscription yet" });
+    }
     res.json({ ...doc, summary: costHistory.summarize(doc) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/cost/history/refresh", auth.requireRole("Admin"), (req, res) => {
+app.post("/api/cost/history/refresh", access.requireRunner, (req, res) => {
+  const keys = access.runScope(req);
+  if (keys && !keys.length) return res.status(403).json({ error: "you cannot refresh that tenant" });
   res.status(202).json({ status: costHistory.isRunning() ? "already running" : "started" });
-  costHistory.collectAll().catch((err) => log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` }));
+  costHistory.collectAll(keys).catch((err) => log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` }));
 });
 require("node-cron").schedule("30 7 * * *", () => costHistory.collectAll().catch((err) =>
   log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` })
 ));
 
 app.get("/api/logs", (req, res) => {
-  res.json(log.readAll({ limit: Number(req.query.limit) || 200 }));
+  // Someone limited to some tenants sees only those tenants' entries.
+  res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req) }));
 });
 
 app.listen(PORT, () => {

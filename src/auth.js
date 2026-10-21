@@ -11,6 +11,7 @@
 const crypto = require("crypto");
 const msal = require("@azure/msal-node");
 const { ManagedIdentityCredential } = require("@azure/identity");
+const { hasSignInRole } = require("./access");
 
 const TENANT_ID = process.env.DASHBOARD_AZURE_TENANT_ID || process.env.AZURE_TENANT_ID;
 const CLIENT_ID = process.env.DASHBOARD_AZURE_CLIENT_ID;
@@ -104,10 +105,10 @@ async function startLogin(req, res) {
   }
 }
 
-// Only people assigned one of these app roles get in. A token without a role
-// means the Enterprise App does not require assignment; refuse it rather than
-// letting the whole tenant read the dashboard.
-const SIGN_IN_ROLES = ["Admin", "User"];
+// Only people assigned an app role get in: Admin, User, or a per-customer
+// Admin-<key> / User-<key> (access.js). A token without one means the
+// Enterprise App does not require assignment; refuse it rather than letting
+// the whole tenant read the dashboard.
 
 async function handleCallback(req, res) {
   const client = getMsalClient();
@@ -130,8 +131,8 @@ async function handleCallback(req, res) {
     });
     const claims = result.idTokenClaims || {};
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
-    if (!roles.some((r) => SIGN_IN_ROLES.includes(r))) {
-      console.warn(`SSO: refused ${claims.preferred_username || "unknown"}: no Admin or User role in the token`);
+    if (!hasSignInRole(roles)) {
+      console.warn(`SSO: refused ${claims.preferred_username || "unknown"}: no dashboard app role in the token`);
       return res.redirect("/login.html?error=no-role");
     }
     req.session.regenerate((err) => {

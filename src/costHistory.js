@@ -6,6 +6,7 @@
 //   daily:            { "2026-10-19": 12.34, ... }        total per day
 //   monthlyByService: { "2026-10": { "Storage": 1.2 } }   from daily rows
 //   monthlyByRg:      { "2026-10": { "rg-app": 3.4 } }
+//   tenant:           key of the tenant it belongs to (home when missing)
 // First run: COST_HISTORY_MONTHS back (default 13), fetched a year at a time.
 // Later runs: only from the start of the month 7 days ago (cost data is
 // restated for a few days), replacing those months whole.
@@ -13,6 +14,8 @@ const { armPost, subscriptionIdsToScan, subscriptionNames } = require("./armClie
 const store = require("./findingsStore");
 const settings = require("./settings");
 const log = require("./log");
+const tenants = require("./tenants");
+const tenantContext = require("./tenantContext");
 
 const TOOL_ID = "cost-anomaly"; // same identity as the cost tool (Cost Management Reader)
 const CONCURRENCY = 2; // Cost Management throttles per tenant
@@ -131,6 +134,8 @@ async function collectSubscription(subscriptionId, today) {
   for (const map of [doc.monthlyByService, doc.monthlyByRg]) {
     for (const m of Object.values(map)) for (const k of Object.keys(m)) m[k] = round(m[k]);
   }
+  const t = tenantContext.current();
+  doc.tenant = t ? t.key : tenants.HOME;
   doc.updatedAt = new Date().toISOString();
   doc.firstDay = Object.keys(doc.daily).sort()[0] || null;
   await store.putDoc(docKey(subscriptionId), doc);
@@ -169,6 +174,7 @@ function summarize(doc, now = new Date()) {
   const topService = Object.entries(services).sort((a, b) => b[1] - a[1])[0];
   return {
     subscriptionId: doc.subscriptionId,
+    tenant: doc.tenant || tenants.HOME,
     currency: doc.currency || null,
     updatedAt: doc.updatedAt,
     firstDay: doc.firstDay,
@@ -188,10 +194,9 @@ function summarize(doc, now = new Date()) {
 
 let running = null;
 
-async function collectAll() {
-  if (running) return running;
-  running = (async () => {
-    const today = new Date();
+// One tenant's subscriptions; throws only when the list itself is out of reach.
+async function collectTenant(tenant, today) {
+  return tenantContext.runIn(tenant, async () => {
     const subs = await subscriptionIdsToScan(TOOL_ID);
     const names = await subscriptionNames(TOOL_ID).catch(() => new Map());
     const summaries = [];
@@ -205,20 +210,52 @@ async function collectAll() {
             const doc = await collectSubscription(sub, today);
             summaries.push({ ...summarize(doc, today), subscriptionName: names.get(sub) || null });
           } catch (err) {
-            failures.push({ subscriptionId: sub, subscriptionName: names.get(sub) || null, error: String(err.message || err).slice(0, 300) });
+            failures.push({ subscriptionId: sub, tenant: tenant.key, subscriptionName: names.get(sub) || null, error: String(err.message || err).slice(0, 300) });
           }
         }
       })
     );
-    summaries.sort((a, b) => b.last30 - a.last30);
-    const index = { updatedAt: new Date().toISOString(), subscriptions: summaries, failures };
-    await store.putDoc(INDEX_KEY, index);
+    return { summaries, failures };
+  });
+}
+
+// only: tenant keys to refresh (null = every enabled tenant); the index keeps
+// the other tenants' rows as they were.
+async function collectAll(only = null) {
+  if (running) return running;
+  running = (async () => {
+    const today = new Date();
+    const targets = tenants.scanTargets().filter((t) => !only || only.includes(t.key));
+    const multi = tenants.isMultiTenant();
+    const summaries = [];
+    const failures = [];
+    // Each tenant's index lives in its own store; one whose subscription list
+    // failed keeps its last rows and notes the failure.
+    for (const t of targets) {
+      let idx;
+      try {
+        const r = await collectTenant(t, today);
+        summaries.push(...r.summaries);
+        failures.push(...r.failures);
+        idx = { updatedAt: new Date().toISOString(), subscriptions: r.summaries.sort((a, b) => b.last30 - a.last30), failures: r.failures };
+      } catch (err) {
+        const failure = { tenant: t.key, subscriptionId: null, subscriptionName: multi ? t.name : null, error: String(err.message || err).slice(0, 300) };
+        failures.push(failure);
+        idx = { ...(await tenantIndex(t.key).catch(() => EMPTY_INDEX())), failures: [failure] };
+      }
+      try {
+        await store.putDoc(INDEX_KEY, idx, t.key);
+      } catch (err) {
+        failures.push({ tenant: t.key, subscriptionId: null, subscriptionName: multi ? t.name : null, error: `could not save: ${err.message}`.slice(0, 300) });
+      }
+    }
     log.record({
       tool: TOOL_ID,
+      ...(targets.length === 1 && { tenant: targets[0].key }),
       level: failures.length && !summaries.length ? "error" : "success",
       message: `cost history: ${summaries.length} subscription(s) updated${failures.length ? `, ${failures.length} failed (e.g. ${failures[0].error})` : ""}`,
     });
-    return index;
+    return { summaries, failures };
   })();
   try {
     return await running;
@@ -227,12 +264,40 @@ async function collectAll() {
   }
 }
 
-async function index() {
-  return (await store.getDoc(INDEX_KEY)) || { updatedAt: null, subscriptions: [], failures: [] };
+const EMPTY_INDEX = () => ({ updatedAt: null, subscriptions: [], failures: [] });
+
+async function tenantIndex(tenantKey) {
+  const idx = (await store.getDoc(INDEX_KEY, tenantKey)) || EMPTY_INDEX();
+  // Rows belong to the store they are in, whatever they say themselves.
+  for (const x of [...(idx.subscriptions || []), ...(idx.failures || [])]) x.tenant = tenantKey;
+  return idx;
 }
 
-async function subscription(subscriptionId) {
-  return store.getDoc(docKey(subscriptionId));
+// These tenants' indexes together (default: the home tenant). updatedAt is
+// the newest; a tenant whose store cannot be read shows as a failure.
+async function index(keys = [tenants.HOME]) {
+  const parts = await Promise.all(
+    keys.map((k) =>
+      tenantIndex(k).catch((err) => ({ ...EMPTY_INDEX(), failures: [{ tenant: k, subscriptionId: null, error: `could not read stored cost history: ${err.message}` }] }))
+    )
+  );
+  const out = EMPTY_INDEX();
+  for (const p of parts) {
+    if (p.updatedAt && (!out.updatedAt || p.updatedAt > out.updatedAt)) out.updatedAt = p.updatedAt;
+    out.subscriptions.push(...(p.subscriptions || []));
+    out.failures.push(...(p.failures || []));
+  }
+  out.subscriptions.sort((a, b) => b.last30 - a.last30);
+  return out;
+}
+
+// One subscription's document, looked for in these tenants' stores.
+async function subscription(subscriptionId, keys = [tenants.HOME]) {
+  for (const k of keys) {
+    const doc = await store.getDoc(docKey(subscriptionId), k).catch(() => null);
+    if (doc) return { ...doc, tenant: doc.tenant || k };
+  }
+  return null;
 }
 
 function isRunning() {

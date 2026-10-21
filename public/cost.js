@@ -110,11 +110,11 @@ const Cost = (() => {
   }
 
   function renderMain() {
-    const isAdmin = Boolean(state.me && state.me.isAdmin);
+    const runner = canRun();
     const s = summary();
     const ix = st.index;
     const btn = $("#cost-refresh");
-    btn.classList.toggle("hidden", !isAdmin);
+    btn.classList.toggle("hidden", !runner);
     const running = Boolean(ix && ix.running);
     btn.disabled = running || st.refreshing;
     btn.innerHTML = running ? `${icon("loader", "spin")} Refreshing…` : `${icon("refresh")} Refresh now`;
@@ -139,10 +139,10 @@ const Cost = (() => {
       main.innerHTML = `<div class="card"><div class="empty-state big">${icon("cost")}<h3>No cost data yet</h3><p>${
         running
           ? "The first refresh is running. This page updates by itself when it finishes."
-          : isAdmin
+          : runner
             ? "Nothing has been read from Cost Management on this server. Start the first refresh; it takes a few minutes for a large tenant."
             : "Nothing has been read from Cost Management on this server yet. Ask an admin to refresh the cost history."
-      }</p>${isAdmin && !running ? `<p><button class="btn primary" data-action="refresh">${icon("refresh")} Refresh now</button></p>` : ""}${
+      }</p>${runner && !running ? `<p><button class="btn primary" data-action="refresh">${icon("refresh")} Refresh now</button></p>` : ""}${
         ix.failures.length ? failuresHtml(ix.failures) : ""
       }</div></div>`;
       return;
@@ -158,7 +158,7 @@ const Cost = (() => {
       </div>
       ${s.currencyNote ? `<div class="note">${esc(s.currencyNote)}</div>` : ""}
       <div class="card">
-        <div class="card-head"><h2>${icon("trend")} Tenant spend by month</h2><span class="meta">all subscriptions · ${esc(s.currency)}</span></div>
+        <div class="card-head"><h2>${icon("trend")} Spend by month</h2><span class="meta">${multiView() ? "every tenant" : "all subscriptions"} · ${esc(s.currency)}</span></div>
         <div class="chart trend-chart" id="cost-trend"></div>
         <div class="chart-foot"><span>Last 13 months</span><span>The current month is still filling up</span></div>
       </div>
@@ -182,7 +182,7 @@ const Cost = (() => {
 
   function failuresHtml(failures) {
     return `<details class="failures"><summary>${fmt.int(failures.length)} subscription${failures.length === 1 ? "" : "s"} could not be read</summary><ul>${failures
-      .map((f) => `<li><b>${esc(f.subscriptionName || f.subscriptionId)}</b> <span class="mono muted">${esc(f.subscriptionId)}</span>: ${esc(f.error)}</li>`)
+      .map((f) => `<li>${multiView() && f.tenantName ? `<span class="tenant-badge">${esc(f.tenantName)}</span>` : ""}<b>${esc(f.subscriptionName || f.subscriptionId || "Subscription list")}</b> <span class="mono muted">${esc(f.subscriptionId)}</span>: ${esc(f.error)}</li>`)
       .join("")}</ul></details>`;
   }
 
@@ -215,7 +215,7 @@ const Cost = (() => {
         const chCell = ch == null ? '<span class="muted">–</span>' : `<span class="${ch > 0.5 ? "delta-up" : ch < -0.5 ? "delta-down" : "muted"}">${esc(fmt.pct(ch, 1))}</span>`;
         const top = r.topService && r.topService.name ? `<div class="name-cell"><div class="primary">${esc(r.topService.name)}</div><div class="secondary">${esc(fmt.money(r.topService.cost, cur, true))} last 30 days</div></div>` : '<span class="muted">–</span>';
         return `<tr class="clickable${st.sel === r.subscriptionId ? " sel" : ""}" data-sub="${esc(r.subscriptionId)}">
-          <td><div class="sub-cell"><div class="primary">${esc(r.subscriptionName || r.subscriptionId)}</div><div class="secondary">${esc(r.subscriptionId)}</div></div></td>
+          <td><div class="sub-cell"><div class="primary">${multiView() && r.tenantName ? `<span class="tenant-badge">${esc(r.tenantName)}</span>` : ""}${esc(r.subscriptionName || r.subscriptionId)}</div><div class="secondary">${esc(r.subscriptionId)}</div></div></td>
           <td class="num">${esc(fmt.money(r.monthToDate, cur, true))}</td>
           <td class="num">${esc(fmt.money(r.forecast, cur, true))}</td>
           <td class="num">${esc(fmt.money(r.lastMonth, cur, true))}</td>
@@ -423,5 +423,12 @@ const Cost = (() => {
     }, 3000);
   }
 
-  return { show, loadIndex, summary, index: () => st.index };
+  // Tenant tab changed: forget what was loaded for the other tab.
+  function reset() {
+    if (st.poll) clearInterval(st.poll);
+    Object.assign(st, { index: null, loadedAt: null, loading: null, error: null, sel: null, detail: {}, poll: null, refreshing: false });
+    setStatus($("#cost-status"), "");
+  }
+
+  return { show, loadIndex, summary, reset, index: () => st.index };
 })();

@@ -168,3 +168,116 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# --- Customer tenants ---
+
+variable "customers" {
+  description = <<-EOT
+    Customer tenants the dashboard scans besides its own, keyed by a short customer key (lowercase letters, digits,
+    - or _; it names the app roles Admin-<key> and User-<key>, the Entra groups and the storage container).
+      name             shown in the tenant tabs
+      tenant_id        the customer's Entra tenant ID
+      subscription_ids limit the scans to these subscriptions (empty = every one the scan app can see there)
+      client_id        the customer's own app registration instead of the shared multi-tenant scan app (it needs a
+                       federated credential that trusts this dashboard; see the customer_onboarding output)
+      enabled          false = keep the customer but stop scanning it
+      admin_members    object IDs of users who get Admin-<key> (read and run scans for this customer)
+      user_members     object IDs of users who get User-<key> (read this customer)
+    Permissions in the customer tenant are granted by hand: see the customer_onboarding output.
+  EOT
+  type = map(object({
+    name             = string
+    tenant_id        = string
+    subscription_ids = optional(list(string), [])
+    client_id        = optional(string, "")
+    enabled          = optional(bool, true)
+    admin_members    = optional(list(string), [])
+    user_members     = optional(list(string), [])
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k, c in var.customers : can(regex("^[a-z0-9][a-z0-9_-]{0,39}$", k)) && k != "home"])
+    error_message = "Each customers key must be 1-40 lowercase letters, digits, - or _ (and not \"home\")."
+  }
+  validation {
+    condition     = alltrue([for k, c in var.customers : can(regex("^[0-9a-fA-F-]{36}$", c.tenant_id))])
+    error_message = "Each customer's tenant_id must be a GUID."
+  }
+}
+
+variable "create_customer_scan_app" {
+  description = <<-EOT
+    Create one multi-tenant app registration that scans every customer tenant (each customer's admin consents to it
+    once). It trusts the web app's customer-scan managed identity through a federated credential, so no secret
+    exists. false = use customer_scan_app_client_id, or a client_id per customer.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "customer_scan_app_client_id" {
+  description = "Client ID of an existing multi-tenant scan app registration (only with create_customer_scan_app = false)."
+  type        = string
+  default     = ""
+}
+
+variable "create_role_groups" {
+  description = <<-EOT
+    Create an Entra security group per dashboard role (Admin, User, Admin-<key>, User-<key>) and assign it to that
+    app role, so people get access by group membership and can be in several customers' groups. admin_principal_ids,
+    user_principal_ids and each customer's admin_members / user_members become group members. Assigning groups to app
+    roles needs Microsoft Entra ID P1 or P2, and members must be users (nested groups do not count). false = assign
+    the people to the roles directly.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "role_group_prefix" {
+  description = "Display name prefix of the role groups. Blank = \"Azure tools dashboard (<name>)\"."
+  type        = string
+  default     = ""
+}
+
+# --- Private networking ---
+
+variable "private_network" {
+  description = <<-EOT
+    Join the web app to a virtual network (VNet integration) and reach the history storage account through a
+    private endpoint, with public network access on the storage account turned off. Without existing subnets a small
+    VNet is created (vnet_address_space). Costs a little extra (private endpoint and DNS zone).
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "vnet_address_space" {
+  description = "Address space of the VNet created when private_network = true and no subnets are given. A /24 is plenty: a /26 for the app and a /27 for private endpoints."
+  type        = list(string)
+  default     = ["10.90.0.0/24"]
+}
+
+variable "vnet_integration_subnet_id" {
+  description = "Existing subnet for the web app's VNet integration (delegated to Microsoft.Web/serverFarms, /28 or larger). Set together with private_endpoint_subnet_id; blank = create a VNet."
+  type        = string
+  default     = ""
+}
+
+variable "private_endpoint_subnet_id" {
+  description = "Existing subnet for the storage private endpoint. Set together with vnet_integration_subnet_id."
+  type        = string
+  default     = ""
+}
+
+variable "blob_private_dns_zone_id" {
+  description = "Existing privatelink.blob.core.windows.net private DNS zone (e.g. in a hub), already linked to the VNet. Blank = create one and link it to the VNet."
+  type        = string
+  default     = ""
+}
+
+variable "vnet_route_all" {
+  description = "Send all the web app's outbound traffic through the VNet (needs a NAT gateway or firewall there for internet access). false = only private addresses go through the VNet, which is all the private endpoint needs."
+  type        = bool
+  default     = false
+}

@@ -32,3 +32,33 @@ output "history_storage_url" {
   description = "Blob endpoint of the history storage account."
   value       = module.dashboard.history_storage_url
 }
+
+output "role_groups" {
+  description = "Entra security group per dashboard role (role => group object ID)."
+  value       = module.dashboard.role_groups
+}
+
+output "customer_scan_app_client_id" {
+  description = "Client ID of the multi-tenant scan app for customer tenants."
+  value       = module.dashboard.customer_scan_app_client_id
+}
+
+output "customer_scan_identity_client_id" {
+  description = "Client ID of the managed identity the scan app trusts."
+  value       = module.dashboard.customer_scan_identity_client_id
+}
+
+output "customer_containers" {
+  description = "History storage container per customer."
+  value       = module.dashboard.customer_containers
+}
+
+output "customer_onboarding" {
+  description = "Per customer: the consent link and role commands an admin in that tenant runs once."
+  value       = module.dashboard.customer_onboarding
+}
+
+output "private_network" {
+  description = "VNet integration subnet and storage private endpoint."
+  value       = module.dashboard.private_network
+}

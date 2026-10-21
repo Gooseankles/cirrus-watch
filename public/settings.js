@@ -17,6 +17,13 @@ const Settings = (() => {
             <div id="settings-rows"><div class="empty-state">Loading…</div></div>
             <div class="save-bar"><button class="btn primary" id="settings-save">${icon("check")} Save</button><span class="status-msg" id="settings-status"></span></div>
           </div>
+          <div class="card" id="tenants-card">
+            <div class="card-head"><h2>Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
+            <div class="note">Other organizations' tenants this dashboard scans. Each gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read). Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
+            <div class="status-msg" id="tenants-status"></div>
+            <div id="tenants-list"><div class="empty-state">Loading…</div></div>
+            <div id="tenant-form"></div>
+          </div>
         </div>`;
       page.addEventListener("click", onClick);
       page.addEventListener("change", onChange);
@@ -30,6 +37,8 @@ const Settings = (() => {
     if (sel.matches("select[data-auth-type]")) applyAuthType(sel);
   }
   async function onClick(e) {
+    const t = e.target.closest("[data-tenant-new],[data-tenant-edit],[data-tenant-del],[data-tenant-test],[data-tenant-save],[data-tenant-cancel]");
+    if (t) return tenantClick(t);
     const el = e.target.closest("#settings-save,[data-clear],[data-test]");
     if (!el) return;
     if (el.id === "settings-save") return saveClicked(el);
@@ -37,21 +46,21 @@ const Settings = (() => {
     if (el.dataset.test !== undefined) return testConnection(el);
   }
 
+  // Rows with data-auth-only show only for the auth types they list.
   function applyAuthType(sel) {
     const group = sel.closest(".settings-group");
     if (!group) return;
-    const hide = sel.value === "managed-identity";
-    for (const row of $$("[data-secret-auth-only]", group)) row.classList.toggle("hidden", hide);
+    for (const row of $$("[data-auth-only]", group)) row.classList.toggle("hidden", !row.dataset.authOnly.split(",").includes(sel.value));
   }
 
   function fieldHtml(f) {
-    const rowAttrs = f.secretAuthOnly ? ' data-secret-auth-only="1"' : "";
+    const rowAttrs = Array.isArray(f.authOnly) ? ` data-auth-only="${esc(f.authOnly.join(","))}"` : "";
     const labelHtml = `<label>${esc(f.label)}${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ""}</label>`;
     let control;
     if (Array.isArray(f.options)) {
       // Options come as {value, label} from the server; accept plain strings too.
       const current = f.value || f.envDefault || f.defaultValue || "";
-      control = `<select class="select" data-setting="${esc(f.key)}" data-auth-type="1" data-fallback="${esc(f.envDefault || f.defaultValue || "")}">${f.options
+      control = `<select class="select" data-setting="${esc(f.key)}"${/AZURE_AUTH_TYPE$/.test(f.key) ? ' data-auth-type="1"' : ""} data-fallback="${esc(f.envDefault || f.defaultValue || "")}">${f.options
         .map((o) => (o && typeof o === "object" ? { value: String(o.value), label: String(o.label || o.value) } : { value: String(o), label: String(o) }))
         .map((o) => `<option value="${esc(o.value)}"${o.value === current ? " selected" : ""}>${esc(o.label)}</option>`)
         .join("")}</select>`;
@@ -108,6 +117,152 @@ const Settings = (() => {
     }
     rows.innerHTML = html || `<div class="empty-state">No settings are exposed by this server.</div>`;
     for (const sel of $$("select[data-auth-type]", rows)) applyAuthType(sel);
+    loadTenants();
+  }
+
+  /* ---------- customer tenants ---------- */
+  const tn = { list: [], defaults: {}, editing: null };
+
+  async function loadTenants() {
+    const status = $("#tenants-status");
+    try {
+      const r = await apiJson("/api/tenants");
+      tn.list = Array.isArray(r.tenants) ? r.tenants : [];
+      tn.defaults = r.defaults || {};
+      setStatus(status, "");
+    } catch (err) {
+      tn.list = [];
+      setStatus(status, `Could not load tenants: ${err.message}`, "error");
+    }
+    renderTenants();
+  }
+
+  function renderTenants() {
+    const el = $("#tenants-list");
+    if (!el) return;
+    if (!tn.list.length) {
+      el.innerHTML = `<div class="empty-state">No customer tenants. Only this tenant is scanned.</div>`;
+    } else {
+      el.innerHTML = tableHtml(
+        [{ label: "Tenant" }, { label: "Sign-in" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
+        tn.list.map((t) => [
+          `<div class="name-cell"><div class="primary">${esc(t.name)}${t.enabled ? "" : ' <span class="tag">off</span>'}</div><div class="secondary mono">${esc(t.key)} · ${esc(t.tenantId)}</div></div>`,
+          `<div class="name-cell"><div class="primary">${t.authType === "secret" ? `Client secret${t.hasSecret ? "" : ' <span class="secondary bad">missing</span>'}` : "Federated"}</div><div class="secondary mono">${esc(t.clientId || "no client ID")}</div></div>`,
+          t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
+          `<div class="name-cell"><div class="primary mono">${esc(t.container || "")}</div><div class="secondary">from ${esc(t.source)}</div></div>`,
+          `<div class="tenant-actions"><button type="button" class="btn small ghost" data-tenant-test="${esc(t.key)}">Test</button><button type="button" class="btn small ghost" data-tenant-edit="${esc(t.key)}">Edit</button>${
+            t.source === "terraform"
+              ? ""
+              : t.source === "settings"
+                ? `<button type="button" class="btn small ghost" data-tenant-del="${esc(t.key)}">Remove</button>`
+                : `<button type="button" class="btn small ghost" data-tenant-del="${esc(t.key)}" data-tenant-reset="1" title="Drop the changes made here and use what Terraform set">Reset</button>`
+          }<div class="test-result" data-test-out="${esc(t.key)}"></div></div>`,
+        ])
+      );
+    }
+    renderTenantForm();
+  }
+
+  function tenantRow(label, hint, control, authOnly) {
+    return `<div class="settings-row"${authOnly ? ` data-auth-only="${authOnly}"` : ""}><label>${esc(label)}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</label><div class="field">${control}</div></div>`;
+  }
+  function renderTenantForm() {
+    const el = $("#tenant-form");
+    if (!el) return;
+    const e = tn.editing;
+    if (!e) {
+      el.innerHTML = "";
+      return;
+    }
+    const t = e.key ? tn.list.find((x) => x.key === e.key) || {} : {};
+    const input = (name, value, ph, extra) => `<input class="input" type="text" data-tf="${name}" value="${esc(value || "")}" placeholder="${esc(ph || "")}"${extra || ""} />`;
+    const auth = t.authType || "federated";
+    // Values equal to the server defaults show as blank (= use the default).
+    const own = (v, def) => (v && v !== def ? v : "");
+    el.innerHTML = `<div class="tenant-form settings-group">
+      <h3>${e.key ? `Edit ${esc(t.name || e.key)}` : "New customer tenant"}</h3>
+      ${tenantRow("Key", "Lowercase letters, digits, - or _. Names the roles Admin-<key> / User-<key> and the storage container; cannot be changed later.", input("key", e.key, "acme", e.key ? " disabled" : ""))}
+      ${tenantRow("Name", "Shown on the tab and next to findings.", input("name", t.name, "Acme AS"))}
+      ${tenantRow("Tenant ID", "The customer's Entra tenant ID.", input("tenantId", t.tenantId, "00000000-0000-0000-0000-000000000000"))}
+      ${tenantRow("Sign-in", "", `<select class="select" data-tf="authType" data-auth-type="1"><option value="federated"${auth === "federated" ? " selected" : ""}>Federated: the app registration trusts this app's managed identity (no secret)</option><option value="secret"${auth === "secret" ? " selected" : ""}>Client secret: an app registration in that tenant</option></select>`)}
+      ${tenantRow("App (client) ID", `Blank = ${tn.defaults.clientId || "TENANT_APP_CLIENT_ID (not set)"}`, input("clientId", own(t.clientId, tn.defaults.clientId), tn.defaults.clientId || ""))}
+      ${tenantRow("Managed identity it trusts", `Client ID of the user-assigned identity in the federated credential. Blank = ${tn.defaults.miClientId || "not set"}`, input("miClientId", own(t.miClientId, tn.defaults.miClientId), tn.defaults.miClientId || ""), "federated")}
+      ${tenantRow("Client secret", t.hasSecret ? "Set. Leave blank to keep it." : "Not set.", `<input class="input" type="password" data-tf="clientSecret" placeholder="leave blank to keep current value" autocomplete="new-password" />${t.hasSecret ? '<label class="check"><input type="checkbox" data-tf="clearSecret" /> Clear</label>' : ""}`, "secret")}
+      ${tenantRow("Subscriptions", "Comma-separated IDs; blank = every subscription it can see.", input("subscriptionIds", (t.subscriptionIds || []).join(", "), "all"))}
+      ${tenantRow("Scan", "", `<label class="check"><input type="checkbox" data-tf="enabled"${t.enabled === false ? "" : " checked"} /> Scan this tenant</label>`)}
+      <div class="save-bar"><button type="button" class="btn primary" data-tenant-save="1">Save tenant</button><button type="button" class="btn ghost" data-tenant-cancel="1">Cancel</button><span class="status-msg" id="tenant-form-status"></span></div>
+    </div>`;
+    applyAuthType($("select[data-tf=authType]", el));
+  }
+
+  async function tenantClick(el) {
+    const d = el.dataset;
+    const status = $("#tenants-status");
+    if (d.tenantNew !== undefined) {
+      tn.editing = { key: "" };
+      renderTenantForm();
+      $("#tenant-form [data-tf=key]").focus();
+    } else if (d.tenantEdit !== undefined) {
+      tn.editing = { key: d.tenantEdit };
+      renderTenantForm();
+      $("#tenant-form").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else if (d.tenantCancel !== undefined) {
+      tn.editing = null;
+      renderTenantForm();
+    } else if (d.tenantDel !== undefined) {
+      const reset = d.tenantReset !== undefined;
+      const ask = reset ? `Reset ${d.tenantDel} to what Terraform set? Changes made here are dropped.` : `Remove ${d.tenantDel}? Its stored results stay in storage but are no longer shown.`;
+      if (!window.confirm(ask)) return;
+      try {
+        const r = await apiJson(`/api/tenants/${encodeURIComponent(d.tenantDel)}`, { method: "DELETE" });
+        tn.list = r.tenants || [];
+        if (tn.editing && tn.editing.key === d.tenantDel) tn.editing = null;
+        setStatus(status, reset ? `${d.tenantDel} reset to the Terraform values.` : `${d.tenantDel} removed. Reload the page to update the tabs.`, "ok");
+        renderTenants();
+      } catch (err) {
+        setStatus(status, `${reset ? "Reset" : "Remove"} failed: ${err.message}`, "error");
+      }
+    } else if (d.tenantTest !== undefined) {
+      const out = $(`[data-test-out="${CSS.escape(d.tenantTest)}"]`);
+      el.disabled = true;
+      out.className = "test-result";
+      out.textContent = "Testing…";
+      try {
+        const r = await postJson(`/api/tenants/${encodeURIComponent(d.tenantTest)}/test`, {});
+        out.className = `test-result ${r.ok && r.graph === "ok" ? "good" : "bad"}`;
+        out.textContent = r.ok ? (r.graph === "ok" ? "OK: Azure and Graph tokens" : `Azure OK; Graph: ${r.graph}`) : `Failed: ${r.error || "unknown error"}`;
+      } catch (err) {
+        out.className = "test-result bad";
+        out.textContent = `Failed: ${err.message}`;
+      }
+      el.disabled = false;
+    } else if (d.tenantSave !== undefined) {
+      const form = $("#tenant-form");
+      const val = (n) => {
+        const f = $(`[data-tf="${n}"]`, form);
+        return !f ? undefined : f.type === "checkbox" ? f.checked : f.value.trim();
+      };
+      const body = {
+        key: tn.editing.key || val("key"),
+        name: val("name"), tenantId: val("tenantId"), authType: val("authType"), clientId: val("clientId"),
+        miClientId: val("miClientId"), subscriptionIds: val("subscriptionIds"), enabled: val("enabled"),
+      };
+      if (val("clientSecret")) body.clientSecret = val("clientSecret");
+      if (val("clearSecret")) body.clearSecret = true;
+      const fstatus = $("#tenant-form-status");
+      el.disabled = true;
+      setStatus(fstatus, "Saving…");
+      try {
+        const r = await postJson("/api/tenants", body);
+        tn.list = r.tenants || [];
+        tn.editing = null;
+        setStatus(status, `${body.key} saved. Reload the page to update the tabs.`, "ok");
+        renderTenants();
+      } catch (err) {
+        el.disabled = false;
+        setStatus(fstatus, `Save failed: ${err.message}`, "error");
+      }
+    }
   }
 
   async function save() {

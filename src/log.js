@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { LOG_DIR } = require("./paths");
+const tenantContext = require("./tenantContext");
 const LOG_FILE = path.join(LOG_DIR, "runs.jsonl");
 
 function ensureLogDir() {
@@ -17,7 +18,8 @@ function record(entry) {
   fs.appendFileSync(LOG_FILE, line);
 }
 
-function readAll({ limit = 200, tool } = {}) {
+// tenants: only entries for these tenant keys (null = everything).
+function readAll({ limit = 200, tool, tenants } = {}) {
   ensureLogDir();
   if (!fs.existsSync(LOG_FILE)) return [];
   const lines = fs.readFileSync(LOG_FILE, "utf8").trim().split("\n").filter(Boolean);
@@ -29,6 +31,7 @@ function readAll({ limit = 200, tool } = {}) {
     }
   });
   if (tool) entries = entries.filter((e) => e.tool === tool);
+  if (tenants) entries = entries.filter((e) => e.tenant && tenants.includes(e.tenant));
   return entries.slice(-limit).reverse();
 }
 

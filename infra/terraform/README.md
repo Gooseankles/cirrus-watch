@@ -51,13 +51,70 @@ Any entry turns the default action to Deny, so every other address gets a 403 fr
 the app. The Kudu (scm) site follows the same rules. Sign-in keeps working because the Entra redirect goes through
 the user's own browser. Empty lists (the default) leave the site open to the internet, with sign-in still required.
 
+## Customer tenants
+
+```hcl
+customers = {
+  acme = {
+    name             = "Acme AS"
+    tenant_id        = "00000000-0000-0000-0000-000000000000"
+    subscription_ids = []                   # empty = every subscription the scan app can see there
+    admin_members    = ["<user object id>"] # Admin-acme: read and run Acme's scans
+    user_members     = ["<user object id>"] # User-acme: read Acme only
+  }
+}
+```
+
+Each key (lowercase letters, digits, - or _) names the app roles `Admin-<key>` and `User-<key>`, the role groups
+and the storage container `dashboard-<key>`. With at least one customer, Terraform adds:
+
+- a user-assigned managed identity `id-<name>-customers` on the web app, used only for customer sign-ins;
+- one multi-tenant app registration, the scan app, with a federated credential that trusts that identity (no
+  secret) and the Graph application permissions the scans need (`create_customer_scan_app = false` uses
+  `customer_scan_app_client_id` or each customer's own `client_id` instead);
+- a storage container per customer.
+
+Permissions in the customer tenant are granted by hand. `terraform output customer_onboarding` prints, per
+customer, the admin-consent link for their Global Administrator and the `az role assignment create` commands for
+Reader, Cost Management Reader and Key Vault Reader. A customer that uses its own app registration (`client_id`)
+gets the federated credential values to add to it instead.
+
+## Role groups
+
+With `create_role_groups = true` (the default), every role (Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;) gets an
+Entra security group assigned to that app role; `admin_principal_ids`, `user_principal_ids` and each customer's
+`admin_members` / `user_members` become members. Later, add people to the groups (`role_groups` output) in Entra;
+one person can be in several customers' groups. Assigning groups to app roles needs Entra ID P1 or P2. Set it to
+`false` to assign people to the roles directly, as before 0.11.
+
+**Upgrading:** with groups on, the direct Admin/User assignments of an earlier deployment are replaced by the
+groups (same people). Whoever runs Terraform then also needs to create groups (Groups Administrator, or
+`Group.ReadWrite.All`).
+
+## Private network
+
+```hcl
+private_network    = true
+vnet_address_space = ["10.90.0.0/24"]  # a VNet is created: /26 for the app, /27 for private endpoints
+```
+
+The web app gets outbound VNet integration and reaches the history storage account through a private endpoint
+(with a `privatelink.blob.core.windows.net` private DNS zone linked to the VNet), and the storage account's public
+network access is turned off. To use an existing network instead, set `vnet_integration_subnet_id` (delegated to
+`Microsoft.Web/serverFarms`), `private_endpoint_subnet_id` and, if the DNS zone lives in a hub,
+`blob_private_dns_zone_id`. `vnet_route_all = true` sends all outbound traffic through the VNet (it then needs a
+NAT gateway or firewall for internet access). The App Service plan must support VNet integration (Basic or higher).
+Terraform creates the containers through the storage data plane, so run it from a network that can reach the
+private endpoint, or apply once with `private_network = false` first so the containers exist.
+
 ## Who can run it
 
 - `Contributor` on the subscription for the app itself.
 - `Owner`, `User Access Administrator` or `Role Based Access Control Administrator` on each `shared_spn_access` scope.
 - Entra: `Application Administrator` (app registration), and `Privileged Role Administrator` or Global
   Administrator for the Graph permissions. Set `grant_graph_permissions = false` if you do not have that role
-  and ask an admin to grant them later.
+  and ask an admin to grant them later. With `create_role_groups` (the default) also `Groups Administrator`.
+- `Network Contributor` (on the subscription, or on the existing VNet) when `private_network = true`.
 - azurerm 5 registers no resource providers by itself. The root provider block registers `Microsoft.Web`,
   `Microsoft.Storage` and `Microsoft.ManagedIdentity`, which needs rights on the subscription; if they are already
   registered and you lack those rights, remove `resource_providers_to_register` from `versions.tf`.
@@ -68,8 +125,8 @@ Some tenants hand out app registrations only through a request process. Then:
 
 1. Set `create_sso_app = false` (and an `admin_password` so you can get in meanwhile) and apply. This builds the
    web app and the user-assigned identity, with SSO off.
-2. Run `terraform output -raw sso_app_request` and send that text to the team. It lists the redirect URI, the two
-   app roles, "assignment required", and the federated credential (issuer, subject = the identity's object ID,
+2. Run `terraform output -raw sso_app_request` and send that text to the team. It lists the redirect URI, the
+   app roles (Admin, User and a pair per customer), "assignment required", and the federated credential (issuer, subject = the identity's object ID,
    audience), so no secret is needed.
 3. Put the client ID they send back in `sso_app_client_id` (and `sso_client_secret` only if they gave a secret
    instead of the federated credential) and apply again. The team assigns people to Admin/User.
@@ -110,7 +167,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.10.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -129,9 +186,10 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.10.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.11.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
-`history_storage_url`) in `modules/dashboard/outputs.tf`.
+`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers`, the scan app's client IDs and
+`private_network`) in `modules/dashboard/outputs.tf`.
 
 ## Policy check
 

@@ -564,6 +564,8 @@ dialog.dialog h2 { margin-bottom: 10px; }
 .perm-hint .perm-row .k { color: var(--muted); flex-basis: 100%; font-size: 0.76rem; }
 .perm-hint code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 0.76rem; }
 .perm-hint p { margin-top: 8px; }
+.perm-hint .err-list { margin: 6px 0 0 18px; padding: 0; color: var(--critical-text); overflow-wrap: anywhere; }
+.perm-hint .err-list li { margin-top: 3px; }
 
 /* --- Activity log --- */
 .act-action { white-space: nowrap; }

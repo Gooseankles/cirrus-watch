@@ -1502,12 +1502,22 @@ async function runTool(id) {
     renderScan(id);
   }
 }
-// Next to a failed scan: the permissions its identity needs, the usual cause.
+// Next to a failed scan: what failed, and when Graph or Azure refused, the
+// permissions its identity needs.
+const REFUSED = /\b40[13]\b|Forbidden|Authorization_?RequestDenied|AuthorizationFailed|Unauthorized|refused|permission|licen[cs]e|Premium|insufficient privileges/i;
 function permsHint(id) {
   const t = toolState(id);
   const n = (TOOL_BY_ID[id] || {}).needs;
-  const failed = t.runError || Object.keys(t.tenantErrors || {}).length || (t.data.findings || []).some((f) => f.kind === "scan-error");
-  if (!n || !failed) return "";
+  const errs = [];
+  if (t.runError) errs.push(t.runError);
+  for (const [k, e] of Object.entries(t.tenantErrors || {})) errs.push(`${k}: ${typeof e === "string" ? e : (e && e.error) || "failed"}`);
+  for (const f of t.data.findings || []) if (f.kind === "scan-error") errs.push(`${f.name}: ${f.detail || ""}`);
+  if (!errs.length) return "";
+  const when = t.data.ranAt ? ` From the run at ${fmt.dateTime(t.data.ranAt)}; errors stay until the next run.` : "";
+  const list = `<ul class="err-list">${errs.slice(0, 6).map((e) => `<li>${esc(String(e).slice(0, 400))}</li>`).join("")}${errs.length > 6 ? `<li class="muted">and ${errs.length - 6} more</li>` : ""}</ul>`;
+  if (!n || !errs.some((e) => REFUSED.test(e))) {
+    return `<div class="perm-hint">${icon("shield")}<div><b>Part of the last run failed</b>${list}<p class="muted">This does not look like a missing permission. Running the scan again often clears it.${when}</p></div></div>`;
+  }
   const codes = (xs) => xs.map((x) => `<code>${esc(x)}</code>`).join(" ");
   const rows = [
     n.graph && n.graph.length ? `<div class="perm-row"><span class="k">Microsoft Graph application permissions, with admin consent</span><span>${codes(n.graph)}</span></div>` : "",
@@ -1516,7 +1526,7 @@ function permsHint(id) {
   ].join("");
   const where = state.me && state.me.multiTenant ? " In a customer tenant that is the customer's own app registration." : "";
   const how = !(state.me && state.me.isAdmin) ? " An admin can check it in Settings." : state.me.multiTenant ? " Settings → Customer tenants → Test (or Test connection for the home tenant) lists what is missing." : " Settings → Test connection lists what is missing.";
-  return `<div class="perm-hint">${icon("shield")}<div><b>Does the scan identity have these permissions?</b>${rows}<p class="muted">A missing permission, role or licence is the usual reason a scan fails.${where}${how}</p></div></div>`;
+  return `<div class="perm-hint">${icon("shield")}<div><b>The scan was refused access</b>${list}<p class="muted">What this scan needs:</p>${rows}<p class="muted">${where.trim()}${how}${when} A permission granted in the last day may not reach the scans yet (tokens are cached up to 24 hours).</p></div></div>`;
 }
 function renderPermsHint(id) {
   const el = $("#scan-perms");

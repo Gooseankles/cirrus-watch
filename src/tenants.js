@@ -4,9 +4,10 @@
 // A tenant comes from DASHBOARD_TENANTS (a JSON list, set by Terraform) and/or
 // the Settings page (DATA_DIR/tenants.json). A Settings entry with the same key
 // overrides the Terraform one field by field. Each customer tenant has its own
-// app registration (clientId), made there by hand, with a federated credential
-// that trusts the web app's user-assigned managed identity
-// (TENANT_FEDERATED_MI_CLIENT_ID), so no secret exists anywhere.
+// app registration (clientId), made there by hand, and the dashboard signs in
+// as it with a client secret entered in Settings (never in Terraform). Entra
+// does not let an app trust a managed identity of another tenant (AADSTS700236),
+// so a secretless sign-in into a customer's own app is not possible.
 // The key is what the per-customer app roles use: Admin-<key> and User-<key>.
 const fs = require("fs");
 const path = require("path");
@@ -18,10 +19,10 @@ const { HOME } = require("./tenantContext");
 const FILE = path.join(DATA_DIR, "tenants.json");
 const KEY_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FIELDS = ["name", "tenantId", "clientId", "subscriptionIds", "enabled"];
-// Fields of 0.11.0.0 (secret or another identity per tenant); dropped from
-// tenants.json on the next save of that tenant.
-const OLD_FIELDS = ["authType", "clientSecret", "miClientId"];
+const FIELDS = ["name", "tenantId", "clientId", "clientSecret", "subscriptionIds", "enabled"];
+// Fields of 0.11.0.x (federated sign-in); dropped from tenants.json on the next
+// save of that tenant.
+const OLD_FIELDS = ["authType", "miClientId"];
 
 function readFile() {
   try {
@@ -77,7 +78,7 @@ function customers() {
       name: String(t.name || key),
       tenantId: String(t.tenantId || "").trim(),
       clientId: String(t.clientId || "").trim(),
-      miClientId: federation().miClientId,
+      clientSecret: String(t.clientSecret || "").trim(),
       subscriptionIds: toList(t.subscriptionIds),
       enabled: t.enabled !== false && t.enabled !== "false",
       source: t.source,
@@ -98,17 +99,6 @@ function validate(t) {
   if (t.clientId && !GUID_RE.test(t.clientId)) return "clientId must be a GUID";
   if (t.subscriptionIds.some((s) => !GUID_RE.test(s))) return "subscriptionIds must be GUIDs";
   return null;
-}
-
-// The identity every customer app registration trusts, and the values its
-// federated credential needs (Terraform sets them when customers exist).
-function federation() {
-  return {
-    miClientId: String(process.env.TENANT_FEDERATED_MI_CLIENT_ID || "").trim(),
-    issuer: String(process.env.TENANT_FEDERATED_ISSUER || "").trim(),
-    subject: String(process.env.TENANT_FEDERATED_SUBJECT || "").trim(),
-    audience: "api://AzureADTokenExchange",
-  };
 }
 
 function home() {
@@ -146,8 +136,9 @@ function isMultiTenant() {
 
 // --- Settings page ---
 
+// Never returns a secret, only whether one is set.
 function listForSettings() {
-  return customers();
+  return customers().map(({ clientSecret, ...t }) => ({ ...t, hasSecret: Boolean(clientSecret) }));
 }
 
 function upsert(body) {
@@ -164,11 +155,17 @@ function upsert(body) {
       entry.enabled = v !== false && v !== "false";
       continue;
     }
+    if (f === "clientSecret") {
+      if (typeof v === "string" && v.trim()) entry.clientSecret = v.trim(); // blank = keep
+      continue;
+    }
     if (f === "subscriptionIds") v = toList(v);
     if (typeof v === "string") v = v.trim();
     if (v === "" || (Array.isArray(v) && !v.length)) delete entry[f];
     else entry[f] = v;
   }
+
+  if (body.clearSecret && !(typeof body.clientSecret === "string" && body.clientSecret.trim())) delete entry.clientSecret;
 
   // Check the result as it will be used (Terraform values included).
   const envBase = readEnv().find((t) => String(t.key).toLowerCase() === key) || {};
@@ -201,4 +198,4 @@ function remove(key) {
   return listForSettings();
 }
 
-module.exports = { HOME, customers, federation, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };
+module.exports = { HOME, customers, home, scanTargets, all, nameOf, byKey, isMultiTenant, listForSettings, upsert, remove, GUID_RE };

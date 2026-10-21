@@ -29,8 +29,7 @@ const Settings = (() => {
           </div>
           <div class="card" id="tenants-card">
             <div class="card-head"><h2 id="tenants-title">Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
-            <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a federated credential using the values below (no secret), give it read permissions, and enter its client ID here or in Terraform. Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
-            <div id="tenants-federation"></div>
+            <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a client secret, give it read permissions, and enter its client ID (here or in Terraform) and its secret (here only; it is never shown again). Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
             <div class="status-msg" id="tenants-status"></div>
             <div id="tenants-list"><div class="empty-state">Loading…</div></div>
             <div id="tenant-form"></div>
@@ -149,14 +148,13 @@ const Settings = (() => {
   }
 
   /* ---------- customer tenants ---------- */
-  const tn = { list: [], federation: {}, editing: null };
+  const tn = { list: [], editing: null };
 
   async function loadTenants() {
     const status = $("#tenants-status");
     try {
       const r = await apiJson("/api/tenants");
       tn.list = Array.isArray(r.tenants) ? r.tenants : [];
-      tn.federation = r.federation || {};
       setStatus(status, "");
     } catch (err) {
       tn.list = [];
@@ -168,19 +166,6 @@ const Settings = (() => {
   function renderTenants() {
     const el = $("#tenants-list");
     if (!el) return;
-    const fed = $("#tenants-federation");
-    if (fed) {
-      const f = tn.federation;
-      fed.innerHTML = f.miClientId
-        ? `<div class="settings-group"><h3>Federated credential for each customer's app registration</h3>
-            <div class="hint">Certificates &amp; secrets → Federated credentials → Add → Other issuer.</div>
-            ${tableHtml([{ label: "Field" }, { label: "Value" }], [
-              ["Issuer", `<span class="mono">${esc(f.issuer || "not set (TENANT_FEDERATED_ISSUER)")}</span>`],
-              ["Subject identifier", `<span class="mono">${esc(f.subject || "not set (TENANT_FEDERATED_SUBJECT)")}</span>`],
-              ["Audience", `<span class="mono">${esc(f.audience)}</span>`],
-            ])}</div>`
-        : `<div class="status-msg error">No managed identity for customer sign-ins (TENANT_FEDERATED_MI_CLIENT_ID), so no customer tenant can be scanned. Terraform creates it when customers has at least one entry.</div>`;
-    }
     const only = scope();
     const list = only ? tn.list.filter((t) => t.key === only.key) : tn.list;
     if (!list.length) {
@@ -190,7 +175,7 @@ const Settings = (() => {
         [{ label: "Tenant" }, { label: "App (client) ID" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
         list.map((t) => [
           `<div class="name-cell"><div class="primary">${esc(t.name)}${t.enabled ? "" : ' <span class="tag">off</span>'}</div><div class="secondary mono">${esc(t.key)} · ${esc(t.tenantId)}</div></div>`,
-          t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>',
+          `<div class="name-cell"><div class="primary">${t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>'}</div><div class="secondary">${t.hasSecret ? "secret set" : '<span class="bad">no secret</span>'}</div></div>`,
           t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
           `<div class="name-cell"><div class="primary mono">${esc(t.container || "")}</div><div class="secondary">from ${esc(t.source)}</div></div>`,
           `<div class="tenant-actions"><button type="button" class="btn small ghost" data-tenant-test="${esc(t.key)}">Test</button><button type="button" class="btn small ghost" data-tenant-edit="${esc(t.key)}">Edit</button>${
@@ -224,7 +209,10 @@ const Settings = (() => {
       ${tenantRow("Key", "Lowercase letters, digits, - or _. Names the roles Admin-<key> / User-<key> and the storage container; cannot be changed later.", input("key", e.key, "acme", e.key ? " disabled" : ""))}
       ${tenantRow("Name", "Shown on the tab and next to findings.", input("name", t.name, "Acme AS"))}
       ${tenantRow("Tenant ID", "The customer's Entra tenant ID.", input("tenantId", t.tenantId, "00000000-0000-0000-0000-000000000000"))}
-      ${tenantRow("App (client) ID", "The app registration made in that tenant, with the federated credential shown above.", input("clientId", t.clientId, "00000000-0000-0000-0000-000000000000"))}
+      ${tenantRow("App (client) ID", "The app registration made in that tenant.", input("clientId", t.clientId, "00000000-0000-0000-0000-000000000000"))}
+      ${tenantRow("Client secret", "Certificates & secrets → New client secret on that app; paste its Value. Stored on the server, never shown again.", `<input class="input" type="password" data-tf="clientSecret" autocomplete="new-password" placeholder="${t.hasSecret ? "set; leave blank to keep" : "not set"}" />${
+        t.hasSecret ? '<label class="check"><input type="checkbox" data-tf="clearSecret" /> Remove the stored secret</label>' : ""
+      }`)}
       ${tenantRow("Subscriptions", "Comma-separated IDs; blank = every subscription it can see.", input("subscriptionIds", (t.subscriptionIds || []).join(", "), "all"))}
       ${tenantRow("Scan", "", `<label class="check"><input type="checkbox" data-tf="enabled"${t.enabled === false ? "" : " checked"} /> Scan this tenant</label>`)}
       <div class="save-bar"><button type="button" class="btn primary" data-tenant-save="1">Save tenant</button><button type="button" class="btn ghost" data-tenant-cancel="1">Cancel</button><span class="status-msg" id="tenant-form-status"></span></div>
@@ -281,6 +269,7 @@ const Settings = (() => {
       const body = {
         key: tn.editing.key || val("key"),
         name: val("name"), tenantId: val("tenantId"), clientId: val("clientId"),
+        clientSecret: val("clientSecret"), clearSecret: val("clearSecret") === true,
         subscriptionIds: val("subscriptionIds"), enabled: val("enabled"),
       };
       const fstatus = $("#tenant-form-status");

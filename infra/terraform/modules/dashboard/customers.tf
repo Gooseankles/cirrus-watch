@@ -1,13 +1,12 @@
 # --- Customer tenants ---
 #
 # Each customer tenant gets an app registration there, made by hand, with a
-# federated credential that trusts the web app's customer-scan managed identity
-# below, so no secret exists (output customer_onboarding has the values).
+# client secret that is entered in the dashboard's Settings (never here, so it
+# is not in the Terraform state). Output customer_onboarding has the steps.
 # Nothing here touches a customer tenant.
 
 locals {
-  has_customers        = length(var.customers) > 0
-  customer_fic_subject = local.has_customers ? azurerm_user_assigned_identity.customers[0].principal_id : ""
+  has_customers = length(var.customers) > 0
 
   # What the app reads from DASHBOARD_TENANTS.
   dashboard_tenants = [
@@ -24,16 +23,6 @@ locals {
   }
 
   scan_roles = ["Reader", "Cost Management Reader", "Key Vault Reader"]
-}
-
-# Used only to sign in to customer tenants (as their app registrations), so
-# sign-in logs there show this identity and nothing else.
-resource "azurerm_user_assigned_identity" "customers" {
-  count               = local.has_customers ? 1 : 0
-  name                = "id-${var.name}-customers"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  tags                = var.tags
 }
 
 

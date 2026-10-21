@@ -132,10 +132,7 @@ const withStorage = (list) => {
   return list.map((t) => ({ ...t, container: blob ? store.containerName(t.key) : `tenants/${t.key}` }));
 };
 app.get("/api/tenants", auth.requireRole("Admin"), (req, res) => {
-  res.json({
-    tenants: withStorage(tenants.listForSettings()),
-    federation: tenants.federation(),
-  });
+  res.json({ tenants: withStorage(tenants.listForSettings()) });
 });
 app.post("/api/tenants", auth.requireRole("Admin"), (req, res) => {
   try {

@@ -38,11 +38,6 @@ output "role_groups" {
   value       = module.dashboard.role_groups
 }
 
-output "customer_scan_identity_client_id" {
-  description = "Client ID of the managed identity each customer's app registration trusts."
-  value       = module.dashboard.customer_scan_identity_client_id
-}
-
 output "customer_containers" {
   description = "History storage container per customer."
   value       = module.dashboard.customer_containers

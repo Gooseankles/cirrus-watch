@@ -7,7 +7,8 @@
 // A tool's own identity is all-or-nothing, never mixed with the shared one.
 //
 // While a scan runs for a customer tenant (tenantContext), every tool uses that
-// tenant's identity instead; history storage always stays on the home one.
+// tenant's identity instead (its own app registration and client secret);
+// history storage always stays on the home one.
 const crypto = require("crypto");
 const { ClientSecretCredential, ClientAssertionCredential, ManagedIdentityCredential } = require("@azure/identity");
 const settings = require("./settings");
@@ -59,16 +60,16 @@ function resolveSpn(toolId) {
   return { source, authType: "secret", tenantId, clientId: id.clientId, clientSecret: id.clientSecret };
 }
 
-// A customer tenant's identity (its own app registration, signed in to with
-// the web app's managed identity), in the same shape as resolveSpn.
+// A customer tenant's identity (its own app registration and client secret),
+// in the same shape as resolveSpn.
 function resolveTenantSpn(tenant) {
   if (!tenant.clientId) {
     throw new Error(`customer tenant "${tenant.name}" has no app (client) ID yet: set it in Terraform's customers or in Settings, Customer tenants`);
   }
-  if (!tenant.miClientId) {
-    throw new Error(`customer tenant "${tenant.name}" cannot be scanned: TENANT_FEDERATED_MI_CLIENT_ID is empty (Terraform sets it when customers has an entry)`);
+  if (!tenant.clientSecret) {
+    throw new Error(`customer tenant "${tenant.name}" has no client secret yet: enter it in Settings, Customer tenants, Edit`);
   }
-  return { source: `tenant:${tenant.key}`, authType: "federated", tenantId: tenant.tenantId, clientId: tenant.clientId, miClientId: tenant.miClientId };
+  return { source: `tenant:${tenant.key}`, authType: "secret", tenantId: tenant.tenantId, clientId: tenant.clientId, clientSecret: tenant.clientSecret };
 }
 
 function federatedAssertion(miClientId) {
@@ -150,7 +151,7 @@ async function testTenant(tenant) {
     }
     return { ok: true, ...describe(spn), graph };
   } catch (err) {
-    return { ok: false, ...(spn ? describe(spn) : { source: null, authType: "federated", clientId: tenant.clientId || null }), error: errorText(err) };
+    return { ok: false, ...(spn ? describe(spn) : { source: null, authType: "secret", clientId: tenant.clientId || null }), error: errorText(err) };
   }
 }
 

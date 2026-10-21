@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.1.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.11.1.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.11.2.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -123,12 +123,13 @@ gets a tab at the top of the page ("All tenants" shows them together, with the t
 storage container, and its own roles (above). Its scans run in that tenant as that tenant's app registration; the
 home tenant keeps using the shared SPN.
 
-Each customer tenant has its own app registration, made there by hand, with a federated credential that trusts a
-user-assigned managed identity of the web app (`id-<name>-customers`), so no secret exists. Give that app the Graph
-application permissions (with admin consent) and Reader, Cost Management Reader and Key Vault Reader on the
-subscriptions, then put its client ID in Terraform's `customers` (`client_id`) or in Settings. `terraform output
-customer_onboarding` prints every step and value per customer, and Settings → Customer tenants shows the federated
-credential values; Terraform never touches a customer tenant.
+Each customer tenant has its own app registration, made there by hand, with a client secret. Give that app the
+Graph application permissions (with admin consent) and Reader, Cost Management Reader and Key Vault Reader on the
+subscriptions, put its client ID in Terraform's `customers` (`client_id`) or in Settings, and paste its secret in
+Settings → Customer tenants → Edit (only there, so it never lands in the Terraform state; the page shows whether one
+is set, never the value). `terraform output customer_onboarding` prints every step per customer; Terraform never
+touches a customer tenant. A secretless sign-in is not possible here: Entra does not let an app trust a managed
+identity of another tenant.
 
 Customers come from Terraform (`customers`, passed to the app as `DASHBOARD_TENANTS`); Settings → Customer tenants
 lists them, tests each one and can change the client ID, name or subscriptions or turn scanning off. On a

@@ -178,9 +178,9 @@ variable "customers" {
     - or _; it names the app roles Admin-<key> and User-<key>, the Entra groups and the storage container).
       name             shown in the tenant tabs
       tenant_id        the customer's Entra tenant ID
-      client_id        the app registration made in that tenant (with a federated credential that trusts this
-                       dashboard; see the customer_onboarding output). Empty until it exists; it can also be set in
-                       the app's Settings.
+      client_id        the app registration made in that tenant (see the customer_onboarding output). Empty until
+                       it exists; it can also be set in the app's Settings. Its client secret is entered only in
+                       the app's Settings, so it never lands in the Terraform state.
       subscription_ids limit the scans to these subscriptions (empty = every one the app can see there)
       enabled          false = keep the customer but stop scanning it
       admin_members    object IDs of users who get Admin-<key> (read and run scans for this customer)

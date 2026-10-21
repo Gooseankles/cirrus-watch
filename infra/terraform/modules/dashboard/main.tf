@@ -56,11 +56,10 @@ resource "azurerm_linux_web_app" "this" {
   virtual_network_subnet_id = local.app_subnet_id
 
   # System-assigned: the scan tools in the home tenant (blank client ID in
-  # Settings). User-assigned: SSO, and (with customers) signing in to
-  # customer tenants as their app registrations.
+  # Settings). User-assigned: SSO.
   identity {
     type         = "SystemAssigned, UserAssigned"
-    identity_ids = concat([azurerm_user_assigned_identity.sso.id], local.has_customers ? [azurerm_user_assigned_identity.customers[0].id] : [])
+    identity_ids = [azurerm_user_assigned_identity.sso.id]
   }
 
   site_config {
@@ -123,12 +122,7 @@ resource "azurerm_linux_web_app" "this" {
       STORAGE_CONTAINER      = azurerm_storage_container.history[0].name
       HISTORY_RETENTION_DAYS = tostring(var.history_retention_days)
     } : {},
-    local.has_customers ? {
-      DASHBOARD_TENANTS             = jsonencode(local.dashboard_tenants)
-      TENANT_FEDERATED_MI_CLIENT_ID = azurerm_user_assigned_identity.customers[0].client_id
-      TENANT_FEDERATED_ISSUER       = local.sso_fic_issuer
-      TENANT_FEDERATED_SUBJECT      = local.customer_fic_subject
-    } : {},
+    local.has_customers ? { DASHBOARD_TENANTS = jsonencode(local.dashboard_tenants) } : {},
     length(var.scan_subscription_ids) > 0 ? { AZURE_SUBSCRIPTION_IDS = join(",", var.scan_subscription_ids) } : {},
     var.admin_password != "" ? { DASHBOARD_ADMIN_PASSWORD = var.admin_password } : {},
     var.extra_app_settings,

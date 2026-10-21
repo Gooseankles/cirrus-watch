@@ -68,26 +68,19 @@ output "role_groups" {
   value       = { for role, g in azuread_group.role : role => g.object_id }
 }
 
-output "customer_scan_identity_client_id" {
-  description = "Client ID of the managed identity each customer's app registration trusts (null without customers)."
-  value       = local.has_customers ? azurerm_user_assigned_identity.customers[0].client_id : null
-}
-
 output "customer_containers" {
   description = "History storage container per customer."
   value       = local.customer_containers
 }
 
 output "customer_onboarding" {
-  description = "Per customer: the app registration to make in that tenant (no secret) and the permissions to give it. Terraform does not touch customer tenants."
+  description = "Per customer: the app registration to make in that tenant and the permissions to give it. Terraform does not touch customer tenants."
   value = {
     for k, c in var.customers : k => join("\n", concat([
       "${c.name} (tenant ${c.tenant_id})",
       "1. In that tenant, register an app (single tenant), e.g. \"Azure tools dashboard\". ${c.client_id != "" ? "Set: ${c.client_id}." : "Then put its Application (client) ID in customers.${k}.client_id (or in Settings) and apply."}",
-      "2. On the app: Certificates & secrets > Federated credentials > Add > Other issuer:",
-      "     issuer:   ${local.sso_fic_issuer}",
-      "     subject:  ${local.customer_fic_subject}   (object ID of managed identity id-${var.name}-customers)",
-      "     audience: api://AzureADTokenExchange",
+      "2. On the app: Certificates & secrets > Client secrets > New client secret. Paste its Value in the dashboard:",
+      "     Settings > Customer tenants > ${k} > Edit > Client secret (never in Terraform). Note the expiry date.",
       "3. API permissions > Microsoft Graph > Application: ${join(", ", var.graph_permissions)}; then Grant admin consent.",
       "4. Read roles for it, per subscription (or on a management group):",
       ], [

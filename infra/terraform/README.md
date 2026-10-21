@@ -69,17 +69,21 @@ customers = {
 Each key (lowercase letters, digits, - or _) names the app roles `Admin-<key>` and `User-<key>`, the role groups
 and the storage container `dashboard-<key>`. With at least one customer, Terraform adds:
 
-- a user-assigned managed identity `id-<name>-customers` on the web app, used only for customer sign-ins;
 - a storage container per customer.
 
-In each customer tenant, by hand: register an app, add a federated credential that trusts that identity (no
-secret), give it the Graph application permissions with admin consent and Reader, Cost Management Reader and Key
-Vault Reader, then set its `client_id` and apply again (or enter it in Settings). `terraform output
-customer_onboarding` prints the steps, the issuer and subject values and the `az role assignment create` commands
-per customer. So the first apply can run before the app registrations exist.
+In each customer tenant, by hand: register an app, give it a client secret, the Graph application permissions with
+admin consent and Reader, Cost Management Reader and Key Vault Reader. Set its `client_id` and apply again (or
+enter it in Settings), and paste the secret in the dashboard's Settings → Customer tenants → Edit. The secret is
+never a Terraform value, so it stays out of the state. `terraform output customer_onboarding` prints the steps and
+the `az role assignment create` commands per customer. So the first apply can run before the app registrations
+exist.
 
-**Upgrading from 0.11.0.0:** the shared multi-tenant scan app is gone (`create_customer_scan_app` and
-`customer_scan_app_client_id` were removed); the next apply deletes it if it was created.
+A customer's own app cannot trust the dashboard's managed identity instead of a secret: Entra refuses a managed
+identity of another tenant in a federated credential (AADSTS700236).
+
+**Upgrading from 0.11.0.x / 0.11.1.0:** the shared multi-tenant scan app (0.11.0.0) and the managed identity
+`id-<name>-customers` (0.11.0.1) are gone; the next apply deletes them. Federated credentials added to customer
+apps for that identity can be deleted; give each app a client secret instead.
 
 ## Role groups
 
@@ -169,7 +173,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.1.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -188,9 +192,9 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.11.1.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.11.2.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
-`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers`, `customer_scan_identity_client_id` and
+`history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.
 
 ## Policy check

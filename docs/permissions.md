@@ -38,13 +38,13 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `Application.Read.All` | App registration secret and certificate expiry |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2) |
-| `AuditLog.Read.All` | Stale accounts (last sign-in) and admins' MFA registration; both need Entra ID P1 or P2 |
+| `AuditLog.Read.All` | Stale accounts (last sign-in), MFA coverage and admins' MFA registration; all need Entra ID P1 or P2 |
 | `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
 | `LicenseAssignment.Read.All` | Licence coverage: the licences the tenant owns |
 | `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup` | Licence coverage: who is eligible or time-bound in PIM for Groups |
 
-All of these only read. Without P1 the stale accounts scan and the MFA check report that the licence is
+All of these only read. Without P1 the stale accounts and MFA coverage scans and the admin MFA check report that the licence is
 missing; the other checks still run.
 
 No Entra directory role is needed.

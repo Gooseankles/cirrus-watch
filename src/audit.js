@@ -84,7 +84,7 @@ const RULES = [
 
 // The page sends which page it opened (scan results load in the background
 // for the overview, so a data request alone does not say someone looked).
-const PAGE = /^(overview|lookup|report(\/\d{4}-\d{2})?|cost|audit|settings|scan\/[\w-]{1,60})$/;
+const PAGE = /^(overview|lookup|report(\/\d{4}-\d{2})?|compliance|cost|audit|settings|scan\/[\w-]{1,60})$/;
 function pageView(req, res) {
   const route = String((req.body && req.body.route) || "");
   if (!PAGE.test(route)) return res.status(400).json({ error: "unknown page" });

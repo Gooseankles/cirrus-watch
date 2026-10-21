@@ -123,6 +123,7 @@ const TOOLS = [
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
   { id: "privileged-roles", group: "identity", label: "Privileged roles", icon: "crown", schedule: "Daily at 05:00", sub: "Who holds the powerful Entra roles: too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is in use, and admins with no MFA registered." },
   { id: "stale-accounts", group: "identity", label: "Stale accounts", icon: "userx", schedule: "Daily at 05:30", sub: "Enabled members and guests with no sign-in for a long time, accounts that never signed in and guest invitations never accepted. Sign-in data needs Microsoft Entra ID P1." },
+  { id: "mfa-coverage", group: "identity", label: "MFA coverage", icon: "user", schedule: "Daily at 05:50", sub: "Enabled member accounts with no MFA method registered, and accounts that can only use a phone call or text message. Admins are covered by Privileged roles, guests by their own organisation. Needs Microsoft Entra ID P1." },
   { id: "conditional-access", group: "identity", label: "Conditional Access", icon: "lock", schedule: "Daily at 05:45", sub: "Gaps in Conditional Access: no MFA for all users or for admins, legacy sign-in not blocked, policies left in report-only and policies with long exclusion lists." },
   { id: "app-permissions", group: "identity", label: "App permissions", icon: "grid", schedule: "Daily at 05:15", sub: "Apps with Microsoft Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, and whether users may consent to any app themselves." },
   { id: "licence-coverage", group: "identity", label: "Licence coverage", icon: "badge", schedule: "Daily at 06:00", sub: "How many Entra ID P1, P2 and ID Governance licences the features in use need, against how many the tenant owns. Counts the people in scope of Conditional Access, with PIM eligible or time-bound roles (Entra roles, Azure roles, PIM for Groups) and with access packages. Guests are billed per monthly active user and shown apart." },
@@ -232,6 +233,8 @@ const KINDS = {
   "stale-guest": ["Stale guest", "warn"],
   "never-signed-in": ["Never signed in", "warn"],
   "guest-invite-pending": ["Invite not accepted", ""],
+  "user-no-mfa": ["No MFA registered", "warn"],
+  "mfa-weak-only": ["Phone or SMS only", ""],
   "ca-none": ["No Conditional Access", "crit"],
   "ca-no-mfa-all-users": ["No MFA for all users", "crit"],
   "ca-no-admin-mfa": ["No MFA for admins", "crit"],
@@ -533,6 +536,9 @@ function render() {
   } else if (r.page === "report") {
     pageId = "page-report";
     show = () => Report.show(r.arg);
+  } else if (r.page === "compliance") {
+    pageId = "page-compliance";
+    show = () => ComplianceView.show();
   } else if (r.page === "cost") {
     pageId = "page-cost";
     show = () => Cost.show();
@@ -564,7 +570,7 @@ function render() {
 function buildNav() {
   const me = state.me || {};
   const groups = [
-    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }] },
+    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }, { route: "compliance", label: "Compliance", icon: "policy" }] },
     ...TOOL_GROUPS.map((g) => ({
       label: g.label,
       items: [

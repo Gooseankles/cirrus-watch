@@ -25,6 +25,7 @@ const NEEDS = {
     licence: "Entra ID P1 for the MFA check, P2 for PIM",
   },
   "stale-accounts": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (sign-in activity)" },
+  "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
   "conditional-access": { graph: ["Policy.Read.All"], licence: "Entra ID P1" },
   "app-permissions": { graph: ["Application.Read.All", "DelegatedPermissionGrant.Read.All", "Policy.Read.All"] },
   "licence-coverage": {

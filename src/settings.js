@@ -68,6 +68,7 @@ const FIELDS = [
   { key: "CHANGE_LOG_HOURS", label: "Changes from the last (hours)", group: "Change log", hint: "Match the schedule (daily); blank = 24, at most 336" },
   { key: "STALE_ACCOUNT_DAYS", label: "Member accounts are stale after (days)", group: "Stale accounts", hint: "Days without a sign-in; blank = 90" },
   { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
+  { key: "MFA_NEW_USER_DAYS", label: "Leave new accounts alone for (days)", group: "MFA coverage", hint: "Time to set up MFA before an account is flagged; blank = 14" },
   { key: "CA_MAX_EXCLUSIONS", label: "Flag a policy excluding more than", group: "Conditional Access", hint: "Excluded users, groups and roles together; blank = 5" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
@@ -97,6 +98,7 @@ const TOOL_SPNS = [
   { id: "change-log", label: "Change log" },
   { id: "privileged-roles", label: "Privileged roles" },
   { id: "stale-accounts", label: "Stale accounts" },
+  { id: "mfa-coverage", label: "MFA coverage" },
   { id: "conditional-access", label: "Conditional Access" },
   { id: "app-permissions", label: "App permissions" },
   { id: "licence-coverage", label: "Licence coverage" },

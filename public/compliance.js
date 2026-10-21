@@ -1,9 +1,10 @@
 "use strict";
-/* Compliance mapping: the framework controls each kind of finding bears on, shown as tags on the scan pages and
-   counted in the monthly report. A pointer for auditors, not a full assessment: a finding shows a control is not
-   met somewhere; no finding does not prove it is met.
-   cis = CIS Critical Security Controls v8 (safeguard numbers), nis2 = NIS2 Directive Article 21(2) (point letters). */
-const FRAMEWORKS = { cis: "CIS Controls v8", nis2: "NIS2 Art. 21(2)" };
+/* Compliance mapping: the framework controls each kind of finding bears on, shown as tags on the scan pages, counted
+   in the monthly report and laid out per control on the Compliance page. A pointer for auditors, not a full
+   assessment: a finding shows a control is not met somewhere; no finding does not prove it is met.
+   cis = CIS Critical Security Controls v8 (safeguard numbers), nis2 = NIS2 Directive Article 21(2) (point letters),
+   nsm = NSM Grunnprinsipper for IKT-sikkerhet v2.1 (principle numbers; Norway's baseline, also for the public sector). */
+const FRAMEWORKS = { nis2: "NIS2 Art. 21(2)", nsm: "NSM ICT security principles 2.1", cis: "CIS Controls v8" };
 
 const CONTROLS = {
   "cis:1.1": "Detailed enterprise asset inventory",
@@ -14,7 +15,6 @@ const CONTROLS = {
   "cis:3.11": "Encrypt sensitive data at rest",
   "cis:4.1": "Secure configuration process",
   "cis:4.4": "Firewall on servers",
-  "cis:5.1": "Inventory of accounts",
   "cis:5.3": "Disable dormant accounts",
   "cis:5.4": "Administrator privileges on dedicated accounts",
   "cis:5.5": "Inventory of service accounts",
@@ -28,60 +28,92 @@ const CONTROLS = {
   "cis:11.2": "Automated backups",
   "cis:11.3": "Protect recovery data",
   "cis:12.2": "Secure network architecture",
-  "cis:15.1": "Inventory of service providers",
   "nis2:a": "Risk analysis and information system security policies",
   "nis2:b": "Incident handling",
   "nis2:c": "Business continuity, backups and disaster recovery",
   "nis2:d": "Supply chain security",
   "nis2:e": "Security in acquisition, development and maintenance",
   "nis2:f": "Assessing the effectiveness of measures",
+  "nis2:g": "Cyber hygiene and security training",
   "nis2:h": "Cryptography and encryption",
   "nis2:i": "Access control and asset management",
   "nis2:j": "Multi-factor authentication",
+  "nsm:1.1": "Map governance, deliveries and supporting systems",
+  "nsm:1.2": "Map devices and software",
+  "nsm:1.3": "Map users and their access needs",
+  "nsm:2.1": "Security in acquisition and development",
+  "nsm:2.2": "Secure ICT architecture",
+  "nsm:2.3": "Secure configuration",
+  "nsm:2.4": "Protect the network",
+  "nsm:2.5": "Control data flow",
+  "nsm:2.6": "Control identities and access (2.6.7: MFA)",
+  "nsm:2.7": "Protect data at rest and in transit",
+  "nsm:2.8": "Protect e-mail and browser",
+  "nsm:2.9": "Be able to restore data",
+  "nsm:2.10": "Security in change management",
+  "nsm:3.1": "Find and remove known vulnerabilities and threats",
+  "nsm:3.2": "Security monitoring",
+  "nsm:3.3": "Analyse monitoring data",
+  "nsm:3.4": "Penetration tests",
+  "nsm:4.1": "Prepare for incident handling",
+  "nsm:4.2": "Assess and classify incidents",
+  "nsm:4.3": "Contain and handle incidents",
+  "nsm:4.4": "Evaluate and learn from incidents",
 };
 
-const ASSETS = ["cis:1.1", "nis2:i"];
-const ACCESS = ["cis:6.8", "nis2:i"];
-const POLICY = ["cis:4.1", "nis2:a", "nis2:f"];
-const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i"];
-const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e"];
-const BACKUP = ["cis:11.2", "nis2:c"];
-const ADMINS = ["cis:5.4", "cis:6.8", "nis2:i"];
-const DORMANT = ["cis:5.3", "nis2:i"];
-const MFA = ["cis:6.3", "cis:6.5", "nis2:j"];
-const APPS = ["cis:5.5", "cis:6.8", "nis2:d", "nis2:i"];
+const ASSETS = ["cis:1.1", "nis2:i", "nsm:1.2"];
+const ACCESS = ["cis:6.8", "nis2:i", "nsm:2.6"];
+const POLICY = ["cis:4.1", "nis2:a", "nis2:f", "nsm:2.3"];
+const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i", "nsm:2.4"];
+const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e", "nsm:3.1"];
+const BACKUP = ["cis:11.2", "nis2:c", "nsm:2.9"];
+const RECOVERY = ["cis:11.3", "nis2:c", "nsm:2.9"];
+const ADMINS = ["cis:5.4", "cis:6.8", "nis2:i", "nsm:2.6"];
+const DORMANT = ["cis:5.3", "nis2:i", "nsm:1.3", "nsm:2.6"];
+const MFA = ["cis:6.3", "cis:6.5", "nis2:j", "nsm:2.6"];
+const USER_MFA = ["cis:6.3", "nis2:j", "nsm:2.6"];
+const ADMIN_MFA = ["cis:6.5", "nis2:j", "nsm:2.6"];
+const APPS = ["cis:5.5", "cis:6.8", "nis2:d", "nis2:i", "nsm:2.6"];
+const KEYS = ["cis:3.11", "nis2:h", "nsm:2.7"];
+const IN_TRANSIT = ["cis:3.10", "nis2:h", "nsm:2.7"];
+const DATA_OPEN = ["cis:3.3", "nis2:i", "nsm:2.5"];
+const SECRET_READERS = ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6"];
+const LOGS = ["cis:8.2", "nis2:b", "nsm:3.2"];
+const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6"];
+const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6"];
+const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
   "orphaned-nic": ASSETS,
-  "unused-public-ip": ["cis:1.1", "cis:12.2", "nis2:i"],
+  "unused-public-ip": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4"],
   "empty-resource-group": ASSETS,
   "missing-tags": ASSETS,
-  "stale-direct-assignment": ["cis:6.8", "cis:6.2", "nis2:i"],
-  "stale-group-assignment": ["cis:6.8", "cis:6.2", "nis2:i"],
-  "app-credential-expiring": ["cis:5.5", "nis2:i"],
-  "keyvault-cert-expiring": ["cis:3.10", "nis2:h"],
-  "kv-soft-delete-off": ["cis:11.3", "nis2:c"],
-  "kv-purge-protection-off": ["cis:11.3", "nis2:c"],
-  "kv-public-network": ["cis:3.3", "cis:12.2", "nis2:i"],
+  "stale-direct-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
+  "stale-group-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
+  "app-credential-expiring": ["cis:5.5", "nis2:i", "nsm:2.6"],
+  "keyvault-cert-expiring": IN_TRANSIT,
+  "kv-soft-delete-off": RECOVERY,
+  "kv-purge-protection-off": RECOVERY,
+  "kv-public-network": ["cis:3.3", "cis:12.2", "nis2:i", "nsm:2.4"],
   "kv-access-policies": ACCESS,
-  "kv-expired": ["cis:3.11", "nis2:h"],
-  "kv-expiring": ["cis:3.11", "nis2:h"],
-  "kv-no-expiry": ["cis:3.11", "nis2:h"],
-  "kv-broad-secret-access": ["cis:3.3", "cis:6.8", "nis2:i"],
-  "kv-many-readers": ["cis:3.3", "cis:6.8", "nis2:i"],
-  "kv-guest-access": ["cis:3.3", "cis:6.8", "nis2:i"],
-  "kv-deleted-principal": ["cis:6.2", "nis2:i"],
-  "kv-no-diagnostics": ["cis:8.2", "nis2:b"],
+  "kv-expired": KEYS,
+  "kv-expiring": KEYS,
+  "kv-no-expiry": KEYS,
+  "kv-broad-secret-access": SECRET_READERS,
+  "kv-many-readers": SECRET_READERS,
+  "kv-guest-access": SECRET_READERS,
+  "kv-deleted-principal": REVOKE,
+  "kv-no-diagnostics": LOGS,
   "kv-no-owner-tag": ASSETS,
   "kv-empty": ASSETS,
   "kv-unused": ASSETS,
-  "access-package-expiring": ["cis:6.1", "nis2:i"],
-  "access-package-auto-approved-no-expiry": ["cis:6.1", "cis:6.2", "nis2:i"],
-  "access-package-duplicate-name": ["cis:6.1", "nis2:i"],
-  "access-package-pending-too-long": ["cis:6.1", "nis2:i"],
-  "access-package-single-approver": ["cis:6.1", "nis2:i"],
-  "access-package-unused": ["cis:6.1", "nis2:i"],
-  "orphaned-assignment": ["cis:6.2", "nis2:i"],
+  "access-package-expiring": PACKAGES,
+  "access-package-auto-approved-no-expiry": ["cis:6.1", "cis:6.2", "nis2:i", "nsm:2.6"],
+  "access-package-duplicate-name": PACKAGES,
+  "access-package-pending-too-long": PACKAGES,
+  "access-package-single-approver": PACKAGES,
+  "access-package-unused": PACKAGES,
+  "orphaned-assignment": REVOKE,
   "probe-not-blocked": POLICY,
   "probe-only-audited": POLICY,
   "enforcement-off": POLICY,
@@ -99,77 +131,140 @@ const KIND_CONTROLS = {
   "nsg-open-db-port": EXPOSED,
   "nsg-open-all-ports": EXPOSED,
   "nsg-open-unattached": EXPOSED,
-  "vm-public-ip": ["cis:12.2", "nis2:i"],
-  "storage-public-container": ["cis:3.3", "nis2:i"],
-  "storage-public-allowed": ["cis:3.3", "nis2:i"],
+  "vm-public-ip": ["cis:12.2", "nis2:i", "nsm:2.4"],
+  "storage-public-container": DATA_OPEN,
+  "storage-public-allowed": DATA_OPEN,
   "db-firewall-open-all": EXPOSED,
   "db-firewall-azure-services": EXPOSED,
   "db-firewall-wide-range": EXPOSED,
-  "tls-old-allowed": ["cis:3.10", "nis2:h"],
+  "tls-old-allowed": IN_TRANSIT,
   "aks-unsupported": SUPPORT,
   "aks-oldest-supported": SUPPORT,
   "runtime-end-of-support": SUPPORT,
   "runtime-support-ending": SUPPORT,
   "os-end-of-support": SUPPORT,
   "os-support-ending": SUPPORT,
-  "retirement-past": ["cis:2.2", "nis2:e"],
-  "retirement-soon": ["cis:2.2", "nis2:e"],
-  "retirement-planned": ["cis:2.2", "nis2:e"],
+  "retirement-past": RETIRING,
+  "retirement-soon": RETIRING,
+  "retirement-planned": RETIRING,
   "vm-no-backup": BACKUP,
   "backup-stopped": BACKUP,
   "backup-failing": BACKUP,
   "backup-stale": BACKUP,
-  "vault-soft-delete-off": ["cis:11.3", "nis2:c"],
-  "vault-lrs": ["cis:11.3", "nis2:c"],
-  "no-diagnostic-setting": ["cis:8.2", "nis2:b"],
-  "activity-log-not-exported": ["cis:8.2", "nis2:b"],
+  "vault-soft-delete-off": RECOVERY,
+  "vault-lrs": RECOVERY,
+  "no-diagnostic-setting": LOGS,
+  "activity-log-not-exported": LOGS,
   "quota-near-limit": ["nis2:c"],
   "quota-at-limit": ["nis2:c"],
   "too-many-global-admins": ADMINS,
-  "too-few-global-admins": ["cis:5.4", "nis2:c"],
+  "too-few-global-admins": ["cis:5.4", "nis2:c", "nsm:2.6"],
   "privileged-guest": ADMINS,
-  "privileged-app": ["cis:5.5", "cis:6.8", "nis2:i"],
+  "privileged-app": ["cis:5.5", "cis:6.8", "nis2:i", "nsm:2.6"],
   "privileged-group": ADMINS,
-  "privileged-disabled": ["cis:6.2", "nis2:i"],
+  "privileged-disabled": REVOKE,
   "privileged-standing": ADMINS,
-  "privileged-no-mfa": ["cis:6.5", "nis2:j"],
+  "privileged-no-mfa": ADMIN_MFA,
   "stale-user": DORMANT,
   "stale-guest": DORMANT,
   "never-signed-in": DORMANT,
   "guest-invite-pending": DORMANT,
+  "user-no-mfa": USER_MFA,
+  "mfa-weak-only": USER_MFA,
   "ca-none": MFA,
   "ca-no-mfa-all-users": MFA,
-  "ca-no-admin-mfa": ["cis:6.5", "nis2:j"],
+  "ca-no-admin-mfa": ADMIN_MFA,
   "ca-legacy-auth-not-blocked": MFA,
-  "ca-report-only": ["cis:4.1", "nis2:j"],
-  "ca-many-exclusions": ["cis:6.3", "nis2:j"],
-  "security-defaults-only": ["nis2:j"],
+  "ca-report-only": ["cis:4.1", "nis2:j", "nsm:2.6"],
+  "ca-many-exclusions": USER_MFA,
+  "security-defaults-only": ["nis2:j", "nsm:2.6"],
   "app-takeover-permission": APPS,
   "app-broad-data-permission": APPS,
   "app-risky-delegated-consent": APPS,
-  "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d"],
+  "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
-  "storage-public-blob": ["cis:3.3", "nis2:i"],
-  "storage-http": ["cis:3.10", "nis2:h"],
-  "storage-old-tls": ["cis:3.10", "nis2:h"],
-  "public-ip": ["cis:12.2"],
-  "keyvault-no-purge-protection": ["cis:11.3", "nis2:c"],
-  "sql-public-network": ["cis:12.2", "nis2:i"],
-  "untagged-resource": ["cis:1.1"],
+  "storage-public-blob": DATA_OPEN,
+  "storage-http": IN_TRANSIT,
+  "storage-old-tls": IN_TRANSIT,
+  "public-ip": ["cis:12.2", "nsm:2.4"],
+  "keyvault-no-purge-protection": RECOVERY,
+  "sql-public-network": ["cis:12.2", "nis2:i", "nsm:2.4"],
+  "untagged-resource": ["cis:1.1", "nsm:1.2"],
+};
+// The kinds each scan can report, so the Compliance page knows which scans look at a control (a scan that ran and
+// found nothing counts as "no findings" for every control its kinds map to).
+const TOOL_KINDS = {
+  "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group"],
+  "tag-compliance": ["missing-tags"],
+  "access-review": ["stale-direct-assignment", "stale-group-assignment"],
+  "secret-expiry": ["app-credential-expiring"],
+  "key-vault": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("kv-")),
+  "access-packages": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("access-package-")),
+  "role-assignments": ["orphaned-assignment"],
+  "policy-check": ["probe-not-blocked", "probe-only-audited", "enforcement-off", "effect-disabled", "definition-missing", "identity-missing",
+    "identity-lacks-roles", "remediation-failed", "remediation-not-run", "evaluates-nothing", "exemption-no-expiry", "exemption-expired", "exemption-expiring"],
+  "internet-exposure": ["nsg-open-admin-port", "nsg-open-db-port", "nsg-open-all-ports", "nsg-open-unattached", "vm-public-ip", "storage-public-container",
+    "storage-public-allowed", "db-firewall-open-all", "db-firewall-azure-services", "db-firewall-wide-range"],
+  "end-of-support": ["aks-unsupported", "aks-oldest-supported", "runtime-end-of-support", "runtime-support-ending", "os-end-of-support", "os-support-ending", "tls-old-allowed"],
+  "service-retirements": ["retirement-past", "retirement-soon", "retirement-planned"],
+  "backup-coverage": ["vm-no-backup", "backup-stopped", "backup-failing", "backup-stale", "vault-soft-delete-off", "vault-lrs"],
+  "diagnostic-settings": ["no-diagnostic-setting", "activity-log-not-exported"],
+  quotas: ["quota-near-limit", "quota-at-limit"],
+  "privileged-roles": ["too-many-global-admins", "too-few-global-admins", "privileged-guest", "privileged-app", "privileged-group", "privileged-disabled",
+    "privileged-standing", "privileged-no-mfa"],
+  "stale-accounts": ["stale-user", "stale-guest", "never-signed-in", "guest-invite-pending"],
+  "mfa-coverage": ["user-no-mfa", "mfa-weak-only"],
+  "conditional-access": ["ca-none", "ca-no-mfa-all-users", "ca-no-admin-mfa", "ca-legacy-auth-not-blocked", "ca-report-only", "ca-many-exclusions", "security-defaults-only"],
+  "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
+};
+// Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".
+const MANUAL = {
+  "nis2:b": "Incident response plan, reporting to the CSIRT within 24 hours",
+  "nis2:d": "Supplier contracts and their security terms",
+  "nis2:e": "Secure development and vulnerability disclosure",
+  "nis2:f": "Audits and tests of the measures (this page helps)",
+  "nis2:g": "Training for staff and management",
+  "nsm:1.1": "Governance, risk owners and deliveries written down",
+  "nsm:2.2": "Network design and segmentation (Internet exposure shows what is open)",
+  "nsm:2.8": "E-mail filtering, SPF, DKIM, DMARC, browser hardening",
+  "nsm:2.10": "Change management (the Change log shows what changed)",
+  "nsm:3.3": "Someone reads and acts on the monitoring data",
+  "nsm:3.4": "Penetration tests now and then",
+  "nsm:4.1": "Incident plan and exercises",
+  "nsm:4.2": "Incident classification",
+  "nsm:4.3": "Incident handling",
+  "nsm:4.4": "Lessons learned after incidents",
 };
 
+const byRef = (a, b) => a.fw.localeCompare(b.fw) || a.ref.localeCompare(b.ref, "en", { numeric: true });
 const Compliance = {
   FRAMEWORKS,
   CONTROLS,
+  MANUAL,
   // [{ id: "cis:5.3", fw: "cis", ref: "5.3", label: "CIS 5.3", title }]
   of(f) {
     const ids = new Set([...(KIND_CONTROLS[f.kind] || []), ...((f.probe && PROBE_CONTROLS[f.probe]) || [])]);
-    return [...ids].map(Compliance.control).sort((a, b) => a.fw.localeCompare(b.fw) || a.ref.localeCompare(b.ref, "en", { numeric: true }));
+    return [...ids].map(Compliance.control).sort(byRef);
   },
   control(id) {
     const [fw, ref] = id.split(":");
-    return { id, fw, ref, label: fw === "cis" ? `CIS ${ref}` : `NIS2 (${ref})`, title: CONTROLS[id] || "" };
+    const label = fw === "cis" ? `CIS ${ref}` : fw === "nsm" ? `NSM ${ref}` : `NIS2 (${ref})`;
+    return { id, fw, ref, label, title: CONTROLS[id] || "" };
+  },
+  // Every control of one framework, in order.
+  controlsOf(fw) {
+    return Object.keys(CONTROLS).filter((id) => id.startsWith(fw + ":")).map(Compliance.control).sort(byRef);
+  },
+  // Control id -> [tool ids] that can report on it.
+  coverage() {
+    const map = {};
+    for (const [tool, kinds] of Object.entries(TOOL_KINDS)) {
+      const ids = new Set(kinds.flatMap((k) => KIND_CONTROLS[k] || []));
+      if (tool === "policy-check") for (const p of Object.values(PROBE_CONTROLS)) p.forEach((id) => ids.add(id));
+      for (const id of ids) (map[id] = map[id] || []).push(tool);
+    }
+    return map;
   },
 };

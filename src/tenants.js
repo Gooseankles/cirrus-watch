@@ -196,7 +196,8 @@ function remove(key) {
     const fromEnv = readEnv().some((t) => t && String(t.key).toLowerCase() === k);
     throw new Error(fromEnv ? "this tenant is set by Terraform; remove it there" : "no such tenant");
   }
-  writeFile(readFile().filter((t) => String(t.key).toLowerCase() !== String(key).toLowerCase()));
+  writeFile(readFile().filter((t) => String(t.key).toLowerCase() !== k));
+  if (!readEnv().some((t) => t && String(t.key).toLowerCase() === k)) settings.dropTenant(k);
   return listForSettings();
 }
 

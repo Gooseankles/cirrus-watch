@@ -3,12 +3,19 @@
 // override here wins over .env; leaving a plain field blank falls back to
 // .env (or that tool's own built-in default). Secret fields (client
 // secrets, passwords) work differently — see setMany below.
+//
+// Fields marked perTenant (the tools' thresholds and options) can also be set
+// per customer tenant (DATA_DIR/tenant-settings.json); while a scan runs for
+// that tenant, its value wins over the home one. Blank = the home value.
 const fs = require("fs");
 const path = require("path");
 
 const { DATA_DIR } = require("./paths");
 
+const { HOME, current } = require("./tenantContext");
+
 const SETTINGS_PATH = path.join(DATA_DIR, "settings.json");
+const TENANT_SETTINGS_PATH = path.join(DATA_DIR, "tenant-settings.json");
 
 const AUTH_TYPES = [
   { value: "secret", label: "Client secret" },
@@ -52,6 +59,9 @@ const FIELDS = [
   { key: "ACCESS_PACKAGE_STALE_PENDING_DAYS", label: "Pending request stale age (days)", group: "Access packages" },
   { key: "ACCESS_PACKAGE_UNUSED_AGE_DAYS", label: "Unused package age (days)", group: "Access packages" },
 ];
+// Everything from "Role assignments" down is a tool option a customer tenant
+// may set differently.
+for (const f of FIELDS.slice(FIELDS.findIndex((x) => x.key === "ROLE_ASSIGNMENT_LIMIT_WARN_PCT"))) f.perTenant = true;
 
 // Optional least-privilege SPN per tool. A tool uses its own SPN only when
 // its client ID is set; otherwise it uses the shared one above. These apply to
@@ -102,17 +112,54 @@ function writeOverrides(overrides) {
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(overrides, null, 2));
 }
 
-// What a tool calls instead of reading process.env directly, so an admin's
-// override (including the SPN itself) takes effect without restarting.
-function get(key) {
+// { "<tenant key>": { KEY: value } }
+function readTenantOverrides() {
+  try {
+    const all = JSON.parse(fs.readFileSync(TENANT_SETTINGS_PATH, "utf8"));
+    return all && typeof all === "object" && !Array.isArray(all) ? all : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTenantOverrides(all) {
+  fs.mkdirSync(path.dirname(TENANT_SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(TENANT_SETTINGS_PATH, JSON.stringify(all, null, 2));
+}
+
+const PER_TENANT_KEYS = new Set(FIELDS.filter((f) => f.perTenant).map((f) => f.key));
+const isCustomer = (tenantKey) => Boolean(tenantKey) && tenantKey !== HOME;
+
+function homeValue(key) {
   const overrides = readOverrides();
   if (overrides[key] !== undefined && overrides[key] !== "") return overrides[key];
   return process.env[key];
 }
 
+// What a tool calls instead of reading process.env directly, so an admin's
+// override (including the SPN itself) takes effect without restarting. In a
+// customer tenant's scan, that tenant's own value comes first.
+function get(key) {
+  const tenant = current();
+  if (tenant && isCustomer(tenant.key) && PER_TENANT_KEYS.has(key)) {
+    const own = (readTenantOverrides()[tenant.key] || {})[key];
+    if (own !== undefined && own !== "") return own;
+  }
+  return homeValue(key);
+}
+
 // Secret fields never round-trip their real value to the browser — only
-// whether something is currently set, and where it came from.
-function getAll() {
+// whether something is currently set, and where it came from. For a customer
+// tenant: only the perTenant fields, with homeValue as what blank means.
+function getAll(tenantKey) {
+  if (isCustomer(tenantKey)) {
+    const own = readTenantOverrides()[tenantKey] || {};
+    return FIELDS.filter((f) => f.perTenant).map((f) => ({
+      ...f,
+      value: own[f.key] !== undefined && own[f.key] !== "" ? own[f.key] : "",
+      homeValue: homeValue(f.key) || "",
+    }));
+  }
   const overrides = readOverrides();
   return FIELDS.map((f) => {
     const hasOverride = overrides[f.key] !== undefined && overrides[f.key] !== "";
@@ -136,9 +183,10 @@ function getAll() {
 // Plain fields: an empty string in `values` clears the override (falls back
 // to .env). Secret fields ignore an empty string (nothing typed = leave the
 // stored secret alone) — clearing one requires listing its key in `clear`.
-function setMany(body) {
+function setMany(body, tenantKey) {
   const values = (body && body.values) || {};
   const clear = (body && body.clear) || [];
+  if (isCustomer(tenantKey)) return setTenant(tenantKey, values);
   const overrides = readOverrides();
 
   for (const key of KEYS) {
@@ -161,4 +209,27 @@ function setMany(body) {
   return getAll();
 }
 
-module.exports = { get, getAll, setMany, FIELDS, TOOL_SPNS, spnPrefix };
+function setTenant(tenantKey, values) {
+  const all = readTenantOverrides();
+  const own = { ...(all[tenantKey] || {}) };
+  for (const key of PER_TENANT_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
+    const v = typeof values[key] === "string" ? values[key].trim() : values[key];
+    if (v === "" || v === null || v === undefined) delete own[key];
+    else own[key] = v;
+  }
+  if (Object.keys(own).length) all[tenantKey] = own;
+  else delete all[tenantKey];
+  writeTenantOverrides(all);
+  return getAll(tenantKey);
+}
+
+// A removed tenant's own settings go with it.
+function dropTenant(tenantKey) {
+  const all = readTenantOverrides();
+  if (!all[tenantKey]) return;
+  delete all[tenantKey];
+  writeTenantOverrides(all);
+}
+
+module.exports = { get, getAll, setMany, dropTenant, FIELDS, TOOL_SPNS, spnPrefix };

@@ -92,12 +92,26 @@ app.get("/api/me", (req, res) => {
 app.use(auth.requireAuth);
 app.use(express.static(path.join(__dirname, "public")));
 
+// ?tenant=<customer key> = that tenant's own tool settings; none or home = the
+// home tenant's, which are also every customer's defaults.
+function settingsTenant(req, res) {
+  const key = String(req.query.tenant || "").toLowerCase();
+  if (!key || key === tenants.HOME) return { key: null };
+  if (!tenants.customers().some((t) => t.key === key)) {
+    res.status(400).json({ error: "no such customer tenant" });
+    return null;
+  }
+  return { key };
+}
 app.get("/api/settings", auth.requireRole("Admin"), (req, res) => {
-  res.json(settings.getAll());
+  const t = settingsTenant(req, res);
+  if (t) res.json(settings.getAll(t.key));
 });
 app.post("/api/settings", auth.requireRole("Admin"), (req, res) => {
+  const t = settingsTenant(req, res);
+  if (!t) return;
   try {
-    res.json(settings.setMany(req.body || {}));
+    res.json(settings.setMany(req.body || {}, t.key));
   } catch (err) {
     console.error(`Saving settings failed: ${err.message}`);
     res.status(500).json({ error: err.message });

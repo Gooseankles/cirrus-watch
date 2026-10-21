@@ -3,13 +3,23 @@
    Uses esc(), $, $$, apiJson, postJson, setStatus and icon from app.js. */
 const Settings = (() => {
   let built = false;
+  let loadSeq = 0;
+
+  // The customer tenant whose own settings the page shows (its tab is open),
+  // or null for the home tenant's, which are every customer's defaults too.
+  function scope() {
+    const k = state.tenant;
+    const t = k && k !== "home" ? tenantList().find((x) => x.key === k) : null;
+    return t ? t : null;
+  }
+  const settingsUrl = () => (scope() ? `/api/settings?tenant=${encodeURIComponent(scope().key)}` : "/api/settings");
 
   function show() {
     const page = $("#page-settings");
     if (!built) {
       page.innerHTML = `
         <div class="page-head">
-          <div><h1>Settings</h1><p class="page-sub">Overrides the matching .env value without a restart. Leave a plain field blank to fall back to .env.</p></div>
+          <div><h1>Settings</h1><p class="page-sub" id="settings-sub"></p></div>
         </div>
         <div class="settings-layout">
           <div class="card">
@@ -18,8 +28,8 @@ const Settings = (() => {
             <div class="save-bar"><button class="btn primary" id="settings-save">${icon("check")} Save</button><span class="status-msg" id="settings-status"></span></div>
           </div>
           <div class="card" id="tenants-card">
-            <div class="card-head"><h2>Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
-            <div class="note">Other organizations' tenants this dashboard scans. In each, make an app registration with a federated credential using the values below (no secret), give it read permissions, and enter its client ID here or in Terraform. Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
+            <div class="card-head"><h2 id="tenants-title">Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
+            <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a federated credential using the values below (no secret), give it read permissions, and enter its client ID here or in Terraform. Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
             <div id="tenants-federation"></div>
             <div class="status-msg" id="tenants-status"></div>
             <div id="tenants-list"><div class="empty-state">Loading…</div></div>
@@ -71,17 +81,34 @@ const Settings = (() => {
         f.isSet ? `<button type="button" class="btn small ghost" data-clear="${esc(f.key)}">Clear</button>` : ""
       }`;
     } else {
-      control = `<input class="input" type="text" data-setting="${esc(f.key)}" placeholder="${esc(f.envDefault || "not set in .env")}" value="${esc(f.value || "")}" />`;
+      const ph = f.homeValue !== undefined ? (f.homeValue ? `Home: ${f.homeValue}` : "same as Home") : f.envDefault || "not set in .env";
+      control = `<input class="input" type="text" data-setting="${esc(f.key)}" placeholder="${esc(ph)}" value="${esc(f.value || "")}" />`;
     }
     return `<div class="settings-row"${rowAttrs}>${labelHtml}<div class="field">${control}</div></div>`;
+  }
+
+  function renderHead() {
+    const t = scope();
+    $("#settings-sub").textContent = t
+      ? `Tool settings for ${t.name} only. Blank = the Home value, shown in grey. Sign-in, storage and the per-tool SPNs are on the Home tab.`
+      : showTenants()
+        ? "The home tenant, and the defaults for every customer tenant (a customer's tab can change its tool settings). Overrides the matching .env value without a restart; leave a plain field blank to fall back to .env."
+        : "Overrides the matching .env value without a restart. Leave a plain field blank to fall back to .env.";
+    $("#tenants-title").textContent = t ? "This tenant" : "Customer tenants";
+    $("#tenants-note").classList.toggle("hidden", Boolean(t));
+    $("[data-tenant-new]").classList.toggle("hidden", Boolean(t));
   }
 
   async function load() {
     const rows = $("#settings-rows");
     const loadStatus = $("#settings-load-status");
+    const seq = ++loadSeq;
+    renderHead();
+    if (scope() && tn.editing && tn.editing.key !== scope().key) tn.editing = null;
     let fields;
     try {
-      fields = await apiJson("/api/settings");
+      fields = await apiJson(settingsUrl());
+      if (seq !== loadSeq) return; // another tab was opened meanwhile
       if (!Array.isArray(fields)) fields = [];
       setStatus(loadStatus, "");
     } catch (err) {
@@ -154,12 +181,14 @@ const Settings = (() => {
             ])}</div>`
         : `<div class="status-msg error">No managed identity for customer sign-ins (TENANT_FEDERATED_MI_CLIENT_ID), so no customer tenant can be scanned. Terraform creates it when customers has at least one entry.</div>`;
     }
-    if (!tn.list.length) {
+    const only = scope();
+    const list = only ? tn.list.filter((t) => t.key === only.key) : tn.list;
+    if (!list.length) {
       el.innerHTML = `<div class="empty-state">No customer tenants. Only this tenant is scanned.</div>`;
     } else {
       el.innerHTML = tableHtml(
         [{ label: "Tenant" }, { label: "App (client) ID" }, { label: "Subscriptions" }, { label: "Storage" }, { label: "" }],
-        tn.list.map((t) => [
+        list.map((t) => [
           `<div class="name-cell"><div class="primary">${esc(t.name)}${t.enabled ? "" : ' <span class="tag">off</span>'}</div><div class="secondary mono">${esc(t.key)} · ${esc(t.tenantId)}</div></div>`,
           t.clientId ? `<span class="mono">${esc(t.clientId)}</span>` : '<span class="bad">not set</span>',
           t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
@@ -277,7 +306,7 @@ const Settings = (() => {
       values[el.dataset.setting] = isFallback ? "" : el.value;
     }
     try {
-      await postJson("/api/settings", { values });
+      await postJson(settingsUrl(), { values });
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

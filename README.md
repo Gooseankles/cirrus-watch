@@ -62,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.0.1"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.1.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.11.0.1" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.11.1.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -131,7 +131,10 @@ customer_onboarding` prints every step and value per customer, and Settings → 
 credential values; Terraform never touches a customer tenant.
 
 Customers come from Terraform (`customers`, passed to the app as `DASHBOARD_TENANTS`); Settings → Customer tenants
-lists them, tests each one and can change the client ID, name or subscriptions or turn scanning off. A tenant added
+lists them, tests each one and can change the client ID, name or subscriptions or turn scanning off. On a
+customer's tab, Settings shows that customer's own tool settings (required tags, warning days, policy probes,
+cost thresholds and the like); blank = the Home value. Sign-in, storage and the per-tool SPNs are set on the Home
+tab only. A tenant added
 only in Settings works, but has no Admin-&lt;key&gt; / User-&lt;key&gt; roles, so only global Admin and User see it. A customer tenant delegated to your tenant with Azure Lighthouse
 can instead be scanned by the home identity like any other subscription; then it does not need to be added here.
 

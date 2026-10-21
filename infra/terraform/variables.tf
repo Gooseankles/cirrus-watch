@@ -3,6 +3,11 @@ variable "subscription_id" {
   type        = string
 }
 
+variable "scan_scopes" {
+  description = "Old name, kept so existing tfvars keep working: each scope gets Reader + Cost Management Reader, same as a shared_spn_access entry without roles. Use shared_spn_access instead."
+  type        = list(string)
+  default     = []
+}
 variable "name" {
   description = "Web app name; must be globally unique. The site becomes https://<name>.azurewebsites.net."
   type        = string
@@ -32,13 +37,29 @@ variable "image" {
   default     = "trozity/azure-ops-dashboard:latest"
 }
 
-variable "scan_scopes" {
+variable "shared_spn_access" {
   description = <<-EOT
-    Scopes the app's system-assigned identity gets Reader and Cost Management Reader on, so the scan tools
-    see every subscription below them. Use management groups, e.g.
-    "/providers/Microsoft.Management/managementGroups/<tenant-id>" for the tenant root group.
-    Empty = no role assignments (grant them yourself).
+    Where the shared SPN (the web app's system-assigned identity, used by every tool without its own SPN
+    override) gets access, and with which Azure roles. Each entry is a scope: a management group
+    ("/providers/Microsoft.Management/managementGroups/<id>"; the tenant root group's ID is the tenant ID), a
+    subscription ("/subscriptions/<id>"), a resource group or a single resource such as a Key Vault. roles
+    defaults to Reader + Cost Management Reader, which is what the scans need. Empty list = no role
+    assignments (grant them yourself).
   EOT
+  type = list(object({
+    scope = string
+    roles = optional(list(string), ["Reader", "Cost Management Reader"])
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for a in var.shared_spn_access : startswith(a.scope, "/")])
+    error_message = "Each shared_spn_access scope must be a full resource ID starting with \"/\", e.g. /subscriptions/<id> or /providers/Microsoft.Management/managementGroups/<id>."
+  }
+}
+
+variable "scan_subscription_ids" {
+  description = "Limit the scans to these subscription IDs (AZURE_SUBSCRIPTION_IDS). Empty = every subscription the shared SPN can see, so new subscriptions under shared_spn_access are picked up automatically."
   type        = list(string)
   default     = []
 }

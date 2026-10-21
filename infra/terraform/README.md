@@ -1,11 +1,16 @@
 # Terraform setup
 
-Creates everything the dashboard needs in one `apply`:
+The deployment is a module, `modules/dashboard`. This folder is a ready-made root configuration that calls it;
+you can also call the module from your own configuration (see [Use the module](#use-the-module)).
+It needs Terraform 1.6 or newer and azurerm 5.x (azuread 3.x, random 3.x).
+
+One `apply` creates:
 
 - Resource group, Linux App Service plan (B1) and the web app running `trozity/azure-ops-dashboard:latest`
   (port 7070, `/home/data` storage, Always On, HTTPS only, random session secret).
-- **Scan identity**: the web app's system-assigned identity, with Reader and Cost Management Reader on each
-  `scan_scopes` entry (use a management group) and the Microsoft Graph application permissions the tools use.
+- **Shared SPN**: the web app's system-assigned identity, used by every tool that has no SPN override in Settings.
+  `shared_spn_access` says where it gets access and with which roles (default Reader and Cost Management Reader,
+  which is all the scans need), plus the Microsoft Graph application permissions the tools use.
 - **Secretless SSO**: an Entra app registration with the Admin and User roles, "assignment required" on, a
   user-assigned identity attached to the web app, and a federated credential so no client secret exists.
 - Role assignments for the users or groups in `admin_principal_ids` and `user_principal_ids`.
@@ -14,13 +19,38 @@ Creates everything the dashboard needs in one `apply`:
   (`history_retention_days`, default 730), so the dashboard shows trends and what was new or resolved in each run.
   Off = results stay on the app's own disk (`/home/data`, 365 days by default).
 
+## Shared SPN access
+
+Each entry is a scope and, optionally, its roles:
+
+```hcl
+shared_spn_access = [
+  # Whole tenant (the tenant root management group's ID is the tenant ID); Reader + Cost Management Reader.
+  { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
+  # One subscription only.
+  { scope = "/subscriptions/<id>" },
+  # A Key Vault for the secret-expiry tool, with a different role.
+  { scope = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<name>",
+    roles = ["Key Vault Certificates Officer"] },
+]
+
+# Optional: scan only these subscriptions (blank = every subscription the shared SPN can see).
+scan_subscription_ids = ["<id>"]
+```
+
+The `shared_spn_role_assignments` output lists what was granted. The old `scan_scopes` list still works (each
+entry becomes a scope with the default roles) but is deprecated; move it to `shared_spn_access`.
+
 ## Who can run it
 
 - `Contributor` on the subscription for the app itself.
-- `Owner` or `User Access Administrator` on each `scan_scopes` entry (for the role assignments).
+- `Owner`, `User Access Administrator` or `Role Based Access Control Administrator` on each `shared_spn_access` scope.
 - Entra: `Application Administrator` (app registration), and `Privileged Role Administrator` or Global
   Administrator for the Graph permissions. Set `grant_graph_permissions = false` if you do not have that role
   and ask an admin to grant them later.
+- azurerm 5 registers no resource providers by itself. The root provider block registers `Microsoft.Web`,
+  `Microsoft.Storage` and `Microsoft.ManagedIdentity`, which needs rights on the subscription; if they are already
+  registered and you lack those rights, remove `resource_providers_to_register` from `versions.tf`.
 
 ## When you may not create app registrations
 
@@ -34,7 +64,7 @@ Some tenants hand out app registrations only through a request process. Then:
 3. Put the client ID they send back in `sso_app_client_id` (and `sso_client_secret` only if they gave a secret
    instead of the federated credential) and apply again. The team assigns people to Admin/User.
 
-Granting the Graph permissions to the scan identity is a separate Entra admin action (Privileged Role
+Granting the Graph permissions to the shared SPN is a separate Entra admin action (Privileged Role
 Administrator); if that is also done by request, set `grant_graph_permissions = false` and ask for
 `User.Read.All`, `GroupMember.Read.All`, `Application.Read.All` and `EntitlementManagement.Read.All` as
 application permissions for the `web_app_principal_id` output.
@@ -53,16 +83,53 @@ terraform apply
 Open the `url` output and sign in. State is local by default; for a team, add an `azurerm` backend
 (storage account) to `versions.tf`.
 
+**Upgrading an existing deployment** (from before the module): run `terraform init -upgrade`, then `plan`. The
+`moved` blocks in `main.tf` carry the resources over to `module.dashboard`, so the plan should show moves and
+no replacements.
+
+## Use the module
+
+The module has no provider blocks; pass your own. The azurerm provider needs `storage_use_azuread = true` when
+`create_history_storage` is on.
+
+```hcl
+provider "azurerm" {
+  features {}
+  subscription_id     = "<id>"
+  storage_use_azuread = true
+}
+
+module "dashboard" {
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=main"
+
+  name     = "contoso-azure-tools"
+  location = "norwayeast"
+
+  shared_spn_access = [
+    { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
+  ]
+  admin_principal_ids = ["<group object id>"]
+}
+
+output "url" {
+  value = module.dashboard.url
+}
+```
+
+Pin `?ref=` to a commit or tag for repeatable deployments. Inputs are in `modules/dashboard/variables.tf`, outputs
+(`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
+`history_storage_url`) in `modules/dashboard/outputs.tf`.
+
 ## Policy check
 
-Needs nothing beyond Reader on `scan_scopes`: it reads assignments, definitions, compliance states, exemptions,
-remediation tasks and the policy identities' role assignments, and its probes call `checkPolicyRestrictions`
-(a read operation; no resource is created). Choose the probes in Settings, Policy check.
+Needs nothing beyond Reader on the shared SPN's scopes: it reads assignments, definitions, compliance states,
+exemptions, remediation tasks and the policy identities' role assignments, and its probes call
+`checkPolicyRestrictions` (a read operation; no resource is created). Choose the probes in Settings, Policy check.
 
 ## Not covered
 
-- Key Vault access for the secret-expiry tool: give `web_app_principal_id` "Key Vault Certificates Officer"
-  (RBAC vaults) or a list/get certificates access policy on each vault.
+- Key Vault access policies (non-RBAC vaults) for the secret-expiry tool: give `web_app_principal_id` list/get
+  certificates on each vault. RBAC vaults can go in `shared_spn_access` as shown above.
 - Subscription creation and decommission need billing rights; give those to a separate identity and set it as
   that tool's SPN override in Settings.
 - A web app you already built by hand is not adopted; either `terraform import` it or let Terraform create a

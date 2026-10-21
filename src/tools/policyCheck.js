@@ -11,6 +11,7 @@
 const { resourceGraphQuery, armGet, armPost, subscriptionIdsToScan } = require("../armClient");
 const settings = require("../settings");
 const log = require("../log");
+const { scanError } = require("./util");
 
 const TOOL_ID = "policy-check";
 const CONCURRENCY = 4;
@@ -485,8 +486,14 @@ async function run() {
   const tally = { blocked: 0, audited: 0, allowed: 0, probeErrors: 0, lookupErrors: 0, assignments: 0, nonCompliant: 0 };
   const subs = await subscriptionIdsToScan(TOOL_ID);
   const results = await Promise.allSettled([runProbes(subs, findings, tally), healthChecks(findings, tally)]);
-  for (const r of results) if (r.status === "rejected") log.record({ tool: TOOL_ID, level: "error", message: r.reason.message });
   if (results.every((r) => r.status === "rejected")) throw results[0].reason;
+  // Shown on the scan page, not only in the log.
+  const names = ["Probes", "Assignment health"];
+  results.forEach((r, i) => {
+    if (r.status === "rejected") findings.push(scanError(TOOL_ID, names[i], `${names[i]} check failed`, String(r.reason.message).slice(0, 300)));
+  });
+  if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, "Those probes were not checked; the log has the first errors"));
+  if (tally.lookupErrors) findings.push(scanError(TOOL_ID, "lookups", `${tally.lookupErrors} definition or remediation lookup(s) failed`, "Those assignments were only partly checked; the log has the first errors"));
   log.record({
     tool: TOOL_ID,
     level: "info",

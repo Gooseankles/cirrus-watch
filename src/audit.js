@@ -66,6 +66,13 @@ function view(req, fields) {
 
 const q = (req, k) => clip(req.query && req.query[k]);
 const b = (req, k) => clip(req.body && req.body[k]);
+// Which settings a save touched (body: { values, clear }); never the values.
+function settingsChanged(body) {
+  const set = Object.keys((body && typeof body.values === "object" && body.values) || {});
+  const cleared = Array.isArray(body && body.clear) ? body.clear.map(String) : [];
+  return [set.length ? `set ${set.join(", ")}` : "", cleared.length ? `cleared ${cleared.join(", ")}` : ""].filter(Boolean).join("; ");
+}
+
 // [method, path, what to log, view?]. Views are de-duplicated; changes never.
 const RULES = [
   ["GET", /^\/api\/tools\/([\w-]+)\/history\/(.+)$/, (m) => ({ action: "view-past-run", target: m[1], detail: clip(decodeURIComponent(m[2]), 40) }), true],
@@ -75,7 +82,7 @@ const RULES = [
   ["POST", /^\/api\/tools\/([\w-]+)\/run$/, (m) => ({ action: "run-scan", target: m[1] }), false],
   ["POST", /^\/api\/tools\/([\w-]+)\/accept$/, (m, req) => ({ action: req.body && req.body.until ? "snooze-finding" : "accept-finding", target: m[1], detail: [b(req, "key"), b(req, "until"), b(req, "reason")].filter(Boolean).join(" · ") }), false],
   ["POST", /^\/api\/tools\/([\w-]+)\/unaccept$/, (m, req) => ({ action: "reopen-finding", target: m[1], detail: b(req, "key") }), false],
-  ["POST", /^\/api\/settings$/, (m, req) => ({ action: "change-settings", detail: clip(Object.keys(req.body || {}).join(", "), 1000) }), false],
+  ["POST", /^\/api\/settings$/, (m, req) => ({ action: "change-settings", detail: clip(settingsChanged(req.body), 1000) }), false],
   ["POST", /^\/api\/settings\/test-spn$/, (m, req) => ({ action: "test-spn", target: b(req, "toolId") || "shared" }), false],
   ["POST", /^\/api\/tenants$/, (m, req) => ({ action: "save-tenant", target: b(req, "key") }), false],
   ["DELETE", /^\/api\/tenants\/([\w-]+)$/, (m) => ({ action: "delete-tenant", target: m[1] }), false],

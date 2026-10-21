@@ -13,21 +13,20 @@ function requiredTags() {
 async function run() {
   const required = requiredTags();
 
-  // Resource Graph pages at 1000 rows per call; a single page is enough to
-  // start finding violators without building out $skipToken paging yet.
+  // Every resource (resourceGraphQuery follows the pages).
   const rows = await resourceGraphQuery(
     `
     Resources
     | project id, name, type, resourceGroup, subscriptionId, tags
-    | limit 1000
   `,
     { toolId: TOOL_ID }
   );
 
   const findings = [];
   for (const r of rows) {
-    const tags = r.tags || {};
-    const missing = required.filter((t) => !tags[t] || String(tags[t]).trim() === "");
+    // Azure treats tag names case-insensitively ("owner" is "Owner").
+    const tags = new Map(Object.entries(r.tags || {}).map(([k, v]) => [k.toLowerCase(), v]));
+    const missing = required.filter((t) => String(tags.get(t.toLowerCase()) ?? "").trim() === "");
     if (missing.length) {
       findings.push({
         kind: "missing-tags",

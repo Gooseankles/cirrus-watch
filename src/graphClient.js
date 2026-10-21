@@ -14,30 +14,43 @@ async function getGraphToken(toolId) {
   return token.token;
 }
 
-async function graphGet(path, toolId) {
-  const token = await getGraphToken(toolId);
+const MAX_RETRIES = 6;
+
+// Graph throttles (429) and has short outages (503, 504) when a scan reads
+// thousands of users or groups; it says how long to wait in Retry-After.
+function retryDelayMs(response, attempt) {
+  const seconds = Number((response.headers || {})["retry-after"]) || 2 ** attempt;
+  return Math.min(seconds, 60) * 1000;
+}
+
+async function graphRequest(method, path, body, toolId) {
   const url = path.startsWith("http") ? path : `${GRAPH_ROOT}${path}`;
-  const response = await axios.get(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    validateStatus: () => true,
-  });
+  let response;
+  for (let attempt = 0; ; attempt++) {
+    const token = await getGraphToken(toolId);
+    response = await axios.request({
+      method,
+      url,
+      data: body,
+      headers: { Authorization: `Bearer ${token}` },
+      validateStatus: () => true,
+    });
+    const retryable = [429, 503, 504].includes(response.status);
+    if (!retryable || attempt >= MAX_RETRIES) break;
+    await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));
+  }
   if (response.status >= 300) {
-    throw new Error(`Graph GET ${url} failed (${response.status}): ${JSON.stringify(response.data)}`);
+    throw new Error(`Graph ${method.toUpperCase()} ${url} failed (${response.status}): ${JSON.stringify(response.data)}`);
   }
   return response.data;
 }
 
-async function graphPost(path, body, toolId) {
-  const token = await getGraphToken(toolId);
-  const url = path.startsWith("http") ? path : `${GRAPH_ROOT}${path}`;
-  const response = await axios.post(url, body, {
-    headers: { Authorization: `Bearer ${token}` },
-    validateStatus: () => true,
-  });
-  if (response.status >= 300) {
-    throw new Error(`Graph POST ${url} failed (${response.status}): ${JSON.stringify(response.data)}`);
-  }
-  return response.data;
+function graphGet(path, toolId) {
+  return graphRequest("get", path, undefined, toolId);
+}
+
+function graphPost(path, body, toolId) {
+  return graphRequest("post", path, body, toolId);
 }
 
 // Follows @odata.nextLink until exhausted; Graph pages most list endpoints.

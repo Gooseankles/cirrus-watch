@@ -176,21 +176,32 @@ function recordLoginFailure(ip) {
   else entry.count++;
 }
 
+// App Service's front end puts "ip:port" in X-Forwarded-For, and the port
+// changes with every connection; without stripping it each try would count
+// as a new address and the limit would never bite.
+function clientIp(req) {
+  const ip = String(req.ip || "");
+  const v6 = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (v6) return v6[1];
+  return /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(ip) ? ip.replace(/:\d+$/, "") : ip;
+}
+
 function handleLocalLogin(req, res) {
   const expected = process.env.DASHBOARD_ADMIN_PASSWORD;
   if (!expected) return res.status(500).json({ error: "local admin account is not configured" });
-  const wait = loginBlockedFor(req.ip);
+  const ip = clientIp(req);
+  const wait = loginBlockedFor(ip);
   if (wait) {
     res.set("Retry-After", String(Math.ceil(wait / 1000)));
     return res.status(429).json({ error: `too many wrong passwords; try again in ${Math.ceil(wait / 60000)} minute(s)` });
   }
   const { username, password } = req.body || {};
   if (username !== "admin" || typeof password !== "string" || !timingSafeEquals(password, expected)) {
-    recordLoginFailure(req.ip);
+    recordLoginFailure(ip);
     audit.record(req, { action: "sign-in-failed", user: String(username || "").slice(0, 100) || "unknown", detail: "local admin: wrong username or password" });
     return res.status(401).json({ error: "wrong username or password" });
   }
-  loginFailures.delete(req.ip);
+  loginFailures.delete(ip);
   // A fresh session ID on sign-in, so an ID planted before it is worth nothing.
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: "could not start a session" });

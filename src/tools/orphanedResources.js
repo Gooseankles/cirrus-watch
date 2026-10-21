@@ -1,4 +1,5 @@
 const { resourceGraphQuery } = require("../armClient");
+const { runChecks } = require("./util");
 
 const TOOL_ID = "orphaned-resources";
 
@@ -25,11 +26,12 @@ async function unattachedDisks() {
   }));
 }
 
+// A NAT gateway's public IP has no ipConfiguration but is in use.
 async function unusedPublicIps() {
   const rows = await resourceGraphQuery(
     `
     Resources
-    | where type == 'microsoft.network/publicipaddresses' and isnull(properties.ipConfiguration)
+    | where type == 'microsoft.network/publicipaddresses' and isnull(properties.ipConfiguration) and isnull(properties.natGateway)
     | project id, name, resourceGroup, subscriptionId, allocation = properties.publicIPAllocationMethod
   `,
     { toolId: TOOL_ID }
@@ -44,11 +46,13 @@ async function unusedPublicIps() {
   }));
 }
 
+// Private endpoints and private link services own NICs with no VM.
 async function orphanedNics() {
   const rows = await resourceGraphQuery(
     `
     Resources
     | where type == 'microsoft.network/networkinterfaces' and isnull(properties.virtualMachine)
+    | where isnull(properties.privateEndpoint) and isnull(properties.privateLinkService)
     | project id, name, resourceGroup, subscriptionId
   `,
     { toolId: TOOL_ID }
@@ -63,14 +67,17 @@ async function orphanedNics() {
   }));
 }
 
+// Resources may spell their group's name in another case than the group
+// itself, so both sides are matched in lower case.
 async function emptyResourceGroups() {
   const rows = await resourceGraphQuery(
     `
     ResourceContainers
     | where type == 'microsoft.resources/subscriptions/resourcegroups'
+    | extend rg = tolower(name)
     | join kind=leftouter (
-        Resources | summarize resourceCount = count() by resourceGroup, subscriptionId
-      ) on $left.name == $right.resourceGroup, $left.subscriptionId == $right.subscriptionId
+        Resources | summarize resourceCount = count() by rg = tolower(resourceGroup), subscriptionId
+      ) on rg, subscriptionId
     | where isnull(resourceCount) or resourceCount == 0
     | project id, name, subscriptionId
   `,
@@ -86,26 +93,15 @@ async function emptyResourceGroups() {
   }));
 }
 
-async function run() {
-  const results = await Promise.allSettled([
-    unattachedDisks(),
-    unusedPublicIps(),
-    orphanedNics(),
-    emptyResourceGroups(),
-  ]);
-
-  const findings = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") findings.push(...r.value);
-    // A single failed query (e.g. missing Reader role on a subscription)
-    // shouldn't blank out the other three; it surfaces as fewer findings
-    // plus the error logged by toolRegistry's catch-all, since run() still
-    // throws if ALL queries fail together below.
-  }
-  if (results.every((r) => r.status === "rejected")) {
-    throw results[0].reason;
-  }
-  return findings;
+// A failed check shows as a scan-error finding instead of silently fewer
+// findings; run() throws only when every check fails.
+function run() {
+  return runChecks(TOOL_ID, {
+    "Unattached disks": unattachedDisks,
+    "Unused public IPs": unusedPublicIps,
+    "Orphaned NICs": orphanedNics,
+    "Empty resource groups": emptyResourceGroups,
+  });
 }
 
 module.exports = {

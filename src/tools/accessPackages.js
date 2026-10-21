@@ -4,6 +4,7 @@
 // consent) in addition to the ones the other tools use.
 const { graphGetAll } = require("../graphClient");
 const settings = require("../settings");
+const { runChecks } = require("./util");
 
 const TOOL_ID = "access-packages";
 
@@ -183,21 +184,15 @@ async function policyRiskFindings() {
   return findings;
 }
 
-async function run() {
-  const results = await Promise.allSettled([
-    expiringAssignments(),
-    stalePendingRequests(),
-    unusedAndDuplicatePackages(),
-    policyRiskFindings(),
-  ]);
-  const findings = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") findings.push(...r.value);
-  }
-  if (results.every((r) => r.status === "rejected")) {
-    throw results[0].reason;
-  }
-  return findings;
+// A failed check shows as a scan-error finding; run() throws only when every
+// check fails.
+function run() {
+  return runChecks(TOOL_ID, {
+    "Expiring assignments": expiringAssignments,
+    "Pending requests": stalePendingRequests,
+    "Unused and duplicate packages": unusedAndDuplicatePackages,
+    "Policy risks": policyRiskFindings,
+  });
 }
 
 module.exports = {

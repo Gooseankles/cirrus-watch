@@ -16,6 +16,22 @@ function record(entry) {
   ensureLogDir();
   const line = JSON.stringify({ time: new Date().toISOString(), tool: "general", ...entry }) + "\n";
   fs.appendFileSync(LOG_FILE, line);
+  prune();
+}
+
+// The file was never trimmed, and the page reads all of it every few seconds
+// while a scan runs. Past MAX_BYTES the newest whole lines up to half of it
+// stay (half, so it is not rewritten again on the next line).
+const MAX_BYTES = 2 * 1024 * 1024;
+function prune() {
+  try {
+    if (fs.statSync(LOG_FILE).size <= MAX_BYTES) return;
+    const text = fs.readFileSync(LOG_FILE, "utf8");
+    const tail = text.slice(-MAX_BYTES / 2);
+    fs.writeFileSync(LOG_FILE, tail.slice(tail.indexOf("\n") + 1));
+  } catch (err) {
+    console.error(`Run log: could not trim: ${err.message}`);
+  }
 }
 
 // tenants: only entries for these tenant keys (null = everything).
@@ -35,4 +51,4 @@ function readAll({ limit = 200, tool, tenants } = {}) {
   return entries.slice(-limit).reverse();
 }
 
-module.exports = { record, readAll };
+module.exports = { record, readAll, _test: { prune, LOG_FILE, MAX_BYTES } };

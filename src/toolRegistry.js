@@ -73,10 +73,26 @@ function whoIs(req) {
 // where run() returns an array of plain-object findings. The scan runs once
 // per tenant (home plus each customer tenant); customer findings get `tenant`.
 function registerScanTool(app, tool) {
-  // only: tenant keys to scan (null = every enabled tenant).
+  // only: tenant keys to scan (null = every enabled tenant). A tenant already
+  // being scanned (Run now during the nightly run, or a double click) is
+  // skipped, so two runs never race over the same results.
+  const busy = new Set();
   async function execute(only = null) {
-    const targets = tenants.scanTargets().filter((t) => !only || only.includes(t.key));
+    const wanted = tenants.scanTargets().filter((t) => !only || only.includes(t.key));
+    const targets = wanted.filter((t) => !busy.has(t.key));
+    if (targets.length < wanted.length) {
+      log.record({ tool: tool.id, level: "info", message: `already running for ${wanted.filter((t) => busy.has(t.key)).map((t) => tenants.nameOf(t.key)).join(", ")}; not started again there` });
+    }
     if (!targets.length) return;
+    targets.forEach((t) => busy.add(t.key));
+    try {
+      await scan(targets);
+    } finally {
+      targets.forEach((t) => busy.delete(t.key));
+    }
+  }
+
+  async function scan(targets) {
     const multi = tenants.isMultiTenant();
     const findings = [];
     const done = [];
@@ -101,7 +117,12 @@ function registerScanTool(app, tool) {
       }
     }
     if (!done.length) {
-      // Nothing new; the last results stay as they are.
+      // Nothing new; the last results stay, with the error noted on them so
+      // the scan page shows why after a reload too.
+      const at = new Date().toISOString();
+      for (const [k, message] of Object.entries(errors)) {
+        await findingsStore.writeTenantError(tool.id, k, at, message).catch((err) => log.record({ tool: tool.id, level: "error", message: `could not save the error: ${err.message}` }));
+      }
       if (targets.length > 1) log.record({ tool: tool.id, level: "error", final: true, message: "scan failed in every tenant" });
       return;
     }

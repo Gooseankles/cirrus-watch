@@ -13,6 +13,7 @@
 //   findings/<tool>.json            latest run (plus `error` when the last scan failed)
 //   history/<tool>/index.json       [{ ranAt, count, added, resolved, byKind }]
 //   history/<tool>/<ranAt>.json     full snapshot of that run
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
@@ -53,8 +54,16 @@ function fileBackend(root) {
     },
     async put(key, obj) {
       const file = path.join(root, checkKey(key));
+      // Through a temp file and a rename: a crash mid-write keeps the old file.
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(obj));
+      const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(obj));
+      try {
+        fs.renameSync(tmp, file);
+      } catch (err) {
+        fs.rmSync(tmp, { force: true });
+        throw err;
+      }
     },
     async del(key) {
       try {
@@ -401,6 +410,7 @@ async function putDoc(key, obj, tenantKey) {
 
 module.exports = {
   write,
+  writeTenantError,
   read,
   history,
   readRun,

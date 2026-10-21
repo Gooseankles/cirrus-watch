@@ -5,6 +5,14 @@ locals {
   sso_secretless  = var.create_sso_app || var.sso_client_secret == ""
   sso_fic_issuer  = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/v2.0"
   sso_fic_subject = azurerm_user_assigned_identity.sso.principal_id
+
+  # Microsoft Graph and its delegated openid / profile scopes (fixed IDs, the
+  # same in every tenant).
+  msgraph_app_id = "00000003-0000-0000-c000-000000000000"
+  graph_scope_ids = {
+    openid  = "37f7f235-527c-4136-accd-4a02d197296e"
+    profile = "14dad69e-099b-42c9-810b-d002981feec1"
+  }
 }
 
 resource "random_uuid" "role_admin" {}
@@ -36,6 +44,19 @@ resource "azuread_application" "dashboard" {
   sign_in_audience = "AzureADMyOrg"
   owners           = [data.azuread_client_config.current.object_id]
 
+  # Sign-in asks only for openid and profile (granted below for everyone).
+  required_resource_access {
+    resource_app_id = local.msgraph_app_id
+    resource_access {
+      id   = local.graph_scope_ids.openid
+      type = "Scope"
+    }
+    resource_access {
+      id   = local.graph_scope_ids.profile
+      type = "Scope"
+    }
+  }
+
   web {
     redirect_uris = [local.redirect_uri]
     homepage_url  = local.site_url
@@ -61,6 +82,15 @@ resource "azuread_service_principal" "dashboard" {
   client_id                    = azuread_application.dashboard[0].client_id
   app_role_assignment_required = true # only people assigned below can sign in
   owners                       = [data.azuread_client_config.current.object_id]
+}
+
+# Tenant-wide admin consent for openid and profile: tenants that block user
+# consent would otherwise show "Need admin approval" to everyone at sign-in.
+resource "azuread_service_principal_delegated_permission_grant" "sso" {
+  count                                = var.create_sso_app && var.grant_sso_consent ? 1 : 0
+  service_principal_object_id          = azuread_service_principal.dashboard[0].object_id
+  resource_service_principal_object_id = data.azuread_service_principal.msgraph[0].object_id
+  claim_values                         = ["openid", "profile"]
 }
 
 # Secretless sign-in: the app registration accepts tokens from the web app's
@@ -126,7 +156,7 @@ resource "azuread_app_role_assignment" "customer_members" {
 # --- Microsoft Graph permissions for the scan identity ---
 
 data "azuread_service_principal" "msgraph" {
-  count     = var.grant_graph_permissions ? 1 : 0
+  count     = var.grant_graph_permissions || (var.create_sso_app && var.grant_sso_consent) ? 1 : 0
   client_id = "00000003-0000-0000-c000-000000000000"
 }
 

@@ -64,6 +64,17 @@ variable "grant_graph_permissions" {
   default     = true
 }
 
+variable "grant_sso_consent" {
+  description = <<-EOT
+    Grant tenant-wide admin consent for the sign-in app's delegated permissions (openid, profile), so tenants that
+    do not let users consent themselves do not show "Need admin approval" at sign-in. Only with create_sso_app =
+    true. Needs Cloud Application Administrator, Application Administrator or Global Administrator running
+    terraform; false = an admin clicks "Grant admin consent" on the Enterprise app's Permissions page instead.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "graph_permissions" {
   description = "Microsoft Graph application permissions for the system-assigned identity."
   type        = list(string)

@@ -120,6 +120,10 @@ private endpoint, or apply once with `private_network = false` first so the cont
 - Entra: `Application Administrator` (app registration), and `Privileged Role Administrator` or Global
   Administrator for the Graph permissions. Set `grant_graph_permissions = false` if you do not have that role
   and ask an admin to grant them later. With `create_role_groups` (the default) also `Groups Administrator`.
+  `grant_sso_consent` (default true) grants admin consent for sign-in (openid, profile), which needs Cloud
+  Application Administrator, Application Administrator or Global Administrator; with `false`, an admin clicks
+  "Grant admin consent" under Enterprise applications → the app → Permissions, or users in tenants that block
+  user consent see "Need admin approval".
 - `Network Contributor` (on the subscription, or on the existing VNet) when `private_network = true`.
 - azurerm 5 registers no resource providers by itself. The root provider block registers `Microsoft.Web`,
   `Microsoft.Storage` and `Microsoft.ManagedIdentity`, which needs rights on the subscription; if they are already
@@ -173,7 +177,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.11.2.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -192,7 +196,7 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.11.2.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.11.2.1` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.

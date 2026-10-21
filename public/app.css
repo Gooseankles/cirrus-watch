@@ -447,6 +447,7 @@ details.spn-tool .settings-row { border-bottom-color: var(--border); }
 .test-result .perm-line { display: block; margin-top: 3px; text-align: left; }
 .test-result .perm-line.good { color: var(--good-text); }
 .test-result .perm-line.bad { color: var(--critical-text); }
+.test-result .perm-line.wait { color: var(--warning); }
 .save-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 
 /* login.html carries its own small stylesheet: this file is served only to signed-in sessions. */

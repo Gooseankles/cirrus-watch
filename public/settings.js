@@ -171,8 +171,14 @@ const Settings = (() => {
     const g = p.graph;
     if (g) {
       if (g.error) out.push(["bad", `Graph permissions not checked: ${g.error}`]);
-      else if (g.missing.length) out.push(["bad", `Missing Graph application permissions (add them, then Grant admin consent): ${g.missing.join(", ")}`]);
-      else out.push(["good", `Graph: all ${g.needed.length} application permissions granted`]);
+      else {
+        if (g.missing.length) out.push(["bad", `Missing Graph application permissions (add them, then Grant admin consent): ${g.missing.join(", ")}`]);
+        if ((g.pending || []).length) {
+          const age = g.tokenAge != null ? ` The token in use is ${g.tokenAge} h old.` : "";
+          out.push(["wait", `Granted in Entra but not yet in the identity's token: ${g.pending.join(", ")}. Tokens are cached (managed identity tokens for up to 24 hours); the scans get these once it renews.${age}`]);
+        }
+        if (!g.missing.length && !(g.pending || []).length) out.push(["good", `Graph: all ${g.needed.length} application permissions granted`]);
+      }
     }
     const a = p.azure;
     if (a && a.error) out.push(["bad", `Azure roles not checked: ${a.error}`]);

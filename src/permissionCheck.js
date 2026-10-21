@@ -59,6 +59,35 @@ function graphMissing(needed, granted) {
   return needed.filter((p) => !has.has(p) && !has.has(p.replace(".Read.", ".ReadWrite.")) && !(GRAPH_COVERED_BY[p] || []).some((w) => has.has(w)));
 }
 
+// The Graph application permissions Entra holds for this identity now. The
+// token's roles claim can lag: Azure caches managed identity tokens for up to
+// 24 hours, so a permission granted since is in Entra but not yet in the token.
+// Needs Application.Read.All; null when it cannot be read.
+const GRAPH = "https://graph.microsoft.com/v1.0";
+const MS_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000";
+async function graphAssigned(token, oid) {
+  if (!oid) return null;
+  try {
+    const get = async (url) => {
+      const r = await axios.get(url, { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true });
+      if (r.status >= 300) throw new Error(String(r.status));
+      return r.data;
+    };
+    const msGraph = await get(`${GRAPH}/servicePrincipals(appId='${MS_GRAPH_APP_ID}')?$select=id,appRoles`);
+    const names = new Map((msGraph.appRoles || []).map((r) => [r.id, r.value]));
+    const out = [];
+    let url = `${GRAPH}/servicePrincipals/${oid}/appRoleAssignments?$select=appRoleId,resourceId`;
+    while (url) {
+      const page = await get(url);
+      for (const a of page.value || []) if (a.resourceId === msGraph.id && names.has(a.appRoleId)) out.push(names.get(a.appRoleId));
+      url = page["@odata.nextLink"] || null;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 async function armGet(url, token) {
   const r = await axios.get(url, { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true });
   if (r.status >= 300) throw new Error(`${r.status}: ${JSON.stringify(r.data).slice(0, 200)}`);
@@ -110,8 +139,22 @@ async function check(cred, { toolIds, configured } = {}) {
   const out = {};
   if (need.graph.length) {
     try {
-      const granted = claims((await cred.getToken("https://graph.microsoft.com/.default")).token).roles || [];
-      out.graph = { needed: need.graph, granted, missing: graphMissing(need.graph, granted) };
+      const token = (await cred.getToken("https://graph.microsoft.com/.default")).token;
+      const c = claims(token);
+      const granted = c.roles || [];
+      let missing = graphMissing(need.graph, granted);
+      let pending = [];
+      if (missing.length) {
+        const inEntra = await graphAssigned(token, c.oid);
+        if (inEntra) {
+          const still = new Set(graphMissing(missing, inEntra));
+          pending = missing.filter((p) => !still.has(p));
+          missing = [...still];
+        }
+      }
+      // tokenAge: hours since the token was issued (the cache can keep it up to 24 h).
+      const tokenAge = c.iat ? Math.max(0, Math.round((Date.now() / 1000 - c.iat) / 3600)) : null;
+      out.graph = { needed: need.graph, granted, missing, pending, tokenAge };
     } catch (err) {
       out.graph = { needed: need.graph, error: String(err.message || err).split("\n")[0].slice(0, 300) };
     }
@@ -124,4 +167,4 @@ async function check(cred, { toolIds, configured } = {}) {
   return out;
 }
 
-module.exports = { check, _test: { required, graphMissing, claims } };
+module.exports = { check, _test: { required, graphMissing, claims, graphAssigned } };

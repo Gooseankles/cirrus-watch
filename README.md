@@ -1,147 +1,131 @@
-# Azure tools dashboard
+# Azure ops dashboard
 
-A local dashboard for home-grown Azure automations, built around a single
-service principal plus a Microsoft Graph app registration. Tools:
+A self-hosted dashboard for the everyday checks and chores of running an Azure tenant: nightly scans for waste,
+risky access and broken policy, cost history per subscription, a "who has access to what" lookup, and ServiceNow
+tickets that create or decommission subscriptions.
 
-| Tool | Kind | What it does |
+It is a small Node.js (Express) app with a no-build front end. Run it locally with `npm start`, or as a container on
+Azure App Service, where the included Terraform sets up everything, including a managed identity, so no secrets
+are needed.
+
+## Tools
+
+| Tool | Runs | What it finds or does |
 |---|---|---|
-| Subscription creation | ServiceNow-triggered | Turns a subscription-request ticket into a real Azure subscription |
-| Subscription decommission | ServiceNow-triggered | Cancels a subscription once a safety checklist is confirmed |
-| Orphaned resources | Scan (nightly) | Unattached disks, unused public IPs, orphaned NICs, empty resource groups |
-| Tag compliance | Scan (nightly) | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
-| Cost anomalies | Scan (nightly) | Resource groups whose daily spend jumped more than a threshold |
-| Access review | Scan (weekly) | Stale direct Owner/Contributor grants on users (not via a group) |
-| Expiring secrets/certs | Scan (nightly) | App registration secrets and Key Vault certs expiring soon |
-| Access packages | Scan (nightly) | Entra access-package assignments expiring soon, requests stuck pending approval, packages nobody uses, duplicate-named packages, auto-approved policies that never expire, and policies with only one possible approver |
-| Access lookup | On-demand | Paste a UPN, see every role assignment they have, direct or via group |
+| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups |
+| Tag compliance | Daily | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
+| Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
+| Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups |
+| Expiring secrets and certs | Daily | App registration secrets and certificates, and Key Vault certificates, that expire soon |
+| Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date or have a single approver |
+| Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
+| Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
+| Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
+| Access lookup | On demand | Every Azure role a person holds, directly or through a group, across all subscriptions |
+| Subscription creation | ServiceNow ticket | Turns a subscription request ticket into a real subscription and writes the result back to the ticket |
+| Subscription decommission | ServiceNow ticket | Cancels a subscription once a safety checklist on the ticket is complete |
 
-Scan tools show their findings on the dashboard with a "Run now" button so
-you don't have to wait for the nightly schedule while testing.
+Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
+start any scan with **Run now** instead of waiting for the schedule.
+
+## Quick start
+
+### Docker
+
+```
+docker run -p 7070:7070 -e DASHBOARD_ADMIN_PASSWORD=<choose one> -e SESSION_SECRET=<long random string> \
+  -e DATA_DIR=/app/data -v azure-ops-data:/app/data trozity/azure-ops-dashboard:latest
+```
+
+Open http://localhost:7070 and sign in as `admin`. Image tags: `latest` (every push to `main`), `stable` (promoted
+by hand with the "Promote to stable" workflow once a build has proven itself), each version (e.g. `0.7.0.0`) and
+`sha-<commit>`.
+
+### From source
+
+```
+npm install
+cp .env.example .env    # then fill it in
+npm start
+```
+
+Uses Node.js 20 (the version the image is built on). Set the Azure connection in `.env` or later on the dashboard's Settings page.
+
+### On Azure App Service
+
+`infra/terraform` creates the App Service, the managed identity with the read roles and Graph permissions the
+scans need, secretless SSO, and the storage account for run history. See
+[infra/terraform/README.md](infra/terraform/README.md).
 
 ## Signing in and roles
 
-The dashboard itself now requires signing in — two roles:
+- **Admin**: everything, plus Run now, cost history refresh and the Settings page.
+- **User**: read-only.
 
-- **Admin** — everything a User can see, plus triggering "Run now" on scan
-  tools and editing the thresholds on the Settings tab.
-- **User** — read-only: views findings, logs and the access-lookup tool.
+Two ways to sign in, either or both:
 
-Two ways to sign in, and you can have either or both configured at once:
+### Local admin account
 
-### Quick local admin account
+Set `DASHBOARD_ADMIN_PASSWORD`. The username is always `admin` and it always has the Admin role. Handy before SSO
+exists or as a break-glass login; leave it blank to turn it off. Use a strong password if the dashboard is
+reachable by anyone else.
 
-Set `DASHBOARD_ADMIN_PASSWORD` in `.env`. Username is always `admin`; it's
-always the Admin role. This is the fastest way to use the dashboard before
-the Enterprise App below exists, or as a break-glass login if Entra is ever
-unreachable. **Change the password before this dashboard is reachable by
-anyone but you** — it's currently set to `password123` as a placeholder.
+### SSO with an Entra ID app registration
 
-### SSO via an Entra ID Enterprise App
+This is a separate app registration from the identity the scans use: it only signs people in to the dashboard.
 
-This is a separate App Registration from the SPNs the scan tools use — this
-one is a user-facing sign-in app, not a service principal:
+1. Entra ID → App registrations → New registration. Add a redirect URI of type **Web**:
+   `https://<your host>/auth/callback` (for local use `http://localhost:7070/auth/callback`). It must match
+   `DASHBOARD_REDIRECT_URI` exactly.
+2. Either create a client secret (`DASHBOARD_AZURE_CLIENT_SECRET`), or, on App Service, go secretless: attach a
+   user-assigned managed identity to the web app, add a federated credential for it on the app registration
+   (scenario "Managed identity") and set its client ID as `DASHBOARD_FEDERATED_MI_CLIENT_ID`.
+3. App roles → create `Admin` and `User` (allowed member types: Users/Groups).
+4. Set `DASHBOARD_AZURE_TENANT_ID` and `DASHBOARD_AZURE_CLIENT_ID`.
+5. Enterprise applications → this app → Properties → **Assignment required** = Yes, so only people you add can
+   sign in.
+6. Users and groups → assign people or groups to Admin or User. Roles live only in Entra; the dashboard reads the
+   `roles` claim on the ID token.
 
-1. Azure AD → App registrations → New registration. Name it something like
-   "Azure tools dashboard". Add a redirect URI of platform type **Web**:
-   `http://localhost:7070/auth/callback` (must match `DASHBOARD_REDIRECT_URI`
-   in `.env` exactly).
-   On App Service use `https://<app>.azurewebsites.net/auth/callback`.
-2. Certificates & secrets → new client secret. Or, without a secret on App
-   Service: create a user-assigned managed identity, attach it to the web
-   app, then under Certificates & secrets → Federated credentials → Add →
-   scenario "Managed identity" → pick it. Set its client ID as
-   `DASHBOARD_FEDERATED_MI_CLIENT_ID` instead of `DASHBOARD_AZURE_CLIENT_SECRET`.
-3. App roles → create two:
-   - `Admin` (value `Admin`, allowed member type: Users/Groups)
-   - `User` (value `User`, allowed member type: Users/Groups)
-4. Put the tenant ID, this app's client ID and the secret in `.env` as
-   `DASHBOARD_AZURE_TENANT_ID` / `DASHBOARD_AZURE_CLIENT_ID` /
-   `DASHBOARD_AZURE_CLIENT_SECRET`.
-5. Azure AD → Enterprise applications → this app → **Properties** → set
-   "Assignment required?" to **Yes**, so only people you explicitly add can
-   sign in at all.
-6. Same app → **Users and groups** → Add user/group → assign each person (or
-   a group) to either the Admin or User role. This is also how you manage
-   role membership going forward — nothing about roles lives in this app's
-   own code or database, it only reads the `roles` claim Entra puts on the
-   ID token.
+## Permissions
 
-A person with no role assigned can't sign in at all (step 5); a person
-assigned to neither Admin nor User explicitly won't get write access to
-anything even if they do sign in.
+The scans only read. Give the scan identity (by default the web app's managed identity, or a service principal):
 
-## How the ServiceNow-triggered tools work
+- **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
+  automatically. Policy check needs nothing more.
+- **Cost Management Reader** for cost anomalies and cost history.
+- **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
+  `Application.Read.All` and `EntitlementManagement.Read.All` (the last only matters with Entra ID Governance /
+  P2 access packages).
+- **Key Vault** (expiring certs): `Key Vault Certificates Officer` on RBAC vaults, or a list/get certificates
+  access policy.
+- **History storage**: `Storage Blob Data Contributor` on the storage account, when `STORAGE_ACCOUNT_URL` is set.
 
-1. Someone raises a ServiceNow ticket (e.g. a Catalog request) asking for a
-   new Azure subscription.
-2. A ServiceNow Business Rule or Flow Designer flow calls this app's webhook
-   (`POST /webhook/create-subscription`) with the ticket number and the
-   subscription's display name.
-3. This app calls Azure's `Microsoft.Subscription/aliases` API to create the
-   subscription, under a billing scope your service principal is allowed to
-   create subscriptions against.
-4. It writes a work note back onto the ticket, and logs every step to
-   `logs/runs.jsonl`, visible live on the dashboard at `http://localhost:7070`.
+Subscription creation and decommission need rights on a billing scope (e.g. the **Azure subscription creator**
+role on an EA enrollment account or an MCA invoice section). Give those to a separate identity: every tool can
+have its own identity (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends in `.env`), and a tool
+without one uses the shared identity. Missing permissions show up as an error entry on the tool's page and in the
+activity log, never as an empty result.
 
-## 1. Get a test ServiceNow instance
+## ServiceNow integration
 
-Sign up for the free ServiceNow Developer Program at
-https://developer.servicenow.com and request a **Personal Developer Instance
-(PDI)**. It comes with admin rights and the REST/Table API enabled. Enable
-the ITSM plugin (Incident/Request/Catalog tables) if it isn't already, so
-you have something ticket-shaped to test against. PDIs hibernate after about
-two weeks of no login — just log in to wake one back up.
+1. A ticket (e.g. a catalog request) asks for a new subscription.
+2. A Business Rule or Flow Designer action calls `POST /webhook/create-subscription` with the header
+   `X-Webhook-Secret: <WEBHOOK_SHARED_SECRET>` and this body:
+   ```json
+   {
+     "ticketNumber": "${number}",
+     "table": "${table_name}",
+     "sysId": "${sys_id}",
+     "displayName": "${short_description}"
+   }
+   ```
+3. The dashboard creates the subscription with the `Microsoft.Subscription/aliases` API under
+   `AZURE_BILLING_SCOPE` (optionally placed in `AZURE_MANAGEMENT_GROUP_ID`) and writes a work note back to the
+   ticket. Use a dedicated ServiceNow API user (`SNOW_API_USER` / `SNOW_API_PASSWORD`) with access to that table.
 
-Create a dedicated API user for this integration (don't use your personal
-PDI login): **User Administration > Users** → new user, give it the
-`rest_api_explorer` and `itil` roles (or whatever table access it needs),
-put its credentials in `.env` as `SNOW_API_USER` / `SNOW_API_PASSWORD`.
-
-## 2. Wire up the ServiceNow side
-
-In the PDI, add a Business Rule (or Flow Designer flow) on your subscription
-request table that, on insert/update matching your criteria, does an
-outbound REST call:
-
-- URL: wherever this app is reachable (for local testing, your PC's LAN IP
-  and port, e.g. `http://10.0.0.10:7070/webhook/create-subscription`)
-- Method: `POST`
-- Header: `X-Webhook-Secret: <same value as WEBHOOK_SHARED_SECRET in .env>`
-- Body:
-  ```json
-  {
-    "ticketNumber": "${number}",
-    "table": "${table_name}",
-    "sysId": "${sys_id}",
-    "displayName": "${short_description}"
-  }
-  ```
-
-## 3. Set up the Azure side
-
-This creates **real Azure subscriptions**, which requires an app
-registration with rights on a billing account:
-
-1. Azure AD → App registrations → New registration. Create a client secret.
-2. The subscription-creation API needs the app to have a role (e.g.
-   **Subscription Creator** or **Azure subscription creator**) assigned at
-   the billing scope — an EA enrollment account, or an MCA billing
-   profile/invoice section. This is a billing-admin action in your Azure
-   tenant (ask whoever manages billing if you're not that person).
-3. Put the tenant ID, client ID, client secret and billing scope path in
-   `.env` (see `.env.example` for the exact scope formats for EA vs MCA).
-
-Until that billing-scope role assignment exists at work, you can still build
-and test everything else (webhook receiving, logging, dashboard, ServiceNow
-work notes) — only the final `createSubscription` call will fail, visible
-as an `error` row in the dashboard with the real Azure error message.
-
-## Subscription decommission
-
-Same shape as creation, but ServiceNow posts to
-`POST /webhook/decommission-subscription` and must include a completed
-safety checklist — the request is refused (no Azure call made) if any of
-these three aren't `true`:
+Decommissioning works the same way through `POST /webhook/decommission-subscription`, and is refused unless the
+ticket's checklist confirms every item:
 
 ```json
 {
@@ -149,90 +133,25 @@ these three aren't `true`:
   "table": "sc_request",
   "sysId": "abc123",
   "subscriptionId": "00000000-0000-0000-0000-000000000000",
-  "checklist": {
-    "backupsConfirmed": true,
-    "dnsRemoved": true,
-    "budgetAlertsCleared": true
-  }
+  "checklist": { "backupsConfirmed": true, "dnsRemoved": true, "budgetAlertsCleared": true }
 }
 ```
 
-## Using a separate service principal per tool (least privilege)
+To try it without a company instance, the free ServiceNow Developer Program (https://developer.servicenow.com)
+gives you a personal developer instance.
 
-By default every tool authenticates as the one SPN in `.env`
-(`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`). That's fine
-to start with, but it means one SPN ends up holding both "can create
-subscriptions against the billing account" and "can read every
-subscription's resources" — more than any single credential should need.
+## Where data is kept
 
-Give a tool its own SPN by setting `<TOOL_ID>_AZURE_TENANT_ID` /
-`_AZURE_CLIENT_ID` / `_AZURE_CLIENT_SECRET` in `.env`, where `<TOOL_ID>` is
-the tool's id in SCREAMING_SNAKE_CASE (see `.env.example` for the exact
-list and an example). A tool with no override keeps using the shared SPN,
-so you can migrate one tool at a time. In practice:
+- **Scan results and run history, cost history**: in an Azure Storage blob container when `STORAGE_ACCOUNT_URL` is
+  set (reached with an Entra token; account keys can stay off), otherwise under `DATA_DIR` (default `./data`).
+  Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
+- **Settings page overrides and sign-in sessions**: under `DATA_DIR`.
+- **Activity log**: JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 
-- `subscription-create` / `subscription-decommission` need their own SPN
-  with the billing-scope role — keep that one separate from everything else.
-- The scan tools (`orphaned-resources`, `tag-compliance`, `cost-anomaly`,
-  `access-review`, `secret-expiry`, `access-packages`) and `access-lookup`
-  only ever need read access, so they can safely share one read-only SPN
-  even if you don't split every tool out individually.
+`.env`, `data/` and `logs/` are ignored by git; never commit real secrets.
 
-## Permissions the scan/lookup tools need
+## Adding a tool
 
-These reuse the same service principal as the subscription tools, but need
-broader read access:
-
-- **ARM (orphaned resources, tag compliance, cost anomalies, access review,
-  access lookup, Key Vault cert part of secret expiry):** `Reader` on every
-  subscription you want scanned (or at a management group covering them).
-  Cost anomalies additionally need `Cost Management Reader`.
-- **Microsoft Graph (secret expiry's app-registration part, access
-  lookup's user/group resolution):** Application permissions
-  `Application.Read.All` and `User.Read.All` (or `Directory.Read.All`
-  covers both), granted admin consent in Azure AD → App registrations →
-  your app → API permissions.
-- **Microsoft Graph (access packages):** `EntitlementManagement.Read.All`,
-  same admin-consent process. This only returns anything if your tenant
-  has Entra ID Governance / P2 licensing with access packages actually set
-  up — an empty result on a tenant without entitlement management configured
-  is expected, not a bug.
-- **Key Vault (secret expiry only):** an access policy or RBAC role
-  (`Key Vault Certificates Officer` or `Reader` + `Key Vault Secrets User`)
-  granting the service principal `certificates/list` and `certificates/get`
-  on each vault you want scanned.
-
-Without these, the affected tool logs a clear `error` entry rather than
-silently showing nothing — check the tool's tab or `/api/logs` if a scan
-comes back empty when you expected findings.
-
-## Run it
-
-```
-cd C:\github\azure-ops-dashboard
-npm install
-copy .env.example .env   REM then fill in .env
-npm start
-```
-
-Open **http://localhost:7070** to watch runs come in.
-
-## Notes
-
-- Logs are append-only JSON lines in `logs/runs.jsonl`; the dashboard polls
-  `/api/logs` every 5 seconds. Scan tool findings are separate — last-run
-  results live in `data/findings/<tool-id>.json` and are what the dashboard's
-  per-tool tables show. Settings-tab overrides live in `data/settings.json`
-  (also gitignored, under `data/`).
-- `.env` is gitignored — never commit real secrets.
-- Sessions are in-memory (`express-session`'s default store) — restarting
-  the server signs everyone out. Fine for a single-box local dashboard; swap
-  in a real session store first if this ever runs as more than one process.
-- Scheduled scans use `node-cron` and only run while `npm start` is left
-  running (no OS-level task needed, but also no persistence across a reboot
-  unless you run this as a service).
-- Adding a new tool: scan tools go in `src/tools/*.js` exporting
-  `{ id, label, schedule?, run() }` and get registered with
-  `registerScanTool` in `server.js`; on-demand tools export
-  `{ id, label, registerRoutes(app) }` and use `registerActionTool`. Add its
-  tab to the `SCAN_TOOLS`/`STATIC_TABS` lists in `public/index.html`.
+A scan tool is a file in `src/tools/` exporting `{ id, label, schedule, run() }`, where `run()` returns a list of
+findings; register it with `registerScanTool` in `server.js` and add it to the `TOOLS` list in `public/app.js`.
+An on-demand tool exports `{ id, label, registerRoutes(app) }` and uses `registerActionTool`.

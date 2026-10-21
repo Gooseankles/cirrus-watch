@@ -1,14 +1,22 @@
-# Copy to terraform.tfvars (gitignored) and fill in.
+# Copy to terraform.tfvars (gitignored) and fill in. Every setting is listed;
+# the commented ones show their default. Full descriptions: variables.tf.
 
 subscription_id = "00000000-0000-0000-0000-000000000000"
 name            = "contoso-azure-tools" # becomes https://contoso-azure-tools.azurewebsites.net
 location        = "norwayeast"
 
-# Where the shared SPN (the web app's own identity, used by every tool without
-# its own SPN override) gets access. roles defaults to Reader, Cost
-# Management Reader and Key Vault Reader (vault item names and expiry dates,
-# never secret values), which is all the scans need. The tenant root
-# management group's ID is the tenant ID.
+# resource_group_name = ""                                   # blank = rg-<name>
+# sku_name            = "B1"                                 # App Service plan size; B1 is enough
+# image               = "trozity/azure-ops-dashboard:latest" # or pin a version, e.g. :<version from VERSION>
+# tags                = { Owner = "it-ops" }
+
+# --- Scan identity (the web app's own identity, the shared SPN) ---
+
+# Where the shared SPN (used by every tool without its own SPN override) gets
+# access. roles defaults to Reader, Cost Management Reader and Key Vault Reader
+# (vault item names and expiry dates, never secret values), which is all the
+# scans need. The tenant root management group's ID is the tenant ID.
+# (scan_scopes is the old name of this; still accepted, use this instead.)
 shared_spn_access = [
   { scope = "/providers/Microsoft.Management/managementGroups/00000000-0000-0000-0000-000000000000" },
   # Only some subscriptions instead:
@@ -20,6 +28,21 @@ shared_spn_access = [
 # Scan only these subscriptions (blank = every one the shared SPN can see).
 # scan_subscription_ids = ["00000000-0000-0000-0000-000000000000"]
 
+# Microsoft Graph application permissions for the scan identity. Granting them
+# needs a Privileged Role Administrator or Global Administrator running
+# terraform; false = ask for them (the list below) and have them granted by hand.
+# grant_graph_permissions = true
+# Only override this list if you know you want fewer scans to work; the default
+# is exactly what the tools use (see docs/permissions.md).
+# graph_permissions = [
+#   "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "EntitlementManagement.Read.All",
+#   "RoleManagement.Read.Directory", "AuditLog.Read.All", "Policy.Read.All", "DelegatedPermissionGrant.Read.All",
+#   "LicenseAssignment.Read.All", "PrivilegedEligibilitySchedule.Read.AzureADGroup",
+#   "PrivilegedAssignmentSchedule.Read.AzureADGroup",
+# ]
+
+# --- Sign-in ---
+
 # If you may not create app registrations: set false, apply once, send the
 # `terraform output sso_app_request` text to the team, then put the client ID
 # they send back here and apply again.
@@ -27,30 +50,54 @@ shared_spn_access = [
 # sso_app_client_id = "00000000-0000-0000-0000-000000000000"
 # sso_client_secret = ""   # only if they give a secret instead of the federated credential
 
+# Admin consent for sign-in (openid, profile), so people are not asked for
+# "admin approval". false = an admin clicks Grant admin consent in the portal.
+# grant_sso_consent = true
+
 # Users or groups (object IDs) allowed to sign in (create_sso_app = true only).
 admin_principal_ids = ["00000000-0000-0000-0000-000000000000"]
 user_principal_ids  = []
+
+# A security group per role (needs Entra ID P1/P2); false = assign people directly.
+# create_role_groups = true
+# role_group_prefix  = "" # blank = "Azure tools dashboard (<name>)"
+
+# Break-glass local login; leave blank once SSO works.
+# admin_password = "a-long-random-password"
+
+# --- Customer tenants ---
 
 # Other organizations' tenants to scan too. Each gets a tab, a storage
 # container and the roles Admin-<key> / User-<key>. After apply, send each
 # customer their part of `terraform output customer_onboarding`.
 # customers = {
 #   acme = {
-#     name          = "Acme AS"
-#     tenant_id     = "00000000-0000-0000-0000-000000000000"
-#     client_id     = ""  # app registration made in that tenant; set once it exists
-#     admin_members = []  # user object IDs: read and run Acme's scans
-#     user_members  = []  # user object IDs: read Acme only
+#     name             = "Acme AS"
+#     tenant_id        = "00000000-0000-0000-0000-000000000000"
+#     client_id        = ""    # app registration made in that tenant; set once it exists
+#     subscription_ids = []    # empty = every subscription the app can see there
+#     enabled          = true  # false = keep the customer but stop scanning it
+#     admin_members    = []    # user object IDs: read and run Acme's scans
+#     user_members     = []    # user object IDs: read Acme only
 #   }
 # }
 
-# A security group per role (needs Entra ID P1/P2); false = assign people directly.
-# create_role_groups = true
+# --- Storage for results, run history and secrets ---
 
-# Storage reached only through a private endpoint (public access off), web app
-# joined to a VNet. Set the two subnet IDs to use an existing VNet instead.
-# private_network    = true
-# vnet_address_space = ["10.90.0.0/24"]
+# Scan results and run history in a storage account (managed identity, no
+# keys); false = on the app's own disk.
+# create_history_storage = true
+# storage_account_name   = "" # blank = st<name> plus a random suffix
+# history_retention_days = 730
+
+# Key vault for the client secrets entered in Settings (SPN overrides,
+# customer tenants); false = in files on the app's own disk.
+# create_secret_vault           = true
+# secret_vault_name             = ""    # blank = kv<name> plus a random suffix
+# secret_vault_purge_protection = false # cannot be turned off again once on
+# secret_vault_admin_ids        = []    # object IDs who may see the secrets in the portal
+
+# --- Network ---
 
 # Only these public IPs (or ranges) can reach the site; everyone else gets 403
 # before the app. Empty = open to the internet (sign-in still required).
@@ -58,8 +105,21 @@ user_principal_ids  = []
 # Subnets (with the Microsoft.Web service endpoint) that may reach it too.
 # allowed_subnet_ids = ["/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<subnet>"]
 
-# Break-glass local login; leave blank once SSO works.
-# admin_password = "a-long-random-password"
+# Storage and secret vault reached only through private endpoints (public
+# access off), web app joined to a VNet. Without the subnet IDs a small VNet
+# is created.
+# private_network    = true
+# vnet_address_space = ["10.90.0.0/24"]
+# Use an existing VNet instead (set both subnets):
+# vnet_integration_subnet_id = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<app-subnet>"
+# private_endpoint_subnet_id = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<pe-subnet>"
+# Existing private DNS zones (e.g. in a hub), already linked to the VNet:
+# blob_private_dns_zone_id  = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net"
+# vault_private_dns_zone_id = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net"
+# All outbound traffic through the VNet (needs a NAT gateway or firewall there).
+# vnet_route_all = false
+
+# --- App settings ---
 
 # extra_app_settings = {
 #   AZURE_REQUIRED_TAGS  = "CostCenter,Owner,Environment"

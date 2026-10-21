@@ -122,6 +122,7 @@ button { font: inherit; color: inherit; }
 .whoami-actions a:hover { color: var(--text); text-decoration: none; }
 .whoami-actions svg { width: 13px; height: 13px; stroke: currentColor; }
 .version { font-variant-numeric: tabular-nums; }
+.brand-sub .version:not(:empty)::before { content: "· "; }
 
 /* --- Top bar (narrow widths) --- */
 .topbar {

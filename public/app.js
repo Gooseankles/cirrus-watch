@@ -1324,7 +1324,27 @@ function kvBody(shown, t) {
   return genericBody(shown, t);
 }
 
+/* licence coverage view: one tile per licence, users / licences owned */
+const LC_SHORT = { p1: "Entra ID P1", p2: "Entra ID P2", gov: "ID Governance" };
+function lcStats(all, t) {
+  const tiers = all.filter((f) => f.tier && (f.kind === "licence-short" || f.kind === "licence-count"));
+  if (!tiers.length) return genericStats(all, t);
+  return tiers
+    .map((f) => {
+      const diff = f.owned - f.need;
+      return statTile({
+        label: `${multiView() && f.tenantName ? f.tenantName + " · " : ""}${LC_SHORT[f.tier] || f.name}: users / licences`,
+        value: `${fmt.int(f.need)} / ${fmt.int(f.owned)}`,
+        deltaCls: diff < 0 ? "bad" : "good",
+        delta: diff < 0 ? `${fmt.int(-diff)} short` : `${fmt.int(diff)} spare`,
+        sub: f.guests ? `+ ${fmt.int(f.guests)} guest${f.guests === 1 ? "" : "s"} (billed per active user)` : "",
+      });
+    })
+    .join("");
+}
+
 const VIEWS = {
+  "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },
   "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => t.filters.view === "health", body: (shown, t) => (t.filters.view === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },

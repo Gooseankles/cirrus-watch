@@ -270,31 +270,32 @@ function analyse(needs, users, { owned, products, planIds }) {
       (u.userType === "Guest" ? guests : members).set(id, reasons);
     }
     const need = members.size, have = owned[t.key];
-    const why = need ? ` (${reasonCounts(members)})` : "";
-    const ownedText = have ? `${have} (${products[t.key].join(", ")})` : "none";
+    const ratio = `${need} user${need === 1 ? "" : "s"} / ${have} licence${have === 1 ? "" : "s"}`;
+    const why = need ? ` For: ${reasonCounts(members)}.` : "";
+    const from = have ? ` Owned: ${products[t.key].join(", ")}.` : "";
     const guestText = guests.size
       ? t.key === "gov"
-        ? ` ${guests.size} guest${guests.size === 1 ? " also uses" : "s also use"} Governance-only features: billed per monthly active guest (no free tier), which needs an Azure subscription linked to the tenant.`
-        : ` ${guests.size} guest${guests.size === 1 ? " is" : "s are"} also in scope: guests are billed per monthly active user, not by these licences.`
+        ? ` Plus ${guests.size} guest${guests.size === 1 ? "" : "s"}, billed per monthly active guest (needs a linked Azure subscription).`
+        : ` Plus ${guests.size} guest${guests.size === 1 ? "" : "s"}, billed per monthly active user.`
       : "";
-    const base = { ...TENANT, name: t.label, id: `${TOOL_ID}/${t.key}` };
+    const base = { ...TENANT, name: t.label, id: `${TOOL_ID}/${t.key}`, tier: t.key, need, owned: have, guests: guests.size };
     if (need > have) {
-      findings.push({ ...base, kind: "licence-short", detail: `${need} member user${need === 1 ? " needs" : "s need"} it${why}; the tenant owns ${ownedText}. Short by ${need - have}.${guestText}` });
+      findings.push({ ...base, kind: "licence-short", detail: `${ratio}: ${need - have} short.${why}${from}${guestText}` });
       // Who is behind the shortfall: first those with no licence assigned.
       const list = [...members].map(([id, reasons]) => ({ id, reasons, has: t.plans.some((p) => userPlans(users.get(id), planIds).has(p)) }))
         .filter((x) => !x.has)
         .slice(0, MAX_USER_FINDINGS);
       for (const x of list) {
         const u = users.get(x.id);
-        findings.push({ ...TENANT, kind: "licence-user", id: `${x.id}#${t.key}`, name: u.userPrincipalName || u.displayName || x.id, principalId: x.id, detail: `Needs ${t.label} for ${[...x.reasons].join(", ")}; no such licence assigned` });
+        findings.push({ ...TENANT, kind: "licence-user", id: `${x.id}#${t.key}`, name: u.userPrincipalName || u.displayName || x.id, principalId: x.id, detail: `Needs ${t.label} for ${[...x.reasons].join(", ")}; none assigned` });
       }
     } else if (need) {
-      findings.push({ ...base, kind: "licence-count", detail: `${need} member user${need === 1 ? " needs" : "s need"} it${why}; the tenant owns ${ownedText}, ${have - need} spare.${guestText}` });
+      findings.push({ ...base, kind: "licence-count", detail: `${ratio}: ${have - need} spare.${why}${from}${guestText}` });
     } else if (guests.size) {
-      findings.push({ ...base, kind: "licence-count", detail: `No member users need it.${guestText}` });
+      findings.push({ ...base, kind: "licence-count", detail: `${ratio}.${guestText}` });
     }
     if (t.key === "gov" && guests.size && !have) {
-      findings.push({ ...base, kind: "licence-short", id: `${TOOL_ID}/gov-guests`, detail: `Guests use Governance-only features, which needs at least one ${t.label} (or Entra Suite) licence in the tenant.` });
+      findings.push({ ...base, kind: "licence-short", id: `${TOOL_ID}/gov-guests`, tier: null, detail: `Guests use Governance-only features, which needs at least one ${t.label} (or Entra Suite) licence in the tenant.` });
     }
   }
   return findings;

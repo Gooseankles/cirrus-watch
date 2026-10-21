@@ -16,7 +16,8 @@ are needed.
 | Tag compliance | Daily | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
 | Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
 | Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups |
-| Expiring secrets and certs | Daily | App registration secrets and certificates, and Key Vault certificates, that expire soon |
+| Expiring app credentials | Daily | App registration secrets and certificates that expire soon |
+| Key Vault | Daily | Vault settings (soft delete, purge protection, open networks, access policies); secrets, keys and certificates that expired, expire soon or have no expiry date; who can read secrets (broad roles, many readers, guests, deleted identities); vaults with no audit log, no owner tag, nothing in them or no use |
 | Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date or have a single approver |
 | Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
@@ -97,8 +98,9 @@ The scans only read. Give the scan identity (by default the web app's managed id
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
   `Application.Read.All` and `EntitlementManagement.Read.All` (the last only matters with Entra ID Governance /
   P2 access packages).
-- **Key Vault** (expiring certs): `Key Vault Certificates Officer` on RBAC vaults, or a list/get certificates
-  access policy.
+- **Key Vault**: `Key Vault Reader` (lists item names and expiry dates, never secret values) on RBAC vaults, or an
+  access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
+  Vault settings, access and logging checks need only Reader.
 - **History storage**: `Storage Blob Data Contributor` on the storage account, when `STORAGE_ACCOUNT_URL` is set.
 
 Subscription creation and decommission need rights on a billing scope (e.g. the **Azure subscription creator**

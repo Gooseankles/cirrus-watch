@@ -11,7 +11,7 @@ module "dashboard" {
   image               = var.image
   shared_spn_access = concat(
     var.shared_spn_access,
-    [for s in var.scan_scopes : { scope = s, roles = ["Reader", "Cost Management Reader"] }],
+    [for s in var.scan_scopes : { scope = s, roles = ["Reader", "Cost Management Reader", "Key Vault Reader"] }],
   )
   scan_subscription_ids   = var.scan_subscription_ids
   grant_graph_permissions = var.grant_graph_permissions

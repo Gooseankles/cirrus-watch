@@ -33,12 +33,12 @@ variable "shared_spn_access" {
     override) gets access, and with which Azure roles. Each entry is a scope: a management group
     ("/providers/Microsoft.Management/managementGroups/<id>"; the tenant root group's ID is the tenant ID), a
     subscription ("/subscriptions/<id>"), a resource group or a single resource such as a Key Vault. roles
-    defaults to Reader + Cost Management Reader, which is what the scans need. Empty list = no role
+    defaults to Reader, Cost Management Reader and Key Vault Reader, which is what the scans need. Empty list = no role
     assignments (grant them yourself).
   EOT
   type = list(object({
     scope = string
-    roles = optional(list(string), ["Reader", "Cost Management Reader"])
+    roles = optional(list(string), ["Reader", "Cost Management Reader", "Key Vault Reader"])
   }))
   default = []
 

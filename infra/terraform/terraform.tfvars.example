@@ -5,15 +5,16 @@ name            = "contoso-azure-tools" # becomes https://contoso-azure-tools.az
 location        = "norwayeast"
 
 # Where the shared SPN (the web app's own identity, used by every tool without
-# its own SPN override) gets access. roles defaults to Reader + Cost
-# Management Reader, which is all the scans need. The tenant root management
-# group's ID is the tenant ID.
+# its own SPN override) gets access. roles defaults to Reader, Cost
+# Management Reader and Key Vault Reader (vault item names and expiry dates,
+# never secret values), which is all the scans need. The tenant root
+# management group's ID is the tenant ID.
 shared_spn_access = [
   { scope = "/providers/Microsoft.Management/managementGroups/00000000-0000-0000-0000-000000000000" },
   # Only some subscriptions instead:
   # { scope = "/subscriptions/00000000-0000-0000-0000-000000000000" },
-  # Expiring Key Vault certs:
-  # { scope = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<name>", roles = ["Key Vault Certificates Officer"] },
+  # Without the Key Vault item checks:
+  # { scope = "/subscriptions/<id>", roles = ["Reader", "Cost Management Reader"] },
 ]
 
 # Scan only these subscriptions (blank = every one the shared SPN can see).

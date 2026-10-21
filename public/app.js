@@ -94,7 +94,8 @@ const TOOLS = [
   { id: "tag-compliance", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
   { id: "cost-anomaly", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
   { id: "access-review", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
-  { id: "secret-expiry", label: "Expiring secrets and certs", icon: "key", schedule: "Daily at 06:00", sub: "App registration credentials and Key Vault certificates that expire soon." },
+  { id: "secret-expiry", label: "Expiring app credentials", icon: "key", schedule: "Daily at 06:00", sub: "App registration secrets and certificates that expire soon." },
+  { id: "key-vault", label: "Key Vault", icon: "shield", schedule: "Daily at 05:45", sub: "Vault settings (soft delete, purge protection, open networks, access policies), secrets, keys and certificates that expired, expire soon or never expire, who can read secrets, and vaults with no logging, no owner or no use." },
   { id: "access-packages", label: "Access packages", icon: "box", schedule: "Daily at 05:00", sub: "Entitlement management packages that expire soon, auto-approve without an end date, go unused or have weak approval." },
   { id: "role-assignments", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), and subscriptions getting close to Azure's limit of 4,000 role assignments." },
   { id: "policy-check", label: "Policy check", icon: "policy", schedule: "Daily at 05:30", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find policy assignments that cannot work." },
@@ -114,6 +115,22 @@ const KINDS = {
   "stale-group-assignment": ["Group assignment", ""],
   "app-credential-expiring": ["App credential expiring", "warn"],
   "keyvault-cert-expiring": ["Key Vault cert expiring", "warn"],
+  "kv-soft-delete-off": ["Soft delete off", "crit"],
+  "kv-purge-protection-off": ["Purge protection off", "warn"],
+  "kv-public-network": ["Open to all networks", "warn"],
+  "kv-access-policies": ["Access policy model", ""],
+  "kv-expired": ["Expired", "crit"],
+  "kv-expiring": ["Expiring", "warn"],
+  "kv-no-expiry": ["No expiry date", ""],
+  "kv-no-data-access": ["Items not checked", ""],
+  "kv-broad-secret-access": ["Broad secret access", "crit"],
+  "kv-many-readers": ["Many secret readers", "warn"],
+  "kv-guest-access": ["Guest can read secrets", "warn"],
+  "kv-deleted-principal": ["Policy for deleted identity", "warn"],
+  "kv-no-diagnostics": ["No audit log", "warn"],
+  "kv-no-owner-tag": ["No owner tag", ""],
+  "kv-empty": ["Empty vault", ""],
+  "kv-unused": ["Unused vault", ""],
   "access-package-expiring": ["Package expiring", "warn"],
   "access-package-auto-approved-no-expiry": ["Auto-approved, no expiry", "crit"],
   "access-package-duplicate-name": ["Duplicate name", ""],
@@ -783,23 +800,35 @@ function genericStats(all, t) {
     statTile({ label: "Oldest open", value: all.length ? `${fmt.int(oldestDays)} d` : "–", delta: all.length ? "first seen " + fmt.date(oldest) : "" })
   );
 }
-function genericColumns(ranAt, hasSubs) {
+function genericColumns(ranAt, hasSubs, hasExpiry) {
   const cols = [{ label: "Kind" }, { label: "Name" }];
   if (hasSubs) cols.push({ label: "Subscription" });
+  if (hasExpiry) cols.push({ label: "Expiry", cls: "nowrap" });
   cols.push({ label: "Detail" }, { label: "First seen", cls: "nowrap" });
   return cols;
 }
-function genericRow(f, ranAt, hasSubs) {
+// "Expired <date>" (red) or "Expires <date>", with how long ago / how long left.
+function expiryCell(f) {
+  if (!f.expires) return f.kind === "kv-no-expiry" ? `<span class="muted">No expiry</span>` : "";
+  const at = new Date(f.expires);
+  const days = Math.round((at.getTime() - Date.now()) / 86400000);
+  const past = days < 0 || at.getTime() <= Date.now();
+  const when = past ? (days === 0 ? "today" : `${fmt.int(-days)} day${days === -1 ? "" : "s"} ago`) : days === 0 ? "today" : `in ${fmt.int(days)} day${days === 1 ? "" : "s"}`;
+  return `<div class="nowrap${past ? " bad" : ""}" title="${esc(f.expires)}">${past ? "Expired" : "Expires"} ${esc(fmt.date(f.expires))}</div><div class="secondary">${esc(when)}</div>`;
+}
+function genericRow(f, ranAt, hasSubs, hasExpiry) {
   const sec = f.role ? `${f.role} · ${shortScope(f.scope)}` : f.resourceGroup ? `rg ${f.resourceGroup}` : f.count != null ? `${fmt.int(f.count)} assignments` : "";
   const row = [kindBadge(f.kind), nameCell(f, ranAt, sec)];
   if (hasSubs) row.push(subCell(f));
+  if (hasExpiry) row.push(expiryCell(f));
   row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
   return row;
 }
 function genericBody(shown, t) {
   const hasSubs = shown.some((f) => f.subscriptionId);
+  const hasExpiry = shown.some((f) => f.expires || f.kind === "kv-no-expiry");
   const slice = shown.slice(0, t.shown);
-  return tableHtml(genericColumns(t.data.ranAt, hasSubs), slice.map((f) => genericRow(f, t.data.ranAt, hasSubs))) + moreButton(slice.length, shown.length, t);
+  return tableHtml(genericColumns(t.data.ranAt, hasSubs, hasExpiry), slice.map((f) => genericRow(f, t.data.ranAt, hasSubs, hasExpiry))) + moreButton(slice.length, shown.length, t);
 }
 const GENERIC = { stats: genericStats, body: genericBody };
 
@@ -953,7 +982,45 @@ function pcHealth(shown, t) {
   }
   return `<div class="table-wrap"><table class="data"><thead><tr><th>Assignment</th><th>Subscription</th><th>Detail</th><th>First seen</th></tr></thead><tbody>${html}</tbody></table></div>` + moreButton(Math.min(n, t.shown), shown.length, t);
 }
+/* key vault view */
+const KV_AREAS = [
+  ["all", "All"],
+  ["settings", "Settings"],
+  ["expiry", "Expiry"],
+  ["access", "Access"],
+  ["logging", "Logging"],
+];
+const kvArea = (t) => (KV_AREAS.some(([a]) => a === t.filters.view) ? t.filters.view : "all");
+function kvStats(all, t) {
+  const vaults = new Set(all.map((f) => f.vault).filter(Boolean)).size;
+  const n = (k) => all.filter((f) => f.kind === k).length;
+  const expired = n("kv-expired");
+  const expiring = n("kv-expiring");
+  const access = all.filter((f) => f.area === "access").length;
+  const unchecked = n("kv-no-data-access");
+  const fresh = all.filter((f) => isNew(f, t.data.ranAt)).length;
+  return (
+    statTile({ label: "Vaults with findings", value: fmt.int(vaults) }) +
+    statTile({ label: "Expired", value: fmt.int(expired), deltaCls: expired ? "bad" : "good", delta: expired ? "secrets, keys or certs" : "nothing expired" }) +
+    statTile({ label: "Expiring soon", value: fmt.int(expiring), deltaCls: expiring ? "bad" : "" }) +
+    statTile({ label: "Access issues", value: fmt.int(access), deltaCls: access ? "bad" : "" }) +
+    statTile({ label: "Vaults not checked", value: fmt.int(unchecked), delta: unchecked ? "no permission or firewall" : "" }) +
+    statTile({ label: "New this run", value: fmt.int(fresh), deltaCls: fresh ? "bad" : "" })
+  );
+}
+function kvExtra(all, t) {
+  const v = kvArea(t);
+  return `<div class="seg">${KV_AREAS.map(([a, label]) => `<button type="button" data-view="${a}" class="${v === a ? "active" : ""}">${label} <span class="n">${fmt.int(a === "all" ? all.length : all.filter((f) => f.area === a).length)}</span></button>`).join("")}</div>`;
+}
+const kvScope = (f, t) => kvArea(t) === "all" || f.area === kvArea(t);
+function kvBody(shown, t) {
+  // Expiry view: soonest (most overdue) first.
+  if (kvArea(t) === "expiry") shown = [...shown].sort((a, b) => (a.expires ? Date.parse(a.expires) : Infinity) - (b.expires ? Date.parse(b.expires) : Infinity));
+  return genericBody(shown, t);
+}
+
 const VIEWS = {
+  "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },
   "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => t.filters.view === "health", body: (shown, t) => (t.filters.view === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },
 };

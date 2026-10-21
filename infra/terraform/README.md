@@ -9,7 +9,7 @@ One `apply` creates:
 - Resource group, Linux App Service plan (B1) and the web app running `trozity/azure-ops-dashboard:latest`
   (port 7070, `/home/data` storage, Always On, HTTPS only, random session secret).
 - **Shared SPN**: the web app's system-assigned identity, used by every tool that has no SPN override in Settings.
-  `shared_spn_access` says where it gets access and with which roles (default Reader and Cost Management Reader,
+  `shared_spn_access` says where it gets access and with which roles (default Reader, Cost Management Reader and Key Vault Reader,
   which is all the scans need), plus the Microsoft Graph application permissions the tools use.
 - **Secretless SSO**: an Entra app registration with the Admin and User roles, "assignment required" on, a
   user-assigned identity attached to the web app, and a federated credential so no client secret exists.
@@ -25,13 +25,10 @@ Each entry is a scope and, optionally, its roles:
 
 ```hcl
 shared_spn_access = [
-  # Whole tenant (the tenant root management group's ID is the tenant ID); Reader + Cost Management Reader.
+  # Whole tenant (the tenant root management group's ID is the tenant ID), default roles.
   { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
-  # One subscription only.
-  { scope = "/subscriptions/<id>" },
-  # A Key Vault for the secret-expiry tool, with a different role.
-  { scope = "/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<name>",
-    roles = ["Key Vault Certificates Officer"] },
+  # One subscription only, without Key Vault item checks.
+  { scope = "/subscriptions/<id>", roles = ["Reader", "Cost Management Reader"] },
 ]
 
 # Optional: scan only these subscriptions (blank = every subscription the shared SPN can see).
@@ -126,10 +123,16 @@ Needs nothing beyond Reader on the shared SPN's scopes: it reads assignments, de
 exemptions, remediation tasks and the policy identities' role assignments, and its probes call
 `checkPolicyRestrictions` (a read operation; no resource is created). Choose the probes in Settings, Policy check.
 
+## Key Vault
+
+Key Vault Reader (in the default roles) lets the Key Vault tool list secrets, keys and certificates with their
+expiry dates on RBAC vaults; it can never read a secret's value. Vaults still on access policies need a policy
+for `web_app_principal_id` with **list** on secrets, keys and certificates. A vault whose firewall does not let the
+App Service in shows up as "Items not checked".
+
 ## Not covered
 
-- Key Vault access policies (non-RBAC vaults) for the secret-expiry tool: give `web_app_principal_id` list/get
-  certificates on each vault. RBAC vaults can go in `shared_spn_access` as shown above.
+- Key Vault access policies on access-policy vaults (see above).
 - Subscription creation and decommission need billing rights; give those to a separate identity and set it as
   that tool's SPN override in Settings.
 - A web app you already built by hand is not adopted; either `terraform import` it or let Terraform create a

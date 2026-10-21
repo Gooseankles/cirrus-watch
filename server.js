@@ -95,6 +95,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/costAnomaly")),
   registerScanTool(app, require("./src/tools/accessReview")),
   registerScanTool(app, require("./src/tools/secretExpiry")),
+  registerScanTool(app, require("./src/tools/keyVault")),
   registerScanTool(app, require("./src/tools/accessPackages")),
   registerScanTool(app, require("./src/tools/roleAssignments")),
   registerScanTool(app, require("./src/tools/policyCheck")),

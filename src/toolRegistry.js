@@ -83,8 +83,7 @@ function registerScanTool(app, tool) {
   return { id: tool.id, label: tool.label, kind: "scan" };
 }
 
-// Action tools (ones triggered on demand with input, like a lookup or a
-// decommission request) register their own routes directly.
+// Action tools (ones triggered on demand with input, like a lookup) register their own routes directly.
 function registerActionTool(app, tool) {
   tool.registerRoutes(app);
   return { id: tool.id, label: tool.label, kind: "action" };

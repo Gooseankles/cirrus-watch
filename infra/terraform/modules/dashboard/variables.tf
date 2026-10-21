@@ -136,7 +136,7 @@ variable "admin_password" {
 }
 
 variable "extra_app_settings" {
-  description = "Extra app settings, e.g. WEBHOOK_SHARED_SECRET, SNOW_INSTANCE_URL, AZURE_REQUIRED_TAGS."
+  description = "Extra app settings, e.g. AZURE_REQUIRED_TAGS."
   type        = map(string)
   default     = {}
   sensitive   = true

@@ -1,8 +1,7 @@
 # Azure ops dashboard
 
 A self-hosted dashboard for the everyday checks and chores of running an Azure tenant: nightly scans for waste,
-risky access and broken policy, cost history per subscription, a "who has access to what" lookup, and ServiceNow
-tickets that create or decommission subscriptions.
+risky access and broken policy, cost history per subscription and a "who has access to what" lookup.
 
 It is a small Node.js (Express) app with a no-build front end. Run it locally with `npm start`, or as a container on
 Azure App Service, where the included Terraform sets up everything, including a managed identity, so no secrets
@@ -23,8 +22,6 @@ are needed.
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
 | Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
 | Access lookup | On demand | Every Azure role a person holds, directly or through a group, across all subscriptions |
-| Subscription creation | ServiceNow ticket | Turns a subscription request ticket into a real subscription and writes the result back to the ticket |
-| Subscription decommission | ServiceNow ticket | Cancels a subscription once a safety checklist on the ticket is complete |
 
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.
@@ -65,11 +62,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.8.0.2"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.9.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.8.0.2" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.9.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -125,44 +122,9 @@ The scans only read. Give the scan identity (by default the web app's managed id
   Vault settings, access and logging checks need only Reader.
 - **History storage**: `Storage Blob Data Contributor` on the storage account, when `STORAGE_ACCOUNT_URL` is set.
 
-Subscription creation and decommission need rights on a billing scope (e.g. the **Azure subscription creator**
-role on an EA enrollment account or an MCA invoice section). Give those to a separate identity: every tool can
-have its own identity (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends in `.env`), and a tool
-without one uses the shared identity. Missing permissions show up as an error entry on the tool's page and in the
-activity log, never as an empty result.
-
-## ServiceNow integration
-
-1. A ticket (e.g. a catalog request) asks for a new subscription.
-2. A Business Rule or Flow Designer action calls `POST /webhook/create-subscription` with the header
-   `X-Webhook-Secret: <WEBHOOK_SHARED_SECRET>` and this body:
-   ```json
-   {
-     "ticketNumber": "${number}",
-     "table": "${table_name}",
-     "sysId": "${sys_id}",
-     "displayName": "${short_description}"
-   }
-   ```
-3. The dashboard creates the subscription with the `Microsoft.Subscription/aliases` API under
-   `AZURE_BILLING_SCOPE` (optionally placed in `AZURE_MANAGEMENT_GROUP_ID`) and writes a work note back to the
-   ticket. Use a dedicated ServiceNow API user (`SNOW_API_USER` / `SNOW_API_PASSWORD`) with access to that table.
-
-Decommissioning works the same way through `POST /webhook/decommission-subscription`, and is refused unless the
-ticket's checklist confirms every item:
-
-```json
-{
-  "ticketNumber": "REQ0010099",
-  "table": "sc_request",
-  "sysId": "abc123",
-  "subscriptionId": "00000000-0000-0000-0000-000000000000",
-  "checklist": { "backupsConfirmed": true, "dnsRemoved": true, "budgetAlertsCleared": true }
-}
-```
-
-To try it without a company instance, the free ServiceNow Developer Program (https://developer.servicenow.com)
-gives you a personal developer instance.
+Every tool can have its own identity (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends in
+`.env`), and a tool without one uses the shared identity. Missing permissions show up as an error entry on the
+tool's page and in the activity log, never as an empty result.
 
 ## Where data is kept
 

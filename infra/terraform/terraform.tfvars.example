@@ -35,9 +35,5 @@ user_principal_ids  = []
 # admin_password = "a-long-random-password"
 
 # extra_app_settings = {
-#   WEBHOOK_SHARED_SECRET = "..."
-#   SNOW_INSTANCE_URL     = "https://example.service-now.com"
-#   SNOW_API_USER         = "svc.azure.automation"
-#   SNOW_API_PASSWORD     = "..."
-#   AZURE_REQUIRED_TAGS   = "CostCenter,Owner,Environment"
+#   AZURE_REQUIRED_TAGS = "CostCenter,Owner,Environment"
 # }

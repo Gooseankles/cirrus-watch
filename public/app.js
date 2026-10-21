@@ -169,14 +169,12 @@ const PROBE_SHORT = {
   "denied-region": "Denied region",
 };
 const LOG_TOOLS = {
-  "subscription-create": "Subscription creation",
-  "subscription-decommission": "Subscription decommission",
   "access-lookup": "Access lookup",
   "cost-history": "Cost history",
 };
 
 /* ---------- state and API ---------- */
-const state = { me: null, tools: {}, logs: [], logsAt: null, route: null, timers: { logs: null } };
+const state = { me: null, tools: {}, logs: [], logsAt: null, route: null };
 
 function toolState(id) {
   if (!state.tools[id]) {
@@ -346,18 +344,12 @@ function navigate(key) {
 }
 function render() {
   const r = parseRoute();
-  clearInterval(state.timers.logs);
-  state.timers.logs = null;
   let pageId = null;
   let key = r.page;
   let show = null;
   if (r.page === "overview") {
     pageId = "page-overview";
     show = () => showOverview();
-  } else if (r.page === "logs" && LOG_TOOLS[r.arg]) {
-    pageId = "page-logs";
-    key = `logs/${r.arg}`;
-    show = () => showLogs(r.arg);
   } else if (r.page === "lookup") {
     pageId = "page-lookup";
   } else if (r.page === "scan" && TOOL_BY_ID[r.arg]) {
@@ -389,7 +381,6 @@ function buildNav() {
   const me = state.me || {};
   const groups = [
     { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }] },
-    { label: "ServiceNow", items: [{ route: "logs/subscription-create", label: "Subscription creation", icon: "plus" }, { route: "logs/subscription-decommission", label: "Subscription decommission", icon: "minus" }] },
     { label: "Access", items: [{ route: "lookup", label: "Access lookup", icon: "search" }] },
     { label: "Scans", items: TOOLS.map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })) },
     { label: "Cost", items: [{ route: "cost", label: "Cost history", icon: "cost" }] },
@@ -429,7 +420,7 @@ function showOverview() {
   if (!page.dataset.built) {
     page.innerHTML = `
       <div class="page-head">
-        <div><h1>Overview</h1><p class="page-sub">The latest result of every scan, tenant spend and what the ServiceNow flows did recently.</p></div>
+        <div><h1>Overview</h1><p class="page-sub">The latest result of every scan, tenant spend and recent activity.</p></div>
         <div class="page-actions"><div class="last-run" id="ov-updated"></div></div>
       </div>
       <div class="stat-row" id="ov-stats"></div>
@@ -526,62 +517,10 @@ function renderActivity() {
     (logs.length
       ? `<ul class="activity">${logs
           .map(
-            (l) => `<li><span class="dot ${esc(l.level || "info")}"></span><div><div class="act-meta"><span>${esc(fmt.rel(l.time))}</span><span>${esc(LOG_TOOLS[l.tool] || (TOOL_BY_ID[l.tool] ? TOOL_BY_ID[l.tool].label : l.tool))}</span>${l.ticketNumber ? `<span class="mono">${esc(l.ticketNumber)}</span>` : ""}</div><div class="act-msg">${esc(l.message)}</div></div></li>`
+            (l) => `<li><span class="dot ${esc(l.level || "info")}"></span><div><div class="act-meta"><span>${esc(fmt.rel(l.time))}</span><span>${esc(LOG_TOOLS[l.tool] || (TOOL_BY_ID[l.tool] ? TOOL_BY_ID[l.tool].label : l.tool))}</span></div><div class="act-msg">${esc(l.message)}</div></div></li>`
           )
           .join("")}</ul>`
       : `<div class="empty-state">Nothing logged yet.</div>`);
-}
-
-/* ---------- logs (ServiceNow flows) ---------- */
-function showLogs(kind) {
-  const page = $("#page-logs");
-  const label = LOG_TOOLS[kind] || kind;
-  if (page.dataset.kind !== kind) {
-    page.innerHTML = `
-      <div class="page-head">
-        <div><h1>${esc(label)}</h1><p class="page-sub">Every ${esc(label.toLowerCase())} request the ServiceNow flow sent, newest first. Refreshes every 5 seconds.</p></div>
-        <div class="page-actions"><div class="last-run" id="logs-updated"></div></div>
-      </div>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-tools">
-            <input class="input search" id="logs-q" type="search" placeholder="Search message or ticket" />
-            <select class="select" id="logs-level"><option value="">All levels</option><option value="info">Info</option><option value="success">Success</option><option value="error">Error</option></select>
-          </div>
-          <span class="meta" id="logs-count"></span>
-        </div>
-        <div id="logs-body"></div>
-      </div>`;
-    page.dataset.kind = kind;
-    $("#logs-q").addEventListener("input", () => renderLogs(kind));
-    $("#logs-level").addEventListener("change", () => renderLogs(kind));
-  }
-  renderLogs(kind);
-  loadLogs().then(() => state.route === `logs/${kind}` && renderLogs(kind));
-  state.timers.logs = setInterval(async () => {
-    await loadLogs();
-    if (state.route === `logs/${kind}`) renderLogs(kind);
-  }, 5000);
-}
-function renderLogs(kind) {
-  const q = ($("#logs-q").value || "").trim().toLowerCase();
-  const level = $("#logs-level").value;
-  const all = state.logs.filter((l) => l.tool === kind);
-  const shown = all.filter((l) => (!level || l.level === level) && (!q || `${l.message || ""} ${l.ticketNumber || ""}`.toLowerCase().includes(q))).slice(0, 300);
-  const errors = all.filter((l) => l.level === "error").length;
-  $("#logs-updated").innerHTML = state.logsAt ? `Updated <b>${esc(fmt.rel(state.logsAt))}</b><br>${fmt.int(all.length)} entries · ${fmt.int(errors)} error${errors === 1 ? "" : "s"}` : "Loading…";
-  $("#logs-count").textContent = all.length ? `${fmt.int(shown.length)} of ${fmt.int(all.length)}` : "";
-  $("#logs-body").innerHTML = shown.length
-    ? tableHtml(
-        [{ label: "Time", cls: "nowrap" }, { label: "Level" }, { label: "Ticket" }, { label: "Message" }],
-        shown.map((l) => [
-          `<span title="${esc(l.time)}">${esc(fmt.dateTime(l.time))}</span>`,
-          `<span class="level"><span class="dot ${esc(l.level || "info")}"></span>${esc(l.level || "info")}</span>`,
-          l.ticketNumber ? `<code>${esc(l.ticketNumber)}</code>` : '<span class="muted">–</span>',
-          `<span class="detail-cell wide">${esc(l.message)}</span>`,
-        ])
-      )
-    : `<div class="empty-state">${all.length ? "No entries match." : "No runs logged yet. Entries appear here when ServiceNow calls the webhook."}</div>`;
 }
 
 /* ---------- access lookup ---------- */

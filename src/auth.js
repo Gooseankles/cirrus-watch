@@ -162,7 +162,7 @@ function handleLogout(req, res) {
   });
 }
 
-const EXEMPT_PREFIXES = ["/webhook/", "/auth/", "/api/me", "/login.html"];
+const EXEMPT_PREFIXES = ["/auth/", "/api/me", "/login.html"];
 
 function requireAuth(req, res, next) {
   if (EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();

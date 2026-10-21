@@ -10,7 +10,7 @@ function ensureLogDir() {
 
 // Appends one JSON-lines record per automation run/step so the dashboard
 // can show a history without a database. `tool` identifies which tool the
-// entry belongs to (e.g. "subscription-create", "orphaned-resources").
+// entry belongs to (e.g. "orphaned-resources", "access-lookup").
 function record(entry) {
   ensureLogDir();
   const line = JSON.stringify({ time: new Date().toISOString(), tool: "general", ...entry }) + "\n";

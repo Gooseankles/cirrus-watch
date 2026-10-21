@@ -1,5 +1,5 @@
 // Everything on the admin-only Settings tab: scan thresholds AND the Azure
-// connection itself (shared SPN, per-tool SPNs, subscription and billing scope). An
+// connection itself (shared SPN, per-tool SPNs, subscriptions to scan). An
 // override here wins over .env; leaving a plain field blank falls back to
 // .env (or that tool's own built-in default). Secret fields (client
 // secrets, passwords) work differently — see setMany below.
@@ -21,9 +21,6 @@ const FIELDS = [
   { key: "AZURE_CLIENT_SECRET", label: "Client secret", group: "Azure service principal (shared)", secret: true, secretAuthOnly: true },
   { key: "AZURE_TENANT_ID", label: "Tenant ID", group: "Azure service principal (shared)", secretAuthOnly: true },
   { key: "AZURE_SUBSCRIPTION_IDS", label: "Subscriptions to scan", group: "Azure service principal (shared)", hint: "Comma-separated subscription IDs; blank = every subscription the SPN can see" },
-
-  { key: "AZURE_BILLING_SCOPE", label: "Billing scope", group: "Subscription creation", hint: "EA enrollment account or MCA invoice section path" },
-  { key: "AZURE_MANAGEMENT_GROUP_ID", label: "Management group ID", group: "Subscription creation" },
 
   { key: "STORAGE_ACCOUNT_URL", label: "Storage account blob URL", group: "History storage", hint: "e.g. https://stdashboard.blob.core.windows.net; blank = keep results on the app's own disk" },
   { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
@@ -51,8 +48,6 @@ const FIELDS = [
 // Optional least-privilege SPN per tool. A tool uses its own SPN only when
 // its client ID is set; otherwise it uses the shared one above.
 const TOOL_SPNS = [
-  { id: "subscription-create", label: "Subscription creation" },
-  { id: "subscription-decommission", label: "Subscription decommission" },
   { id: "access-lookup", label: "Access lookup" },
   { id: "orphaned-resources", label: "Orphaned resources" },
   { id: "tag-compliance", label: "Tag compliance" },

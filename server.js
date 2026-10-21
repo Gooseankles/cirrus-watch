@@ -10,7 +10,7 @@ const { testSpn, testTenant } = require("./src/credentials");
 const tenants = require("./src/tenants");
 const access = require("./src/access");
 const { FileSessionStore } = require("./src/sessionStore");
-const { registerScanTool, registerActionTool, readKeys } = require("./src/toolRegistry");
+const { registerScanTool, registerActionTool, readKeys, decorate } = require("./src/toolRegistry");
 
 const app = express();
 app.disable("x-powered-by");
@@ -170,6 +170,22 @@ const registeredTools = [
 
 app.get("/api/tools", (req, res) => res.json(registeredTools));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
+
+// Monthly report over the tenants the person may see (?tenant= narrows):
+// ?month=YYYY-MM, default this month.
+app.get("/api/report", async (req, res) => {
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const month = String(req.query.month || thisMonth);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month > thisMonth) return res.status(400).json({ error: "month must be YYYY-MM, not in the future" });
+  try {
+    const keys = readKeys(req);
+    const scans = registeredTools.filter((t) => t.kind === "scan");
+    const out = await require("./src/report").build(scans, month, keys, decorate);
+    res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get("/api/secret-store", auth.requireRole("Admin"), (req, res) => res.json(secretStore.describe()));
 
 // Cost history: every subscription's daily cost plus monthly by service and

@@ -35,6 +35,8 @@ const ICON_PATHS = {
   check: '<polyline points="20 6 9 17 4 12"/>',
   list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   chevron: '<polyline points="9 18 15 12 9 6"/>',
+  report: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  print: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
 };
 function icon(name, cls) {
   return `<svg class="${cls || ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ""}</svg>`;
@@ -190,6 +192,11 @@ function canRun() {
   const t = tenantList().find((x) => x.key === state.tenant);
   return Boolean(t && t.canRun);
 }
+// Run now rights in the tenant a finding belongs to (accepting it needs them).
+function canRunFor(f) {
+  const t = tenantList().find((x) => (f.tenant ? x.key === f.tenant : x.home));
+  return Boolean((state.me && state.me.isAdmin) || (t && t.canRun));
+}
 function initTenant() {
   let saved = "";
   try {
@@ -222,6 +229,7 @@ function setTenant(key) {
   state.logs = [];
   state.logsAt = null;
   Cost.reset();
+  Report.reset();
   delete $("#page-scan").dataset.tool;
   renderTenantTabs();
   renderMe();
@@ -240,7 +248,8 @@ function toolState(id) {
   if (!state.tools[id]) {
     state.tools[id] = {
       id, loaded: false, loading: null, data: { ranAt: null, findings: [] }, history: [], snapshots: {}, selectedRun: null,
-      filters: { q: "", kind: "", sub: "", newOnly: false, role: "", ptype: "", view: "probes" },
+      accepted: [],
+      filters: { q: "", kind: "", sub: "", newOnly: false, role: "", ptype: "", view: "probes", accepted: false, framework: "" },
       shown: 150, open: new Set(), running: false, runError: null, runStarted: null, runFinished: null, error: null,
     };
   }
@@ -273,7 +282,10 @@ function loadTool(id) {
   t.loading = (async () => {
     try {
       const [data, history] = await Promise.all([apiJson(`/api/tools/${id}/findings`), apiJson(`/api/tools/${id}/history`)]);
-      t.data = { ranAt: data.ranAt || null, findings: Array.isArray(data.findings) ? data.findings : [] };
+      // Accepted and snoozed findings are kept apart, so every count and view shows only the open ones.
+      const list = Array.isArray(data.findings) ? data.findings : [];
+      t.data = { ranAt: data.ranAt || null, findings: list.filter((f) => !f.accepted) };
+      t.accepted = list.filter((f) => f.accepted);
       t.tenantErrors = data.tenantErrors && typeof data.tenantErrors === "object" ? data.tenantErrors : {};
       t.history = Array.isArray(history) ? history : [];
       t.error = null;
@@ -330,6 +342,11 @@ function tableHtml(cols, rows, opts) {
     .join("");
   return `<div class="table-wrap${o.scroll ? " scroll-y" : ""}"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
+function controlTags(f) {
+  const list = Compliance.of(f);
+  return list.length ? `<div class="ctl-tags">${list.map((c) => `<span class="ctl ctl-${esc(c.fw)}" title="${esc(FRAMEWORKS[c.fw] + ": " + c.title)}">${esc(c.label)}</span>`).join("")}</div>` : "";
+}
+const acceptButton = (f) => (f.key && canRunFor(f) ? `<button type="button" class="btn small ghost accept-btn" data-accept="${esc(f.key)}" title="Accept or snooze this finding">${icon("check")} Accept</button>` : "");
 function moreButton(shown, total, t) {
   if (shown >= total) return "";
   return `<div class="load-more"><button class="btn small ghost" data-more="1">Show more (${fmt.int(total - shown)} left)</button></div>`;
@@ -362,6 +379,8 @@ function fillSubSelect(all, t) {
 function searchText(f) {
   const parts = [f.name, f.id, f.detail, f.resourceGroup, f.tenantName, f.subscriptionName, f.subscriptionId, f.kind, f.upn, f.principalId, f.scope, f.scopeText, f.role, f.probe];
   if (Array.isArray(f.members)) for (const m of f.members) parts.push(m.name, m.upn);
+  for (const c of Compliance.of(f)) parts.push(c.label);
+  if (f.accepted) parts.push(f.accepted.reason, f.accepted.by);
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 function baseFilter(f, t) {
@@ -369,6 +388,7 @@ function baseFilter(f, t) {
   if (fl.kind && f.kind !== fl.kind) return false;
   if (fl.sub && (f.subscriptionId || "") !== fl.sub) return false;
   if (fl.newOnly && !isNew(f, t.data.ranAt)) return false;
+  if (fl.framework && !Compliance.of(f).some((c) => c.fw === fl.framework)) return false;
   if (fl.q && !searchText(f).includes(fl.q)) return false;
   return true;
 }
@@ -418,6 +438,9 @@ function render() {
     pageId = "page-scan";
     key = `scan/${r.arg}`;
     show = () => showScan(r.arg);
+  } else if (r.page === "report") {
+    pageId = "page-report";
+    show = () => Report.show(r.arg);
   } else if (r.page === "cost") {
     pageId = "page-cost";
     show = () => Cost.show();
@@ -442,7 +465,7 @@ function render() {
 function buildNav() {
   const me = state.me || {};
   const groups = [
-    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }] },
+    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }] },
     { label: "Access", items: [{ route: "lookup", label: "Access lookup", icon: "search" }] },
     { label: "Scans", items: TOOLS.map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })) },
     { label: "Cost", items: [{ route: "cost", label: "Cost history", icon: "cost" }] },
@@ -502,10 +525,11 @@ function showOverview() {
 }
 function renderOverview() {
   const loaded = TOOLS.filter((t) => toolState(t.id).loaded);
-  let open = 0, added = 0, resolved = 0, errors = 0, neverRan = 0;
+  let open = 0, added = 0, resolved = 0, errors = 0, neverRan = 0, accepted = 0;
   for (const tool of TOOLS) {
     const t = toolState(tool.id);
     open += t.data.findings.length;
+    accepted += t.accepted.length;
     const last = t.history[t.history.length - 1];
     if (last) {
       added += last.added || 0;
@@ -516,7 +540,7 @@ function renderOverview() {
   }
   $("#ov-updated").innerHTML = loaded.length ? `<b>${loaded.length} of ${TOOLS.length}</b> scans loaded` : "Loading…";
   $("#ov-stats").innerHTML =
-    statTile({ label: "Open findings", value: fmt.int(open), delta: "across all scans" }) +
+    statTile({ label: "Open findings", value: fmt.int(open), delta: accepted ? `across all scans · ${fmt.int(accepted)} accepted` : "across all scans" }) +
     statTile({ label: "New in latest runs", value: fmt.int(added), deltaCls: added ? "bad" : "", delta: added ? "need a look" : "nothing new" }) +
     statTile({ label: "Resolved in latest runs", value: fmt.int(resolved), deltaCls: resolved ? "good" : "", delta: resolved ? "gone since the run before" : "no change" }) +
     statTile({ label: "Scan health", value: `${TOOLS.length - errors - neverRan} / ${TOOLS.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" });
@@ -538,7 +562,7 @@ function toolCard(tool) {
     : `<span>No runs yet</span>`;
   const foot = t.error
     ? `<span class="err">${esc(t.error)}</span>`
-    : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
+    : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.accepted.length ? fmt.int(t.accepted.length) + " accepted · " : ""}${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
   return `<a class="tool-card" href="#/scan/${esc(tool.id)}">
     <div class="tc-head">${icon(tool.icon)}<span>${esc(tool.label)}</span></div>
     <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>open finding${n === 1 ? "" : "s"}</small></div>
@@ -664,7 +688,11 @@ function scanSkeleton(tool) {
           <input class="input search" id="scan-q" type="search" placeholder="Search name, detail, subscription" />
           <select class="select" id="scan-sub"><option value="">All subscriptions</option></select>
           <span id="scan-extra" class="card-tools"></span>
+          <select class="select" id="scan-fw" data-filter="framework" title="Only findings that bear on this framework">
+            <option value="">All findings</option>${Object.entries(FRAMEWORKS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}
+          </select>
           <button class="chip" id="scan-new" data-filter="newOnly">${icon("alert")} New this run</button>
+          <button class="chip" id="scan-accepted" data-filter="accepted">${icon("check")} Accepted <span class="n" id="scan-accepted-n"></span></button>
         </div>
       </div>
       <div class="inline-list" id="scan-kinds"></div>
@@ -700,13 +728,19 @@ function wireScan() {
   page.addEventListener("click", (e) => {
     const t = cur();
     const id = page.dataset.tool;
-    const el = e.target.closest("[data-kind],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],#scan-run");
+    const el = e.target.closest("[data-kind],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],[data-accept],[data-unaccept],#scan-run");
     if (!el) return;
     if (el.id === "scan-run") return runTool(id);
+    if (el.dataset.accept) return openAccept(id, el.dataset.accept);
+    if (el.dataset.unaccept) return reopenFinding(id, el.dataset.unaccept, el);
+    if (el.tagName === "SELECT") return;
     if (el.dataset.kind !== undefined) {
       t.filters.kind = t.filters.kind === el.dataset.kind ? "" : el.dataset.kind;
     } else if (el.dataset.filter === "newOnly") {
       t.filters.newOnly = !t.filters.newOnly;
+    } else if (el.dataset.filter === "accepted") {
+      t.filters.accepted = !t.filters.accepted;
+      t.filters.kind = "";
     } else if (el.dataset.view) {
       t.filters.view = el.dataset.view;
       t.filters.kind = "";
@@ -736,6 +770,7 @@ function showScan(id) {
     page.innerHTML = scanSkeleton(tool);
     page.dataset.tool = id;
     $("#scan-q").value = t.filters.q;
+    $("#scan-fw").value = t.filters.framework;
   }
   renderScan(id);
   loadTool(id).then(() => {
@@ -780,19 +815,143 @@ function renderFindings(id) {
     return;
   }
   $("#scan-stats").innerHTML = view.stats(all, t);
-  fillSubSelect(all, t);
+  fillSubSelect([...all, ...t.accepted], t);
+  $("#scan-new").classList.toggle("active", t.filters.newOnly);
+  $("#scan-accepted").classList.toggle("active", t.filters.accepted);
+  $("#scan-accepted").classList.toggle("hidden", !t.accepted.length && !t.filters.accepted);
+  $("#scan-accepted-n").textContent = fmt.int(t.accepted.length);
+  if (t.filters.accepted) {
+    $("#scan-extra").innerHTML = "";
+    $("#scan-kinds").innerHTML = kindChips(countKinds(t.accepted), t.filters.kind);
+    const shown = t.accepted.filter((f) => baseFilter(f, t));
+    $("#scan-count").textContent = `${fmt.int(shown.length)} accepted`;
+    $("#scan-body").innerHTML = shown.length ? acceptedBody(shown, t) : `<div class="empty-state">No accepted findings match these filters.</div>`;
+    return;
+  }
   const scoped = view.scope ? all.filter((f) => view.scope(f, t)) : all;
   const showKinds = view.showKinds ? view.showKinds(t) : true;
   $("#scan-kinds").innerHTML = showKinds ? kindChips(countKinds(scoped), t.filters.kind) : "";
   $("#scan-extra").innerHTML = view.extra ? view.extra(all, t) : "";
-  $("#scan-new").classList.toggle("active", t.filters.newOnly);
   const shown = scoped.filter((f) => baseFilter(f, t));
   $("#scan-count").textContent = all.length ? `${fmt.int(shown.length)} of ${fmt.int(all.length)}` : "";
+  const acceptedNote = t.accepted.length ? ` ${fmt.int(t.accepted.length)} accepted or snoozed finding${t.accepted.length === 1 ? " is" : "s are"} not counted.` : "";
   $("#scan-body").innerHTML = all.length
     ? shown.length
       ? view.body(shown, t)
       : `<div class="empty-state">No findings match these filters.</div>`
-    : `<div class="empty-state big"><h3>All clear</h3><p>The last run found nothing.</p></div>`;
+    : `<div class="empty-state big"><h3>All clear</h3><p>The last run found nothing open.${esc(acceptedNote)}</p></div>`;
+}
+
+/* accepted and snoozed findings */
+function acceptedUntil(a) {
+  if (!a.until) return `<span class="text-2">until reopened</span>`;
+  const days = Math.ceil((Date.parse(a.until) - Date.now()) / 86400000);
+  return `<div class="nowrap">until ${esc(fmt.date(a.until))}</div><div class="secondary">${fmt.int(days)} day${days === 1 ? "" : "s"} left</div>`;
+}
+function acceptedBody(shown, t) {
+  const hasSubs = shown.some((f) => f.subscriptionId);
+  const slice = shown.slice(0, t.shown);
+  const cols = [{ label: "Kind" }, { label: "Name" }];
+  if (hasSubs) cols.push({ label: "Subscription" });
+  cols.push({ label: "Reason" }, { label: "Snoozed", cls: "nowrap" }, { label: "By" }, { label: "" });
+  const rows = slice.map((f) => {
+    const a = f.accepted || {};
+    const r = [kindBadge(f.kind), nameCell(f, null, f.detail || (f.resourceGroup ? `rg ${f.resourceGroup}` : ""))];
+    if (hasSubs) r.push(subCell(f));
+    r.push(
+      `<span class="detail-cell">${esc(a.reason || "")}</span>`,
+      acceptedUntil(a),
+      `<div>${esc(a.by || "")}</div><div class="secondary">${esc(fmt.date(a.at))}</div>`,
+      canRunFor(f) ? `<button type="button" class="btn small ghost" data-unaccept="${esc(f.key)}">Reopen</button>` : ""
+    );
+    return r;
+  });
+  return tableHtml(cols, rows) + moreButton(slice.length, shown.length, t) + `<div class="note">Accepted findings stay in the scan results but do not count as open. A snoozed one counts again from its end date.</div>`;
+}
+function findAny(t, key) {
+  return t.data.findings.find((f) => f.key === key) || t.accepted.find((f) => f.key === key) || null;
+}
+async function reloadTool(id) {
+  const t = toolState(id);
+  t.loaded = false;
+  t.loading = null;
+  await loadTool(id);
+  if (state.route === `scan/${id}`) renderScan(id);
+}
+async function reopenFinding(id, key, btn) {
+  const f = findAny(toolState(id), key);
+  if (!f) return;
+  btn.disabled = true;
+  try {
+    await postJson(`/api/tools/${id}/unaccept`, { key, tenant: f.tenant || "home" });
+    await reloadTool(id);
+  } catch (err) {
+    btn.disabled = false;
+    setStatus($("#scan-status"), `Could not reopen: ${err.message}`, "error");
+  }
+}
+function acceptDialog() {
+  let dlg = $("#accept-dialog");
+  if (dlg) return dlg;
+  dlg = document.createElement("dialog");
+  dlg.id = "accept-dialog";
+  dlg.className = "dialog";
+  dlg.innerHTML = `
+    <form class="accept-form" method="dialog">
+      <h3>Accept finding</h3>
+      <div class="accept-what"></div>
+      <label>Why is this fine?<textarea class="input" name="reason" maxlength="500" rows="3" required placeholder="e.g. Public IP is the VPN gateway, approved by the network team"></textarea></label>
+      <label>For how long
+        <select class="select" name="for">
+          <option value="30">30 days</option><option value="90" selected>90 days</option><option value="180">6 months</option><option value="365">1 year</option>
+          <option value="date">Until a date…</option><option value="">Until someone reopens it</option>
+        </select>
+      </label>
+      <input class="input hidden" type="date" name="date" />
+      <div class="status-msg" data-msg></div>
+      <div class="dialog-actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">Accept</button></div>
+    </form>`;
+  document.body.appendChild(dlg);
+  const form = dlg.querySelector("form");
+  form.elements.for.addEventListener("change", () => form.elements.date.classList.toggle("hidden", form.elements.for.value !== "date"));
+  dlg.querySelector("[data-cancel]").addEventListener("click", () => dlg.close());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = dlg.querySelector("[data-msg]");
+    const reason = form.elements.reason.value.trim();
+    const pick = form.elements.for.value;
+    let until = null;
+    if (pick === "date") until = form.elements.date.value || "";
+    else if (pick) until = new Date(Date.now() + Number(pick) * 86400000).toISOString().slice(0, 10);
+    if (!reason) return setStatus(msg, "Give a reason.", "error");
+    if (until === "") return setStatus(msg, "Pick a date.", "error");
+    const { id, f } = dlg._target || {};
+    if (!f) return dlg.close();
+    form.querySelector("[type=submit]").disabled = true;
+    try {
+      await postJson(`/api/tools/${id}/accept`, { key: f.key, tenant: f.tenant || "home", reason, until });
+      dlg.close();
+      await reloadTool(id);
+    } catch (err) {
+      setStatus(msg, err.message, "error");
+    }
+    form.querySelector("[type=submit]").disabled = false;
+  });
+  return dlg;
+}
+function openAccept(id, key) {
+  const f = findAny(toolState(id), key);
+  if (!f) return;
+  const dlg = acceptDialog();
+  const form = dlg.querySelector("form");
+  form.reset();
+  form.elements.date.classList.add("hidden");
+  form.elements.date.min = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  setStatus(dlg.querySelector("[data-msg]"), "");
+  dlg.querySelector(".accept-what").innerHTML = `${kindBadge(f.kind)} <b>${esc(f.name || f.id || "")}</b>${f.subscriptionName || f.subscriptionId ? ` <span class="muted">· ${esc(f.subscriptionName || f.subscriptionId)}</span>` : ""}<div class="secondary">${esc(f.detail || "")}</div>`;
+  dlg._target = { id, f };
+  dlg.showModal();
+  form.elements.reason.focus();
 }
 
 /* generic view */
@@ -816,6 +975,7 @@ function genericColumns(ranAt, hasSubs, hasExpiry) {
   if (hasSubs) cols.push({ label: "Subscription" });
   if (hasExpiry) cols.push({ label: "Expiry", cls: "nowrap" });
   cols.push({ label: "Detail" }, { label: "First seen", cls: "nowrap" });
+  if (canRun()) cols.push({ label: "" });
   return cols;
 }
 // "Expired <date>" (red) or "Expires <date>", with how long ago / how long left.
@@ -832,7 +992,8 @@ function genericRow(f, ranAt, hasSubs, hasExpiry) {
   const row = [kindBadge(f.kind), nameCell(f, ranAt, sec)];
   if (hasSubs) row.push(subCell(f));
   if (hasExpiry) row.push(expiryCell(f));
-  row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
+  row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
+  if (canRun()) row.push(acceptButton(f));
   return row;
 }
 function genericBody(shown, t) {
@@ -907,7 +1068,7 @@ function arBody(shown, t) {
         ? `<span class="muted small">members unknown</span>`
         : `<button type="button" class="chip${t.open.has(key) ? " active" : ""}" data-toggle="${esc(key)}">${icon("chevron")} ${fmt.int(total)} member${total === 1 ? "" : "s"}</button>`
       : "";
-    const main = `<tr>${[who, roleBadge(f.role), where, assigned, `<div class="ar-actions">${toggle}</div>`].map((c) => `<td>${c}</td>`).join("")}</tr>`;
+    const main = `<tr>${[who, roleBadge(f.role), where, assigned, `<div class="ar-actions">${toggle}${acceptButton(f)}</div>`].map((c) => `<td>${c}</td>`).join("")}</tr>`;
     const members = isGroup && total != null ? `<tr class="ar-members-row${t.open.has(key) ? "" : " hidden"}" data-members="${esc(key)}"><td colspan="5">${arMembers(f)}</td></tr>` : "";
     return main + members;
   });
@@ -952,9 +1113,12 @@ function pcMatrix(shown, t) {
   const cell = (f) => {
     if (!f) return `<span class="verdict ok">blocked</span>`;
     const dot = isNew(f, ranAt) ? '<span class="nd" title="New this run"></span>' : "";
+    // A runner can click a verdict to accept it (e.g. public IPs are allowed in that subscription).
+    const acc = f.key && canRunFor(f) ? ` data-accept="${esc(f.key)}" role="button" tabindex="0"` : "";
+    const tip = esc((f.detail || "") + (acc ? " · Click to accept" : ""));
     return f.kind === "probe-not-blocked"
-      ? `<span class="verdict open" title="${esc(f.detail || "")}">${dot}Open</span>`
-      : `<span class="verdict audit" title="${esc(f.detail || "")}">${dot}Audit</span>`;
+      ? `<span class="verdict open${acc ? " clickable" : ""}" title="${tip}"${acc}>${dot}Open</span>`
+      : `<span class="verdict audit${acc ? " clickable" : ""}" title="${tip}"${acc}>${dot}Audit</span>`;
   };
   return `
     <div class="matrix-wrap"><table class="matrix">
@@ -969,7 +1133,7 @@ function pcMatrix(shown, t) {
       <span><span class="verdict ok">blocked</span> denied by policy</span>
       <span><span class="verdict open"><span class="nd"></span></span> new this run</span>
     </div>
-    <div class="note">Subscriptions where every probe was blocked are not listed. Hover a verdict for the policy detail.</div>`;
+    <div class="note">Subscriptions where every probe was blocked (or whose open probes were all accepted) are not listed. Hover a verdict for the policy detail${canRun() ? "; click it to accept it" : ""}.</div>`;
 }
 function pcHealth(shown, t) {
   const ranAt = t.data.ranAt;
@@ -983,15 +1147,15 @@ function pcHealth(shown, t) {
   let html = "";
   for (const kind of order) {
     const list = groups.get(kind);
-    html += `<tr class="kind-group-head"><td colspan="4">${kindBadge(kind)} <span class="muted">${fmt.int(list.length)}</span></td></tr>`;
+    html += `<tr class="kind-group-head"><td colspan="5">${kindBadge(kind)} <span class="muted">${fmt.int(list.length)}</span></td></tr>`;
     for (const f of list) {
       if (n++ >= t.shown) break;
       const roles = Array.isArray(f.missingRoles) && f.missingRoles.length ? `<div class="inline-list" style="margin-top:4px">${f.missingRoles.map((r) => `<span class="tag">${esc(r)}</span>`).join("")}</div>` : "";
-      html += `<tr><td>${nameCell(f, ranAt, f.scopeText || shortScope(f.scope) || (f.resourceGroup ? "rg " + f.resourceGroup : ""))}</td><td>${subCell(f)}</td><td><span class="detail-cell">${esc(f.detail || "")}</span>${roles}</td><td class="nowrap"><span class="muted">${esc(fmt.date(f.firstSeen))}</span></td></tr>`;
+      html += `<tr><td>${nameCell(f, ranAt, f.scopeText || shortScope(f.scope) || (f.resourceGroup ? "rg " + f.resourceGroup : ""))}</td><td>${subCell(f)}</td><td><span class="detail-cell">${esc(f.detail || "")}</span>${roles}${controlTags(f)}</td><td class="nowrap"><span class="muted">${esc(fmt.date(f.firstSeen))}</span></td><td>${acceptButton(f)}</td></tr>`;
     }
     if (n >= t.shown) break;
   }
-  return `<div class="table-wrap"><table class="data"><thead><tr><th>Assignment</th><th>Subscription</th><th>Detail</th><th>First seen</th></tr></thead><tbody>${html}</tbody></table></div>` + moreButton(Math.min(n, t.shown), shown.length, t);
+  return `<div class="table-wrap"><table class="data"><thead><tr><th>Assignment</th><th>Subscription</th><th>Detail</th><th>First seen</th><th></th></tr></thead><tbody>${html}</tbody></table></div>` + moreButton(Math.min(n, t.shown), shown.length, t);
 }
 /* key vault view */
 const KV_AREAS = [

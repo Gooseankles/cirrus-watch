@@ -373,6 +373,23 @@ async function readRun(toolId, ranAt, keys = [HOME]) {
   };
 }
 
+// The results as they stood at a moment: each tenant's last run at or before
+// `iso` (for reports). ranAt is the newest of those runs; null = no run yet.
+async function stateAt(toolId, iso, keys = [HOME]) {
+  const parts = await Promise.all(
+    keys.map(async (k) => {
+      const index = await readIndex(toolId, k);
+      const e = index.filter((x) => x.ranAt <= iso).pop();
+      if (!e) return null;
+      const run = await backend(k).get(runKey(toolId, e.ranAt)).catch(() => null);
+      return run ? { ranAt: e.ranAt, findings: stamp(k, run.findings) } : null;
+    })
+  );
+  const found = parts.filter(Boolean);
+  if (!found.length) return { ranAt: null, findings: [] };
+  return { ranAt: found.map((p) => p.ranAt).sort().pop(), findings: found.flatMap((p) => p.findings) };
+}
+
 // Other data that belongs in the same place (e.g. cost history), by key, in
 // the given tenant's store (default: the tenant of the work in progress).
 async function getDoc(key, tenantKey) {
@@ -387,6 +404,7 @@ module.exports = {
   read,
   history,
   readRun,
+  stateAt,
   where,
   diff,
   findingKey,

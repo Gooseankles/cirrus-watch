@@ -4,6 +4,7 @@ const findingsStore = require("./findingsStore");
 const tenants = require("./tenants");
 const tenantContext = require("./tenantContext");
 const access = require("./access");
+const suppressions = require("./suppressions");
 const { subscriptionNames } = require("./armClient");
 
 // Findings carry subscription IDs; add the names so people can read them.
@@ -44,6 +45,27 @@ function readKeys(req) {
   const scope = access.readScope(req);
   const known = tenants.all().map((t) => t.key);
   return scope === null ? known : scope.filter((k) => known.includes(k));
+}
+
+// Accept or snooze one finding (body: key, tenant, reason, until) or take
+// that back. Needs Run now rights in the finding's tenant.
+const MAX_SNOOZE_DAYS = 3 * 365;
+function acceptTarget(req, res) {
+  const b = req.body || {};
+  const tenantKey = String(b.tenant || tenants.HOME).toLowerCase();
+  const key = typeof b.key === "string" ? b.key : "";
+  const refuse = (status, error) => {
+    res.status(status).json({ error });
+    return null;
+  };
+  if (!key || key.length > 2000) return refuse(400, "finding key missing");
+  if (!tenants.byKey(tenantKey)) return refuse(400, "no such tenant");
+  if (!access.inScope(access.runScope(req), tenantKey)) return refuse(403, "you cannot change findings in that tenant");
+  return { tenantKey, key };
+}
+function whoIs(req) {
+  const u = (req.session && req.session.user) || {};
+  return u.upn || u.name || "unknown";
 }
 
 // Mounts the generic routes a "scan" tool needs, and wires its optional
@@ -107,12 +129,53 @@ function registerScanTool(app, tool) {
     execute(keys);
   });
 
+  app.post(`/api/tools/${tool.id}/accept`, access.requireRunner, async (req, res) => {
+    const target = acceptTarget(req, res);
+    if (!target) return;
+    const b = req.body || {};
+    const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+    if (!reason || reason.length > 500) return res.status(400).json({ error: "give a reason (at most 500 characters)" });
+    let until = null;
+    if (b.until) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.until)) || !Date.parse(b.until)) return res.status(400).json({ error: "until must be a date (YYYY-MM-DD)" });
+      const t = Date.parse(`${b.until}T00:00:00Z`);
+      if (t <= Date.now()) return res.status(400).json({ error: "until must be in the future" });
+      if (t > Date.now() + MAX_SNOOZE_DAYS * 86400000) return res.status(400).json({ error: "until is more than three years away; accept it without a date instead" });
+      until = new Date(t).toISOString();
+    }
+    try {
+      // Only a finding the tenant's latest results hold can be accepted.
+      const latest = await findingsStore.read(tool.id, [target.tenantKey]);
+      const f = latest.findings.find((x) => findingsStore.findingKey(x) === target.key);
+      if (!f) return res.status(404).json({ error: "that finding is not in the latest results" });
+      const entry = { reason, until, by: whoIs(req), at: new Date().toISOString(), kind: f.kind || null, name: f.name || f.id || null };
+      await suppressions.set(tool.id, target.tenantKey, target.key, entry);
+      log.record({ tool: tool.id, tenant: target.tenantKey, level: "info", message: `${entry.by} ${until ? `snoozed until ${until.slice(0, 10)}` : "accepted"}: ${entry.name || target.key} (${reason})` });
+      res.json({ ok: true, accepted: entry });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(`/api/tools/${tool.id}/unaccept`, access.requireRunner, async (req, res) => {
+    const target = acceptTarget(req, res);
+    if (!target) return;
+    try {
+      const had = await suppressions.remove(tool.id, target.tenantKey, target.key);
+      if (had) log.record({ tool: tool.id, tenant: target.tenantKey, level: "info", message: `${whoIs(req)} reopened ${had.name || target.key}` });
+      res.json({ ok: true, removed: Boolean(had) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Names are added again on read, so results saved before a name existed
-  // (or by an older version) still show it.
+  // (or by an older version) still show it. Accepted ones carry `accepted`.
   app.get(`/api/tools/${tool.id}/findings`, async (req, res) => {
     try {
       const data = await findingsStore.read(tool.id, readKeys(req));
       await decorate(tool.id, data.findings);
+      await suppressions.mark(tool.id, data.findings);
       for (const [k, e] of Object.entries(data.tenantErrors)) e.tenantName = tenants.nameOf(k);
       res.json(data);
     } catch (err) {
@@ -155,4 +218,4 @@ function registerActionTool(app, tool) {
   return { id: tool.id, label: tool.label, kind: "action" };
 }
 
-module.exports = { registerScanTool, registerActionTool, readKeys };
+module.exports = { registerScanTool, registerActionTool, readKeys, decorate };

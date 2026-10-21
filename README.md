@@ -26,6 +26,23 @@ are needed.
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.
 
+### Accepting findings, monthly report, compliance tags
+
+- **Accept or snooze**: a finding that is known and fine (the public IP is the VPN gateway) can be accepted with a
+  reason, for 30 to 365 days, until a chosen date or until reopened. It stays in the results but no longer counts as
+  open; a snoozed one counts again from its end date. The **Accepted** chip on a scan page lists them, with who
+  accepted them and why, and reopens them. Needs Run now rights in the finding's tenant (`Admin` or
+  `Admin-<key>`); every accept and reopen goes to the activity log. Stored per tenant as
+  `suppressions/<tool>.json` next to the scan results. API: `POST /api/tools/<id>/accept`
+  `{ key, tenant, reason, until }` (`until` = `YYYY-MM-DD` or null) and `POST /api/tools/<id>/unaccept` `{ key, tenant }`.
+- **Monthly report** (`#/report`): for one tenant or all you can see, where every scan stood at the end of the
+  month against its start, a score out of 100, open critical findings, what was found and fixed, and the
+  compliance controls with open findings. **Print / PDF** gives a light, printable page for the customer.
+  API: `GET /api/report?month=YYYY-MM[&tenant=<key>]`.
+- **Compliance tags**: each finding shows the CIS Controls v8 safeguards and NIS2 Article 21(2) points it bears on
+  (`public/compliance.js`), and the scan pages filter on them. A finding shows a control is not met somewhere; no
+  finding does not prove it is met.
+
 ## Quick start
 
 ### Docker
@@ -62,11 +79,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.12.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.13.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.12.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.13.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -176,6 +193,7 @@ tool's page and in the activity log, never as an empty result.
   those files move to the vault at start-up, and are removed from the file once the vault has them. If the vault
   cannot be reached, the dashboard still starts, says so on the tools that need a secret, refuses to save new
   secrets and retries every minute. `GET /api/secret-store` (Admin) shows which store is in use.
+- **Accepted and snoozed findings**: with each tenant's scan results (`suppressions/<tool>.json`).
 - **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`.
 - **Activity log**: JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 
@@ -184,5 +202,6 @@ tool's page and in the activity log, never as an empty result.
 ## Adding a tool
 
 A scan tool is a file in `src/tools/` exporting `{ id, label, schedule, run() }`, where `run()` returns a list of
-findings; register it with `registerScanTool` in `server.js` and add it to the `TOOLS` list in `public/app.js`.
+findings; register it with `registerScanTool` in `server.js` and add it to the `TOOLS` list in `public/app.js`
+(each new finding kind gets a `KINDS` entry there and its controls in `public/compliance.js`).
 An on-demand tool exports `{ id, label, registerRoutes(app) }` and uses `registerActionTool`.

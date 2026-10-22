@@ -29,9 +29,9 @@ function classify(users, { memberDays, guestDays, now = Date.now() }) {
     const created = Date.parse(u.createdDateTime);
     const synced = u.onPremisesSyncEnabled === true;
     const where = synced ? "Synced from on-premises AD" : "Cloud-only account";
-    // A synced account is disabled in on-premises AD; disabling it in Entra
-    // is undone by the next sync.
-    const disable = synced ? "Disable it in on-premises AD if nobody needs it" : "Disable it if nobody needs it";
+    // Synced accounts get no advice: on-premises use (service accounts, AD
+    // sign-ins) never shows in Entra's sign-in activity.
+    const advice = guest || !synced ? ". Disable it if nobody needs it" : "";
     const base = { name: u.userPrincipalName || u.displayName || u.id, resourceGroup: null, subscriptionId: null, principalId: u.id, source: synced ? "ad-synced" : "cloud" };
     const last = lastSignIn(u);
     if (guest && u.externalUserState === "PendingAcceptance") {
@@ -42,13 +42,13 @@ function classify(users, { memberDays, guestDays, now = Date.now() }) {
     }
     if (last == null) {
       if (Number.isFinite(created) && ageDays(created, now) > limit) {
-        findings.push({ ...base, kind: "never-signed-in", id: `${u.id}#never`, detail: `${guest ? "Guest" : where} created ${day(created)} has never signed in${guest ? "" : `. ${disable}`}` });
+        findings.push({ ...base, kind: "never-signed-in", id: `${u.id}#never`, detail: `${guest ? "Guest" : where} created ${day(created)} has never signed in` });
       }
       continue;
     }
     const age = ageDays(last, now);
     if (age > limit) {
-      findings.push({ ...base, kind: guest ? "stale-guest" : "stale-user", id: `${u.id}#stale`, detail: `${guest ? "Guest" : where}: no sign-in for ${age} days (last ${day(last)}). ${guest ? "Disable it if nobody needs it" : disable}` });
+      findings.push({ ...base, kind: guest ? "stale-guest" : "stale-user", id: `${u.id}#stale`, detail: `${guest ? "Guest" : where}: no sign-in for ${age} days (last ${day(last)})${advice}` });
     }
   }
   return findings;

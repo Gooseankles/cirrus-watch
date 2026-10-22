@@ -190,6 +190,9 @@ const KIND_CONTROLS = {
   "defender-medium": DEFENDER,
   "defender-low": DEFENDER,
   "defender-plan-off": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2"],
+  "no-budget": ["nis2:a"],
+  "budget-no-alerts": ["nis2:a"],
+  "no-delete-lock": RECOVERY,
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -225,6 +228,7 @@ const TOOL_KINDS = {
   "stale-accounts": ["stale-user", "stale-guest", "never-signed-in", "guest-invite-pending"],
   "mfa-coverage": ["user-no-mfa", "mfa-weak-only"],
   "conditional-access": ["ca-none", "ca-no-mfa-all-users", "ca-no-admin-mfa", "ca-legacy-auth-not-blocked", "ca-report-only", "ca-many-exclusions", "security-defaults-only"],
+  "safety-nets": ["no-budget", "budget-no-alerts", "no-delete-lock"],
   defender: ["defender-low-score", "defender-high", "defender-medium", "defender-low", "defender-plan-off"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };

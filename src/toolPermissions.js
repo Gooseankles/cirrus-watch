@@ -37,6 +37,7 @@ const NEEDS = {
     ],
   },
   defender: { azure: READER },
+  "safety-nets": { azure: READER },
   "access-lookup": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
 };
 

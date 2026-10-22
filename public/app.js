@@ -120,6 +120,7 @@ const TOOLS = [
   { id: "end-of-support", group: "resources", label: "End of support", icon: "clock", schedule: "Weekly, Monday at 06:00", sub: "AKS clusters on a Kubernetes version Azure no longer supports, App Service runtimes (Node.js, Python, .NET, PHP) and VM operating systems past or near end of support, and services that still accept TLS 1.0 or 1.1." },
   { id: "service-retirements", group: "resources", label: "Service retirements", icon: "calendar", schedule: "Daily at 06:15", sub: "Azure features and services being retired that your resources still use, from Azure Advisor, with the retirement date." },
   { id: "defender", group: "resources", label: "Defender for Cloud", icon: "shield", schedule: "Daily at 06:40", sub: "Microsoft Defender for Cloud in short: subscriptions whose secure score is low, unhealthy recommendations with how many resources each hits, and Defender plans that are off although they should be on." },
+  { id: "safety-nets", group: "governance", label: "Safety nets", icon: "alert", schedule: "Daily at 06:50", sub: "Subscriptions with no cost budget, or a budget that alerts nobody, and key resources (key vaults, backup vaults, VNets, DNS zones) with no delete lock on them, their resource group or their subscription." },
   { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
   { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere (no diagnostic setting) and subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
@@ -269,6 +270,9 @@ const KINDS = {
   "defender-medium": ["Medium severity", "warn"],
   "defender-low": ["Low severity", ""],
   "defender-plan-off": ["Plan off", "warn"],
+  "no-budget": ["No budget", "warn"],
+  "budget-no-alerts": ["Budget alerts nobody", "warn"],
+  "no-delete-lock": ["No delete lock", "warn"],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");

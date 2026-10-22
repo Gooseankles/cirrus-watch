@@ -171,6 +171,25 @@ scans running at the time, when CPU stays above `MONITOR_CPU_WARN_PCT` (90) for 
 `MONITOR_MEMORY_WARN_PCT` (85), or answers take longer than `MONITOR_LAG_WARN_MS` (2000); another line follows when
 it is back to normal. For email, set `alert_emails` in Terraform (see `infra/terraform/README.md`, Load alarms).
 
+### Notifications
+
+Each tenant can have one notification link (Settings → Notifications, on that tenant's tab; Admin only). Once a
+day at `NOTIFY_TIME` (server time, default 08:30, after the nightly scans) the tenant gets one message with what
+turned up since the last one: new findings, grouped by tool (up to 25 listed, the rest counted), and scans that
+failed. Accepted and snoozed findings and the change log are left out, a tool's first run in a tenant does not count
+everything as new, and a day with nothing new sends nothing. A tenant only gets its own findings.
+
+The link can be:
+- **Teams**: in the channel, Workflows → "Post to a channel when a webhook request is received", and copy the link.
+  The message is an Adaptive Card with a button to the dashboard (taken from `DASHBOARD_REDIRECT_URI`).
+- **Slack**: an incoming webhook (`hooks.slack.com`); it gets plain text.
+- **Any other https endpoint** (Power Automate, Logic Apps, n8n): it gets the Teams body plus `text` and a
+  `summary` object with the tenant, counts and items.
+
+The link carries its own signature, so it is kept like a client secret (the key vault when `SECRET_VAULT_URL` is
+set, else `notify.json` under `DATA_DIR`) and never shown again. What is waiting is kept in `notify-queue.json`. A
+failed send is logged in Recent activity and tried again every hour. Send test posts a test message at once.
+
 ## Customer tenants
 
 One dashboard can scan other organizations' tenants as well as its own, so it is hosted in one place. Each tenant
@@ -238,7 +257,7 @@ each subscription it can see.
   customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
   With Terraform's `private_network = true` the storage account is reached only through a private endpoint and
   its public network access is off.
-- **Client secrets entered in Settings** (SPN overrides, customer tenants): in an Azure key vault when
+- **Client secrets and notification links entered in Settings** (SPN overrides, customer tenants, notifications): in an Azure key vault when
   `SECRET_VAULT_URL` is set (Terraform creates one; the app reads and writes it with its managed identity, as
   secrets named `dashboard-…`), otherwise in `settings.json` / `tenants.json` under `DATA_DIR`. Secrets already in
   those files move to the vault at start-up, and are removed from the file once the vault has them. If the vault

@@ -251,7 +251,9 @@ async function writeTenant(toolId, tenantKey, findings, ranAt) {
       await store.del(runKey(toolId, old.ranAt)).catch(() => {});
     }
     await store.put(indexKey(toolId), keep);
-    return { added: added.length, resolved: resolved.length };
+    // newFindings: what turned up since the last run (none on a tool's first
+    // run in this tenant, where everything would count as new).
+    return { added: added.length, resolved: resolved.length, newFindings: previous.ranAt ? added : [] };
   });
 }
 
@@ -282,13 +284,15 @@ async function write(toolId, findings, opts = {}) {
   const keys = opts.tenants || [...new Set([HOME, ...groups.keys()])];
   let added = 0;
   let resolved = 0;
+  const newByTenant = {};
   for (const k of keys) {
     const r = await writeTenant(toolId, k, groups.get(k) || [], ranAt);
     added += r.added;
     resolved += r.resolved;
+    if (r.newFindings.length) newByTenant[k] = r.newFindings;
   }
   for (const [k, message] of Object.entries(opts.errors || {})) await writeTenantError(toolId, k, ranAt, message);
-  return { ranAt, added, resolved };
+  return { ranAt, added, resolved, newByTenant };
 }
 
 // The latest results of these tenants together. ranAt is the newest of them;

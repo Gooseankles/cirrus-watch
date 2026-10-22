@@ -7,6 +7,16 @@ const access = require("./access");
 const suppressions = require("./suppressions");
 const { subscriptionNames } = require("./armClient");
 const monitor = require("./monitor");
+const notify = require("./notify");
+
+// A notification problem never fails the scan.
+async function notifyQueue(tool, newByTenant, errors) {
+  try {
+    await notify.queue(tool, newByTenant, errors);
+  } catch (err) {
+    log.record({ tool: notify.TOOL, level: "error", message: `could not queue ${tool.label} for notifications: ${err.message}` });
+  }
+}
 
 // Findings carry subscription IDs; add the names so people can read them.
 // A failed lookup only costs the names, never the scan. Runs inside the
@@ -128,6 +138,7 @@ function registerScanTool(app, tool) {
         await findingsStore.writeTenantError(tool.id, k, at, message).catch((err) => log.record({ tool: tool.id, level: "error", message: `could not save the error: ${err.message}` }));
       }
       if (targets.length > 1) log.record({ tool: tool.id, level: "error", final: true, message: "scan failed in every tenant" });
+      await notifyQueue(tool, {}, errors);
       return false;
     }
     try {
@@ -141,6 +152,7 @@ function registerScanTool(app, tool) {
           `scan complete${multi ? ` (${done.map(tenants.nameOf).join(", ")})` : ""}: ${findings.length} finding(s), ` +
           `${saved.added} new, ${saved.resolved} resolved${failed ? `; ${failed} tenant(s) failed, their last results kept` : ""}`,
       });
+      await notifyQueue(tool, saved.newByTenant, errors);
     } catch (err) {
       log.record({ tool: tool.id, level: "error", message: err.message });
       return false;

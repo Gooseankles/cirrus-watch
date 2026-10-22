@@ -283,6 +283,7 @@ const LOG_TOOLS = {
   "access-lookup": "Access lookup",
   "cost-history": "Cost history",
   "server-load": "Server load",
+  notifications: "Notifications",
 };
 
 /* ---------- state and API ---------- */

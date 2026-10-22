@@ -48,6 +48,9 @@ const FIELDS = [
   { key: "MONITOR_MEMORY_WARN_PCT", label: "Alarm when memory is above (%)", group: "Server load", hint: "The instance's memory, the container's limit or the dashboard's heap limit; blank = 85" },
   { key: "MONITOR_LAG_WARN_MS", label: "Alarm when the dashboard stops answering for (ms)", group: "Server load", hint: "Event-loop delay; blank = 2000" },
 
+  // One send time for all; each tenant's link is set in the Notifications card.
+  { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's Teams or webhook link is set in the Notifications card on its tab" },
+
   { key: "ROLE_ASSIGNMENT_LIMIT_WARN_PCT", label: "Warn at % of the 4,000 limit", group: "Role assignments", hint: "Blank = 80" },
   { key: "POLICY_PROBES", label: "Probe tests to run", group: "Policy check", hint: "Comma-separated: storage-public-blob, storage-http, storage-old-tls, public-ip, keyvault-no-purge-protection, sql-public-network, untagged-resource, denied-region. Blank = all, none = off" },
   { key: "POLICY_PROBE_REGION", label: "Region for probes", group: "Policy check", hint: "An allowed region; blank = norwayeast" },

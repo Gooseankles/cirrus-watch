@@ -27,6 +27,12 @@ const Settings = (() => {
             <div id="settings-rows"><div class="empty-state">Loading…</div></div>
             <div class="save-bar"><button class="btn primary" id="settings-save">${icon("check")} Save</button><span class="status-msg" id="settings-status"></span></div>
           </div>
+          <div class="card" id="notify-card">
+            <div class="card-head"><h2 id="notify-title">Notifications</h2></div>
+            <div class="note">Once a day this tenant's new findings and failed scans go to one link: a Teams channel (in the channel: Workflows, "Post to a channel when a webhook request is received", copy its link), a Slack incoming webhook, or any https webhook. Accepted and snoozed findings are left out, and a day with nothing new sends nothing. The send time is under Notifications on the Home tab. The link works as a password: it is kept like a secret and never shown again.</div>
+            <div class="status-msg" id="notify-status"></div>
+            <div id="notify-body"><div class="empty-state">Loading…</div></div>
+          </div>
           <div class="card" id="tenants-card">
             <div class="card-head"><h2 id="tenants-title">Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
             <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a client secret, give it read permissions, and enter its client ID (here or in Terraform) and its secret (here only; it is never shown again). Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
@@ -49,6 +55,8 @@ const Settings = (() => {
   async function onClick(e) {
     const t = e.target.closest("[data-tenant-new],[data-tenant-edit],[data-tenant-del],[data-tenant-test],[data-tenant-save],[data-tenant-cancel]");
     if (t) return tenantClick(t);
+    const n = e.target.closest("[data-notify]");
+    if (n) return notifyClick(n);
     const el = e.target.closest("#settings-save,[data-clear],[data-test]");
     if (!el) return;
     if (el.id === "settings-save") return saveClicked(el);
@@ -145,6 +153,75 @@ const Settings = (() => {
     rows.innerHTML = html || `<div class="empty-state">No settings are exposed by this server.</div>`;
     for (const sel of $$("select[data-auth-type]", rows)) applyAuthType(sel);
     loadTenants();
+    loadNotify();
+  }
+
+  /* ---------- notifications (one link per tenant) ---------- */
+  const notifyKey = () => (scope() ? scope().key : "home");
+  const notifyUrl = (path = "") => `/api/notify${path}?tenant=${encodeURIComponent(notifyKey())}`;
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : "never");
+
+  async function loadNotify() {
+    const body = $("#notify-body");
+    const key = notifyKey();
+    try {
+      const d = await apiJson(notifyUrl());
+      if (key !== notifyKey()) return; // another tab was opened meanwhile
+      renderNotify(d);
+      setStatus($("#notify-status"), "");
+    } catch (err) {
+      body.innerHTML = "";
+      setStatus($("#notify-status"), `Could not load notifications: ${err.message}`, "error");
+    }
+  }
+
+  function renderNotify(d) {
+    $("#notify-title").textContent = showTenants() ? `Notifications for ${d.tenantName}` : "Notifications";
+    const kind = { teams: "Teams", slack: "Slack", webhook: "webhook" }[d.kind] || "";
+    const state = d.isSet ? `set${kind ? `, ${kind}` : ""} (${esc(d.where)})` : "not set";
+    const rows = [
+      `<div class="settings-row"><label>Link<div class="hint">Paste a new link to replace the current one.</div></label><div class="field">
+        <input class="input" type="password" id="notify-url" placeholder="https://…" autocomplete="new-password" />
+        <span class="secret-state${d.isSet ? " is-set" : ""}">${state}</span></div></div>`,
+    ];
+    if (d.isSet) {
+      rows.push(`<div class="settings-row"><label>Status</label><div class="field"><span>Sent daily at ${esc(d.time)}. Waiting: ${d.pending}. Last sent: ${esc(when(d.lastSent))}.${d.lastError ? ` <span class="bad">Last try failed (${esc(when(d.lastErrorAt))}): ${esc(d.lastError)}</span>` : ""}</span></div></div>`);
+    }
+    $("#notify-body").innerHTML = `${rows.join("")}
+      <div class="save-bar">
+        <button type="button" class="btn primary" data-notify="save">${icon("check")} Save link</button>
+        ${d.isSet ? `<button type="button" class="btn small" data-notify="test">${icon("play")} Send test</button><button type="button" class="btn small ghost" data-notify="clear">Remove</button>` : ""}
+        <span class="test-result" id="notify-result"></span>
+      </div>`;
+  }
+
+  async function notifyClick(el) {
+    const what = el.dataset.notify;
+    const status = $("#notify-status");
+    const result = $("#notify-result");
+    el.disabled = true;
+    try {
+      if (what === "save") {
+        const url = $("#notify-url").value.trim();
+        if (!url) return setStatus(status, "Paste a link first.", "error");
+        renderNotify(await postJson(notifyUrl(), { url }));
+        setStatus(status, "Link saved. Send a test to check it.", "ok");
+      } else if (what === "clear") {
+        if (!confirm("Remove this tenant's notification link? Anything waiting to be sent is dropped.")) return;
+        renderNotify(await postJson(notifyUrl(), { clear: true }));
+        setStatus(status, "Link removed.", "ok");
+      } else if (what === "test") {
+        result.className = "test-result";
+        result.textContent = "Sending…";
+        const r = await postJson(notifyUrl("/test"));
+        result.className = `test-result ${r.ok ? "good" : "bad"}`;
+        result.textContent = r.ok ? "Sent. Check the channel." : r.error;
+      }
+    } catch (err) {
+      setStatus(status, err.message, "error");
+    } finally {
+      el.disabled = false;
+    }
   }
 
   /* ---------- customer tenants ---------- */

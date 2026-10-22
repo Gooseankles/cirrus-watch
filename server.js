@@ -147,11 +147,44 @@ app.post("/api/tenants", auth.requireRole("Admin"), async (req, res) => {
 });
 app.delete("/api/tenants/:key", auth.requireRole("Admin"), async (req, res) => {
   try {
-    res.json({ tenants: withStorage(await tenants.remove(req.params.key)) });
+    const list = await tenants.remove(req.params.key);
+    const key = String(req.params.key).toLowerCase();
+    if (!tenants.byKey(key)) await notify.drop(key).catch((err) => console.error(`Notifications: could not remove ${key}: ${err.message}`));
+    res.json({ tenants: withStorage(list) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
+// Notifications (Admin): each tenant's Teams or webhook link (?tenant=, blank
+// = home). The link itself never comes back, only whether one is set.
+const notify = require("./src/notify");
+function notifyTenant(req, res) {
+  const key = String(req.query.tenant || tenants.HOME).toLowerCase();
+  if (!tenants.byKey(key)) {
+    res.status(400).json({ error: "no such tenant" });
+    return null;
+  }
+  return key;
+}
+app.get("/api/notify", auth.requireRole("Admin"), (req, res) => {
+  const key = notifyTenant(req, res);
+  if (key) res.json(notify.describe(key));
+});
+app.post("/api/notify", auth.requireRole("Admin"), async (req, res) => {
+  const key = notifyTenant(req, res);
+  if (!key) return;
+  try {
+    res.json(await notify.setLink(key, req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.post("/api/notify/test", auth.requireRole("Admin"), async (req, res) => {
+  const key = notifyTenant(req, res);
+  if (key) res.json(await notify.sendTest(key));
+});
+notify.start();
+
 app.post("/api/tenants/:key/test", auth.requireRole("Admin"), async (req, res) => {
   const t = tenants.customers().find((x) => x.key === String(req.params.key).toLowerCase());
   if (!t) return res.status(404).json({ ok: false, error: "no such tenant" });
@@ -273,7 +306,7 @@ app.get("/api/logs", (req, res) => {
 // Secrets from the key vault (SECRET_VAULT_URL); any still in the JSON files
 // move there once it can be read. Sign-in and the pages work meanwhile.
 secretStore.onLoad(async () => {
-  const moved = (await settings.moveSecretsToVault()) + (await tenants.moveSecretsToVault());
+  const moved = (await settings.moveSecretsToVault()) + (await tenants.moveSecretsToVault()) + (await notify.moveSecretsToVault());
   if (moved) console.log(`Secrets: moved ${moved} from the settings files into the key vault`);
 });
 secretStore.load();

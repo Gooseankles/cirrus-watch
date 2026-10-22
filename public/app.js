@@ -765,9 +765,10 @@ function renderActivity() {
 }
 
 /* ---------- access lookup ---------- */
-// Type part of a name and the matches show as you type; pick one to see its access.
-// A full sign-in name or mail in Person mode still looks the person up at once.
-const lookupState = { mode: "user", seq: 0, timer: null };
+// Search with part of a name (Enter or the button; no search while typing, to
+// keep Graph calls down), then pick one to see its access. A full sign-in name
+// or mail in Person mode still looks the person up at once.
+const lookupState = { mode: "user", seq: 0 };
 const LOOKUP_KINDS = { user: "users", group: "groups" };
 function wireLookup() {
   const form = $("#lookup-form");
@@ -785,22 +786,10 @@ function wireLookup() {
     input.setAttribute("aria-label", user ? "Person" : "Group");
     setStatus(status, "");
     out.innerHTML = "";
-    if (input.value.trim().length >= 2) runSearch(input.value.trim());
     input.focus();
-  });
-  input.addEventListener("input", () => {
-    clearTimeout(lookupState.timer);
-    const text = input.value.trim();
-    if (text.length < 2) {
-      lookupState.seq++;
-      setStatus(status, "");
-      return;
-    }
-    lookupState.timer = setTimeout(() => runSearch(text), 350);
   });
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    clearTimeout(lookupState.timer);
     const text = input.value.trim();
     if (!text) return;
     if (lookupState.mode === "user" && text.includes("@")) return openUser({ upn: text });

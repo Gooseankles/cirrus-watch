@@ -370,6 +370,22 @@ tr.ar-members-row td { background: var(--surface-2); padding: 8px 10px 10px 44px
 .ar-member { display: flex; gap: 7px; align-items: flex-start; font-size: 0.8rem; min-width: 0; overflow-wrap: anywhere; }
 .ar-member.disabled { opacity: 0.5; }
 .ar-member .m-ico { width: 16px; flex: none; color: var(--muted); font-size: 0.7rem; text-align: center; padding-top: 2px; }
+
+/* --- IP addresses --- */
+.ip-use { display: flex; flex-direction: column; gap: 3px; min-width: 130px; }
+.ip-bar { height: 6px; width: 130px; max-width: 100%; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.ip-bar span { display: block; height: 100%; background: var(--s1); }
+.ip-bar.warn span { background: var(--warning); }
+.ip-bar.crit span { background: var(--critical); }
+tr.ip-hit td { background: var(--accent-soft); }
+.ip-peers { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag.bad { border-color: rgba(208, 59, 59, 0.5); color: var(--critical-text); }
+.ip-h3 { font-size: 0.9rem; margin: 18px 0 8px; }
+.ip-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 12px; }
+.ip-form label { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; color: var(--text-2); }
+.ip-form .select, .ip-form .input { max-width: 100%; }
+.ip-sum { margin: 4px 0 10px; }
+.ip-free { display: flex; flex-wrap: wrap; gap: 6px; }
 .ar-nested { margin-top: 8px; font-size: 0.8rem; }
 .ar-nested > summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }
 .ar-nested > summary::-webkit-details-marker { display: none; }

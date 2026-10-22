@@ -225,6 +225,9 @@ function registerScanTool(app, tool) {
     }
   });
 
+  // A scan with its own pages (like the IPAM inventory) adds read routes here.
+  if (tool.registerRoutes) tool.registerRoutes(app, { readKeys, decorate });
+
   if (tool.schedule) {
     cron.schedule(tool.schedule, () => execute());
     console.log(`[${tool.id}] scheduled: ${tool.schedule}`);

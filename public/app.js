@@ -49,6 +49,7 @@ const ICON_PATHS = {
   badge: '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2.5"/><line x1="13" y1="10" x2="18" y2="10"/><line x1="13" y1="14" x2="17" y2="14"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  network: '<rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M5 16v-3h14v3"/><line x1="12" y1="8" x2="12" y2="13"/>',
   print: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
 };
 function icon(name, cls) {
@@ -120,6 +121,7 @@ const TOOLS = [
   { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
   { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere (no diagnostic setting) and subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
+  { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
   { id: "privileged-roles", group: "identity", label: "Privileged roles", icon: "crown", schedule: "Daily at 05:00", sub: "Who holds the powerful Entra roles: too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is in use, and admins with no MFA registered." },
   { id: "stale-accounts", group: "identity", label: "Stale accounts", icon: "userx", schedule: "Daily at 05:30", sub: "Enabled members and guests with no sign-in for a long time, accounts that never signed in and guest invitations never accepted. Sign-in data needs Microsoft Entra ID P1." },
@@ -249,6 +251,15 @@ const KINDS = {
   "licence-short": ["Not enough licences", "crit"],
   "licence-count": ["Licences needed", ""],
   "licence-user": ["Needs a licence", ""],
+  "subnet-full": ["Subnet full", "crit"],
+  "subnet-near-full": ["Subnet filling up", "warn"],
+  "ip-overlap": ["Overlapping range", "warn"],
+  "ip-overlap-onprem": ["Overlaps on-premises", "crit"],
+  "ip-public-space": ["Public address space", "warn"],
+  "ip-outside-plan": ["Outside address plan", "warn"],
+  "vnet-no-room": ["No room for subnets", ""],
+  "peering-disconnected": ["Peering disconnected", "crit"],
+  "peering-not-synced": ["Peering not synced", "warn"],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");
@@ -945,6 +956,14 @@ function renderFindings(id) {
   const showKinds = view.showKinds ? view.showKinds(t) : true;
   $("#scan-kinds").innerHTML = showKinds ? kindChips(countKinds(scoped), t.filters.kind) : "";
   $("#scan-extra").innerHTML = view.extra ? view.extra(all, t) : "";
+  // A view with pages of its own (IPAM's networks and free ranges) shows them
+  // in place of the findings table.
+  const page = view.page ? view.page(all, t) : null;
+  if (page != null) {
+    $("#scan-count").textContent = "";
+    $("#scan-body").innerHTML = page;
+    return;
+  }
   const shown = scoped.filter((f) => baseFilter(f, t));
   $("#scan-count").textContent = all.length ? `${fmt.int(shown.length)} of ${fmt.int(all.length)}` : "";
   const acceptedNote = t.accepted.length ? ` ${fmt.int(t.accepted.length)} accepted or snoozed finding${t.accepted.length === 1 ? " is" : "s are"} not counted.` : "";

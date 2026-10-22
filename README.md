@@ -26,6 +26,7 @@ are needed.
 | Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage |
 | Diagnostic settings | Daily | Resources whose logs go nowhere, subscriptions whose activity log is not exported |
 | Quotas | Daily | Compute, network and storage quotas close to their limit in the regions you use |
+| IP addresses | Daily | Every VNet's address space and subnets with how full they are; overlapping ranges (also with on-premises VPN sites and Virtual WAN hubs), subnets running out, public or off-plan address space, VNets with no room left, broken or unsynced peerings; a finder for free ranges for a new VNet or subnet |
 | Privileged roles | Daily | Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA |
 | Stale accounts | Daily | Members and guests with no sign-in for 90 days, accounts that never signed in, guest invitations never accepted (needs Entra ID P1) |
 | MFA coverage | Daily | Enabled members with no MFA method registered, and accounts that can only use phone or SMS (needs Entra ID P1) |
@@ -97,11 +98,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.18.8.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.19.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.18.8.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.19.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -196,7 +197,7 @@ identity (by default the web app's managed identity, or a service principal):
 
 - **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
   automatically. Policy check, internet exposure, end of support, service retirements, backup coverage,
-  diagnostic settings, quotas and the change log need nothing more.
+  diagnostic settings, quotas, IP addresses and the change log need nothing more.
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
   `Application.Read.All`, `EntitlementManagement.Read.All` (only matters with Entra ID Governance / P2 access

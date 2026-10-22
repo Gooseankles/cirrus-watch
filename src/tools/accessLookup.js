@@ -307,8 +307,11 @@ function registerRoutes(app) {
   });
   app.get("/api/tools/access-lookup/group/:id", async (req, res) => {
     if (!GUID.test(req.params.id)) return res.status(400).json({ error: "not a group ID" });
+    // ?in= names the group's tenant (the page adds ?tenant= for the open tab
+    // to every request, so that name is taken).
     const keys = access.readScope(req);
-    const target = tenants.scanTargets().find((t) => t.key === String(req.query.tenant || "") && access.inScope(keys, t.key)) || (!req.query.tenant && tenants.scanTargets().find((t) => access.inScope(keys, t.key)));
+    const wanted = typeof req.query.in === "string" && req.query.in ? req.query.in.toLowerCase() : null;
+    const target = tenants.scanTargets().find((t) => (wanted ? t.key === wanted : true) && access.inScope(keys, t.key));
     if (!target) return res.status(404).json({ error: "tenant not found" });
     try {
       const r = await tenantContext.runIn(target, () => groupDetail(req.params.id));

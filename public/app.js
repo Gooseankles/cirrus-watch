@@ -818,7 +818,7 @@ async function openGroup(g) {
   const status = $("#lookup-status");
   setStatus(status, `Reading ${g.name || "the group"}…`);
   try {
-    const r = await apiJson(`/api/tools/access-lookup/group/${encodeURIComponent(g.id)}?tenant=${encodeURIComponent(g.tenant || "")}&name=${encodeURIComponent(g.name || "")}`);
+    const r = await apiJson(`/api/tools/access-lookup/group/${encodeURIComponent(g.id)}?in=${encodeURIComponent(g.tenant || "")}&name=${encodeURIComponent(g.name || "")}`);
     setStatus(status, "");
     $("#lookup-result").innerHTML = groupHtml(r);
     window.scrollTo(0, 0);

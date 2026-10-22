@@ -77,6 +77,7 @@ function settingsChanged(body) {
 const RULES = [
   ["GET", /^\/api\/tools\/([\w-]+)\/history\/(.+)$/, (m) => ({ action: "view-past-run", target: m[1], detail: clip(decodeURIComponent(m[2]), 40) }), true],
   ["GET", /^\/api\/tools\/access-lookup\/run$/, (m, req) => ({ action: "access-lookup", target: q(req, "upn") }), false],
+  ["GET", /^\/api\/tools\/access-lookup\/group\/([\w-]+)$/, (m, req) => ({ action: "group-lookup", target: m[1], detail: q(req, "name") }), false],
   ["GET", /^\/api\/cost\/history\/([\w-]+)$/, (m) => ({ action: "view-cost", target: m[1] }), true],
   ["POST", /^\/api\/cost\/history\/refresh$/, () => ({ action: "refresh-cost" }), false],
   ["POST", /^\/api\/tools\/([\w-]+)\/run$/, (m) => ({ action: "run-scan", target: m[1] }), false],
@@ -91,7 +92,7 @@ const RULES = [
 
 // The page sends which page it opened (scan results load in the background
 // for the overview, so a data request alone does not say someone looked).
-const PAGE = /^(overview|lookup|report(\/\d{4}-\d{2})?|compliance|cost|audit|settings|scan\/[\w-]{1,60})$/;
+const PAGE = /^(overview|lookup|trends|report(\/\d{4}-\d{2})?|compliance|cost|audit|settings|scan\/[\w-]{1,60})$/;
 function pageView(req, res) {
   const route = String((req.body && req.body.route) || "");
   if (!PAGE.test(route)) return res.status(400).json({ error: "unknown page" });

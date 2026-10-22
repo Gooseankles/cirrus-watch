@@ -37,7 +37,7 @@ are needed.
 | Licence coverage | Daily | How many Entra ID P1, P2 and ID Governance licences are needed for the people using Conditional Access, PIM and access packages, against how many you own |
 | Change log | Daily | What people and apps created, changed or deleted in the last 24 hours, security changes marked (for information; not in totals or the report) |
 | Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
-| Access lookup | On demand | Every Azure role a person holds, directly or through a group, across all subscriptions |
+| Access lookup | On demand | The Azure roles (every subscription) and Entra ID roles (active and PIM-eligible) a person or a group holds, directly or through groups. Nested groups show the whole chain, e.g. Ops team › Azure admins › Owners-Prod. Search a group by name to see what it gives, what it sits in and who is in it |
 
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.
@@ -55,6 +55,10 @@ start any scan with **Run now** instead of waiting for the schedule.
   month against its start, a score out of 100, open critical findings, what was found and fixed, and the
   compliance controls with open findings. **Print / PDF** gives a light, printable page for the customer.
   API: `GET /api/report?month=YYYY-MM[&tenant=<key>]`.
+- **Weekly trends** (`#/trends`): open findings at the end of each week across every scan (by severity and per
+  tool), with what was found and fixed each week, for 8 to 52 weeks. Built from the stored run history, so it runs
+  no scans; a tool's first scan counts as the starting point, not as new findings. API:
+  `GET /api/trends?weeks=12[&tenant=<key>]`.
 - **Compliance tags**: each finding shows the NIS2 Article 21(2) points, NSM ICT security principles (Norway's
   baseline, v2.1) and CIS Controls v8 safeguards it bears on (`public/compliance.js`), and the scan pages filter on
   them. A finding shows a control is not met somewhere; no finding does not prove it is met.
@@ -233,7 +237,7 @@ identity (by default the web app's managed identity, or a service principal):
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,
   `Application.Read.All`, `EntitlementManagement.Read.All` (only matters with Entra ID Governance / P2 access
-  packages), `RoleManagement.Read.Directory` (privileged roles), `AuditLog.Read.All` (stale accounts, MFA coverage, admin MFA;
+  packages), `RoleManagement.Read.Directory` (privileged roles, Entra roles in access lookup), `AuditLog.Read.All` (stale accounts, MFA coverage, admin MFA;
   needs Entra ID P1), `Policy.Read.All` (Conditional Access, consent settings) and
   `DelegatedPermissionGrant.Read.All` (app consents), `LicenseAssignment.Read.All` (licences owned) and
   `PrivilegedEligibilitySchedule.Read.AzureADGroup` + `PrivilegedAssignmentSchedule.Read.AzureADGroup` (PIM for

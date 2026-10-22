@@ -595,6 +595,7 @@ dialog.dialog h2 { margin-bottom: 10px; }
 /* --- Server load --- */
 .sl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 0 14px; }
 .sl-chart { height: 200px; }
+.tr-spark { width: 140px; height: 28px; }
 .sl-alarm { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid rgba(208, 59, 59, 0.5); background: rgba(208, 59, 59, 0.1); color: var(--critical-text); }
 .sl-alarm > div { display: flex; flex-direction: column; gap: 4px; }
 .sl-alarm .muted { color: var(--text-2); }

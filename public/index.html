@@ -37,10 +37,11 @@
     <section class="page" id="page-overview"></section>
     <section class="page" id="page-lookup">
       <div class="page-head">
-        <div><h1>Access lookup</h1><p class="page-sub">Every Azure role a person holds, directly or through a group, across all subscriptions.</p></div>
+        <div><h1>Access lookup</h1><p class="page-sub">The Azure and Entra ID roles a person or a group holds, directly or through groups (also groups inside groups).</p></div>
       </div>
       <div class="card">
         <form class="lookup-form" id="lookup-form" autocomplete="off">
+          <div class="seg" id="lookup-mode"><button type="button" data-mode="user" class="active">Person</button><button type="button" data-mode="group">Group</button></div>
           <input class="input" id="lookup-upn" type="text" placeholder="user@contoso.com" aria-label="User principal name" required />
           <button class="btn primary" id="lookup-btn" type="submit">Look up</button>
           <span class="status-msg" id="lookup-status"></span>
@@ -51,6 +52,7 @@
     <section class="page" id="page-scan"></section>
     <section class="page" id="page-cost"></section>
     <section class="page" id="page-report"></section>
+    <section class="page" id="page-trends"></section>
     <section class="page" id="page-compliance"></section>
     <section class="page" id="page-audit"></section>
     <section class="page" id="page-load"></section>
@@ -63,6 +65,7 @@
   <script src="/ipam.js"></script>
   <script src="/cost.js"></script>
   <script src="/report.js"></script>
+  <script src="/trends.js"></script>
   <script src="/complianceView.js"></script>
   <script src="/settings.js"></script>
   <script src="/audit.js"></script>

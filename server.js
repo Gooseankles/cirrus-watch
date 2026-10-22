@@ -239,6 +239,19 @@ app.get("/api/report", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Weekly trends over the tenants the person may see (?tenant= narrows):
+// ?weeks=4..52, default 12.
+app.get("/api/trends", async (req, res) => {
+  const weeks = Math.min(52, Math.max(4, Math.round(Number(req.query.weeks) || 12)));
+  try {
+    const keys = readKeys(req);
+    const scans = registeredTools.filter((t) => t.kind === "scan" && !t.info);
+    const out = await require("./src/trends").build(scans, keys, weeks);
+    res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get("/api/secret-store", auth.requireRole("Admin"), (req, res) => res.json(secretStore.describe()));
 
 // Cost history: every subscription's daily cost plus monthly by service and

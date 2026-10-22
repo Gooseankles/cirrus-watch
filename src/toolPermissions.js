@@ -38,7 +38,7 @@ const NEEDS = {
   },
   defender: { azure: READER },
   "safety-nets": { azure: READER },
-  "access-lookup": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
+  "access-lookup": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory"], licence: "Entra ID P2 to see eligible (PIM) roles" },
 };
 
 function needsOf(toolId) {

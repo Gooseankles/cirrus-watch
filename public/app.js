@@ -573,6 +573,9 @@ function render() {
   } else if (r.page === "report") {
     pageId = "page-report";
     show = () => Report.show(r.arg);
+  } else if (r.page === "trends") {
+    pageId = "page-trends";
+    show = () => Trends.show();
   } else if (r.page === "compliance") {
     pageId = "page-compliance";
     show = () => ComplianceView.show();
@@ -610,7 +613,7 @@ function render() {
 function buildNav() {
   const me = state.me || {};
   const groups = [
-    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }, { route: "compliance", label: "Compliance", icon: "policy" }] },
+    { label: "", items: [{ route: "overview", label: "Overview", icon: "home" }, { route: "report", label: "Monthly report", icon: "report" }, { route: "trends", label: "Weekly trends", icon: "trend" }, { route: "compliance", label: "Compliance", icon: "policy" }] },
     ...TOOL_GROUPS.map((g) => ({
       label: g.label,
       items: [
@@ -762,63 +765,198 @@ function renderActivity() {
 }
 
 /* ---------- access lookup ---------- */
+const lookupState = { mode: "user" };
 function wireLookup() {
   const form = $("#lookup-form");
+  const input = $("#lookup-upn");
+  $("#lookup-mode").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-mode]");
+    if (!b || b.dataset.mode === lookupState.mode) return;
+    lookupState.mode = b.dataset.mode;
+    $$("#lookup-mode [data-mode]").forEach((x) => x.classList.toggle("active", x === b));
+    const user = lookupState.mode === "user";
+    input.placeholder = user ? "user@contoso.com" : "Start of the group name, or its ID";
+    input.setAttribute("aria-label", user ? "User principal name" : "Group name");
+    $("#lookup-btn").textContent = user ? "Look up" : "Search";
+    setStatus($("#lookup-status"), "");
+    $("#lookup-result").innerHTML = "";
+    input.focus();
+  });
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const upn = $("#lookup-upn").value.trim();
+    const text = input.value.trim();
     const btn = $("#lookup-btn");
     const status = $("#lookup-status");
     const out = $("#lookup-result");
-    if (!upn) return;
+    if (!text) return;
     btn.disabled = true;
-    setStatus(status, "Looking up…");
+    setStatus(status, lookupState.mode === "user" ? "Looking up…" : "Searching…");
     try {
-      const r = await apiJson(`/api/tools/access-lookup/run?upn=${encodeURIComponent(upn)}`);
-      setStatus(status, "");
-      out.innerHTML = lookupHtml(r);
+      if (lookupState.mode === "user") {
+        const r = await apiJson(`/api/tools/access-lookup/run?upn=${encodeURIComponent(text)}`);
+        setStatus(status, "");
+        out.innerHTML = lookupHtml(r);
+      } else {
+        const r = await apiJson(`/api/tools/access-lookup/groups?q=${encodeURIComponent(text)}`);
+        const groups = r.groups || [];
+        setStatus(status, groups.length ? "" : "No group name starts with that.");
+        out.innerHTML = groups.length === 1 ? "" : groupListHtml(r);
+        if (groups.length === 1) await openGroup(groups[0]);
+      }
     } catch (err) {
       setStatus(status, err.message, "error");
       out.innerHTML = "";
     }
     btn.disabled = false;
   });
+  $("#lookup-result").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-group]");
+    if (b) openGroup({ id: b.dataset.group, tenant: b.dataset.tenant, name: b.dataset.name });
+  });
 }
-function lookupHtml(r) {
-  const user = r.user || {};
-  const a = Array.isArray(r.assignments) ? r.assignments : [];
-  const groups = Array.isArray(r.groups) ? r.groups : [];
-  const direct = a.filter((x) => x.via === "direct").length;
-  const subs = new Set(a.map((x) => x.subscriptionId).filter(Boolean)).size;
-  const owners = a.filter((x) => /^owner/i.test(x.role || "")).length;
-  // Several tenants searched: where the person was found.
-  const where = Array.isArray(r.tenants) && r.tenants.length > 1
-    ? `<div class="inline-list lookup-tenants">${r.tenants.map((t) => `<span class="tag" title="${esc(t.error || "")}"><span class="dot ${t.status === "found" ? "success" : t.status === "error" ? "error" : ""}"></span>${esc(t.name)}: ${esc(t.status)}</span>`).join("")}</div>`
+async function openGroup(g) {
+  const status = $("#lookup-status");
+  setStatus(status, `Reading ${g.name || "the group"}…`);
+  try {
+    const r = await apiJson(`/api/tools/access-lookup/group/${encodeURIComponent(g.id)}?tenant=${encodeURIComponent(g.tenant || "")}&name=${encodeURIComponent(g.name || "")}`);
+    setStatus(status, "");
+    $("#lookup-result").innerHTML = groupHtml(r);
+    window.scrollTo(0, 0);
+  } catch (err) {
+    setStatus(status, err.message, "error");
+  }
+}
+function lookupTenantsHtml(r, ok) {
+  return Array.isArray(r.tenants) && r.tenants.length > 1
+    ? `<div class="inline-list lookup-tenants">${r.tenants.map((t) => `<span class="tag" title="${esc(t.error || "")}"><span class="dot ${t.status === ok ? "success" : t.status === "error" ? "error" : ""}"></span>${esc(t.name)}: ${esc(t.status)}</span>`).join("")}</div>`
     : "";
+}
+// How a role reaches the person or group: direct, or the chain of groups,
+// the group they are a direct member of first and the group holding the role last.
+function viaHtml(x, selfLabel) {
+  if (x.via === "direct") return `<span class="text-2">${esc(selfLabel)}</span>`;
+  const path = Array.isArray(x.path) && x.path.length ? x.path : [String(x.via || "").replace(/^group: /, "")];
+  return `<span class="text-2">${path.map(esc).join(' <span class="muted">›</span> ')}</span>${x.nested ? ' <span class="tag">nested</span>' : ""}`;
+}
+function azureRolesCard(a, selfLabel, emptyText) {
   return `
-    <div class="person"><div class="avatar">${esc(initials(user.displayName || user.upn))}</div><div><div class="p-name">${esc(user.displayName || "")}</div><div class="p-upn">${esc(user.upn || "")}</div></div></div>
-    ${where}
-    <div class="stat-row">
-      ${statTile({ label: "Role assignments", value: fmt.int(a.length) })}
-      ${statTile({ label: "Direct", value: fmt.int(direct) })}
-      ${statTile({ label: "Via groups", value: fmt.int(a.length - direct) })}
-      ${statTile({ label: "Owner", value: fmt.int(owners), deltaCls: owners ? "bad" : "", delta: owners ? "highest privilege" : "" })}
-      ${statTile({ label: "Subscriptions", value: fmt.int(subs) })}
-    </div>
     <div class="card">
-      <div class="card-head"><h2>Role assignments</h2><span class="meta">${fmt.int(a.length)}</span></div>
+      <div class="card-head"><h2>Azure roles</h2><span class="meta">${fmt.int(a.length)} · Via: the group they are in first, the group given the role last</span></div>
       ${
         a.length
           ? tableHtml(
               [{ label: "Role" }, { label: "Via" }, { label: "Subscription" }, { label: "Scope" }],
-              a.map((x) => [roleBadge(x.role), x.via === "direct" ? '<span class="text-2">direct</span>' : `<span class="text-2">${esc(x.via)}</span>`, subCell(x), `<span class="detail-cell">${esc(shortScope(x.scope))}</span>`])
+              a.map((x) => [roleBadge(x.role), viaHtml(x, selfLabel), subCell(x), `<span class="detail-cell">${esc(shortScope(x.scope))}</span>`])
             )
-          : `<div class="empty-state">No role assignments found for this person.</div>`
+          : `<div class="empty-state">${esc(emptyText)}</div>`
       }
-    </div>
+    </div>`;
+}
+function entraRolesCard(r, selfLabel, emptyText) {
+  const list = Array.isArray(r.entraRoles) ? r.entraRoles : [];
+  const notes = Array.isArray(r.entraNotes) ? r.entraNotes : [];
+  const eligible = list.filter((x) => x.state === "eligible").length;
+  const multi = list.some((x) => x.tenantName);
+  return `
     <div class="card">
-      <div class="card-head"><h2>Group memberships</h2><span class="meta">${fmt.int(groups.length)}</span></div>
-      ${groups.length ? `<div class="inline-list">${groups.map((g) => `<span class="tag">${esc(g)}</span>`).join("")}</div>` : `<div class="empty-state">Not a member of any group.</div>`}
+      <div class="card-head"><h2>Entra ID roles</h2><span class="meta">${fmt.int(list.length - eligible)} active · ${fmt.int(eligible)} eligible (PIM)</span></div>
+      ${notes.map((n) => `<div class="status-msg">${esc(n)}</div>`).join("")}
+      ${
+        list.length
+          ? tableHtml(
+              [{ label: "Role" }, { label: "State" }, { label: "Via" }, { label: "Scope" }, ...(multi ? [{ label: "Tenant" }] : [])],
+              list.map((x) => [
+                `${roleBadge(x.role)}${x.builtIn ? "" : ' <span class="tag">custom</span>'}`,
+                x.state === "eligible" ? '<span class="tag">eligible</span>' : '<span class="text-2">active</span>',
+                viaHtml(x, selfLabel),
+                `<span class="detail-cell">${esc(x.scope)}</span>`,
+                ...(multi ? [esc(x.tenantName || "")] : []),
+              ])
+            )
+          : `<div class="empty-state">${esc(emptyText)}</div>`
+      }
+    </div>`;
+}
+function membershipsCard(groups, title, emptyText) {
+  const list = groups.map((g) => (typeof g === "string" ? { name: g, direct: true } : g));
+  const tag = (g) => {
+    const name = g.tenantName ? `${g.name} (${g.tenantName})` : g.name;
+    const how = g.direct ? "direct member" : g.through ? `nested, through ${g.through.join(" › ")}` : "nested, through another group";
+    return `<span class="tag" title="${esc(how)}">${esc(name)}${g.direct ? "" : ' <span class="muted">nested</span>'}</span>`;
+  };
+  const direct = list.filter((g) => g.direct);
+  const nested = list.filter((g) => !g.direct);
+  return `
+    <div class="card">
+      <div class="card-head"><h2>${esc(title)}</h2><span class="meta">${fmt.int(direct.length)} direct · ${fmt.int(nested.length)} nested (hover one to see the way in)</span></div>
+      ${list.length ? `<div class="inline-list">${[...direct, ...nested].map(tag).join("")}</div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
+    </div>`;
+}
+function accessStats(r) {
+  const a = Array.isArray(r.assignments) ? r.assignments : [];
+  const e = Array.isArray(r.entraRoles) ? r.entraRoles : [];
+  const viaGroups = a.filter((x) => x.via !== "direct").length;
+  const nested = [...a, ...e].filter((x) => x.nested).length;
+  const subs = new Set(a.map((x) => x.subscriptionId).filter(Boolean)).size;
+  const owners = a.filter((x) => /^owner/i.test(x.role || "")).length;
+  const globalAdmin = e.some((x) => /^global administrator$/i.test(x.role || ""));
+  return `
+      ${statTile({ label: "Azure roles", value: fmt.int(a.length), delta: `${fmt.int(subs)} subscription${subs === 1 ? "" : "s"}` })}
+      ${statTile({ label: "Entra roles", value: fmt.int(e.length), deltaCls: globalAdmin ? "bad" : "", delta: globalAdmin ? "includes Global Administrator" : `${fmt.int(e.filter((x) => x.state === "eligible").length)} eligible` })}
+      ${statTile({ label: "Via groups", value: fmt.int(viaGroups + e.filter((x) => x.via !== "direct").length), delta: nested ? `${fmt.int(nested)} through nested groups` : "" })}
+      ${statTile({ label: "Owner", value: fmt.int(owners), deltaCls: owners ? "bad" : "", delta: owners ? "highest Azure privilege" : "" })}`;
+}
+function lookupHtml(r) {
+  const user = r.user || {};
+  return `
+    <div class="person"><div class="avatar">${esc(initials(user.displayName || user.upn))}</div><div><div class="p-name">${esc(user.displayName || "")}</div><div class="p-upn">${esc(user.upn || "")}</div></div></div>
+    ${lookupTenantsHtml(r, "found")}
+    <div class="stat-row">${accessStats(r)}</div>
+    ${azureRolesCard(Array.isArray(r.assignments) ? r.assignments : [], "direct", "No Azure roles found for this person.")}
+    ${entraRolesCard(r, "direct", "No Entra ID roles.")}
+    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Group memberships", "Not a member of any group.")}`;
+}
+function groupListHtml(r) {
+  const groups = r.groups || [];
+  const multi = Array.isArray(r.tenants) && r.tenants.length > 1;
+  return `
+    ${lookupTenantsHtml(r, "searched")}
+    <div class="card">
+      <div class="card-head"><h2>Groups</h2><span class="meta">${fmt.int(groups.length)} · pick one to see what it gives</span></div>
+      ${tableHtml(
+        [{ label: "Group" }, { label: "Description" }, ...(multi ? [{ label: "Tenant" }] : [])],
+        groups.map((g) => [
+          `<a href="#" class="group-pick" data-group="${esc(g.id)}" data-tenant="${esc(g.tenant || "")}" data-name="${esc(g.name)}" onclick="return false">${esc(g.name)}</a>`,
+          `<span class="detail-cell">${esc(g.description || g.mail || "")}</span>`,
+          ...(multi ? [esc(g.tenantName || "")] : []),
+        ])
+      )}
+    </div>`;
+}
+function groupHtml(r) {
+  const g = r.group || {};
+  const members = Array.isArray(r.members) ? r.members : [];
+  const kinds = [g.security ? "Security group" : "", g.m365 ? "Microsoft 365 group" : ""].filter(Boolean).join(" · ");
+  const groupMembers = members.filter((m) => m.type === "group").length;
+  return `
+    <div class="person"><div class="avatar">${esc(initials(g.name))}</div><div><div class="p-name">${esc(g.name || "")}</div><div class="p-upn">${esc([kinds, g.mail, r.tenantName].filter(Boolean).join(" · "))}</div>${g.description ? `<div class="text-2">${esc(g.description)}</div>` : ""}</div></div>
+    <div class="stat-row">
+      ${accessStats(r)}
+      ${statTile({ label: "Members", value: `${fmt.int(members.length)}${r.moreMembers ? "+" : ""}`, delta: groupMembers ? `${fmt.int(groupMembers)} of them groups` : "direct members" })}
+    </div>
+    ${azureRolesCard(Array.isArray(r.assignments) ? r.assignments : [], "this group", "This group gives no Azure roles, directly or through the groups it sits in.")}
+    ${entraRolesCard(r, "this group", "This group gives no Entra ID roles.")}
+    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Member of", "This group is not inside any other group.")}
+    <div class="card">
+      <div class="card-head"><h2>Members</h2><span class="meta">${fmt.int(members.length)}${r.moreMembers ? " (first 500)" : ""} · direct members; the members of a group listed here get the same roles</span></div>
+      ${
+        members.length
+          ? tableHtml(
+              [{ label: "Name" }, { label: "Type" }, { label: "Sign-in name" }],
+              members.map((m) => [esc(m.name), `<span class="text-2">${esc(m.type)}</span>`, `<span class="text-2">${esc(m.upn)}</span>`])
+            )
+          : `<div class="empty-state">No members.</div>`
+      }
     </div>`;
 }
 

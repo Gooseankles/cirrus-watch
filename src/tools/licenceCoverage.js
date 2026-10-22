@@ -173,7 +173,10 @@ async function pimEntraRoles(needs, ctx) {
 
 async function pimGroups(needs, ctx) {
   const max = numberSetting("LICENCE_MAX_PIM_GROUPS", 1000, { min: 0, max: 20000 });
-  const groups = (await graphGetAll("/groups?$filter=securityEnabled eq true&$select=id&$top=999", TOOL_ID)).slice(0, max);
+  // PIM for Groups can't manage dynamic groups or groups synced from on-premises; Graph answers 400 for them.
+  const groups = (await graphGetAll("/groups?$filter=securityEnabled eq true&$select=id,groupTypes,onPremisesSyncEnabled&$top=999", TOOL_ID))
+    .filter((g) => !(g.groupTypes || []).includes("DynamicMembership") && !g.onPremisesSyncEnabled)
+    .slice(0, max);
   const ids = [];
   let refused = null, noPremium = false;
   const failures = await mapLimit(groups, 6, async (g) => {
@@ -186,6 +189,7 @@ async function pimGroups(needs, ctx) {
       ids.push(...eligible.map((e) => e.principalId), ...active.filter(timeBound).map((a) => a.principalId));
     } catch (err) {
       const msg = String(err && err.message);
+      if (/ResourceTypeNotSupported/.test(msg)) return; // a group kind PIM can't manage: nothing to count
       if (/RequestFromNonPremiumTenant|NonPremium|premium license|AadPremiumLicenseRequired/i.test(msg)) noPremium = true;
       else if (/\(403\)|Authorization_RequestDenied|Forbidden/i.test(msg)) refused = err;
       else throw err;
@@ -346,5 +350,5 @@ module.exports = {
   label: "Licence coverage",
   schedule: "0 6 * * *", // daily at 06:00
   run,
-  _test: { analyse, ownedLicences, Needs, isRiskPolicy, governanceOnly },
+  _test: { analyse, ownedLicences, Needs, isRiskPolicy, governanceOnly, pimGroups },
 };

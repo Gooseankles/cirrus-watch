@@ -264,8 +264,10 @@ app.get("/api/monitor", auth.requireRole("Admin"), (req, res) => {
 });
 
 app.get("/api/logs", (req, res) => {
-  // Someone limited to some tenants sees only those tenants' entries.
-  res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req) }));
+  // Someone limited to some tenants sees only those tenants' entries. Server
+  // load alarms are about the dashboard itself: global Admin only.
+  const admin = access.accessOf(req.session && req.session.user).admin;
+  res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req), ...(!admin && { exclude: [monitor.TOOL] }) }));
 });
 
 // Secrets from the key vault (SECRET_VAULT_URL); any still in the JSON files

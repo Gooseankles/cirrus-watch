@@ -35,7 +35,8 @@ function prune() {
 }
 
 // tenants: only entries for these tenant keys (null = everything).
-function readAll({ limit = 200, tool, tenants } = {}) {
+// exclude: tool ids whose entries are left out.
+function readAll({ limit = 200, tool, tenants, exclude } = {}) {
   ensureLogDir();
   if (!fs.existsSync(LOG_FILE)) return [];
   const lines = fs.readFileSync(LOG_FILE, "utf8").trim().split("\n").filter(Boolean);
@@ -47,6 +48,7 @@ function readAll({ limit = 200, tool, tenants } = {}) {
     }
   });
   if (tool) entries = entries.filter((e) => e.tool === tool);
+  if (exclude) entries = entries.filter((e) => !exclude.includes(e.tool));
   if (tenants) entries = entries.filter((e) => e.tenant && tenants.includes(e.tenant));
   return entries.slice(-limit).reverse();
 }

@@ -22,7 +22,7 @@ automatically:
 
 | Role | Used for |
 | --- | --- |
-| Reader | Every scan: resources, Resource Graph (including Advisor, backup items and resource changes), metrics, diagnostic settings, role assignments, NSG rules, storage container and database firewall lists, App Service config, AKS versions, quota usage, virtual network subnet usage, Azure Policy (including the `checkPolicyRestrictions` probes, a read operation) |
+| Reader | Every scan: resources, Resource Graph (including Advisor, backup items and resource changes), metrics, diagnostic settings, role assignments, NSG rules, storage container and database firewall lists, App Service config, AKS versions, quota usage, Defender for Cloud secure scores, recommendations and plans, virtual network subnet usage, Azure Policy (including the `checkPolicyRestrictions` probes, a read operation) |
 | Cost Management Reader | Cost anomalies and cost history |
 | Key Vault Reader | Names and expiry dates of secrets, keys and certificates on RBAC vaults; never a secret's value |
 

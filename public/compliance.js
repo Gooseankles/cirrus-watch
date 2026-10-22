@@ -82,6 +82,7 @@ const LOGS = ["cis:8.2", "nis2:b", "nsm:3.2"];
 const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6"];
 const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6"];
 const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1"];
+const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
   "orphaned-nic": ASSETS,
@@ -184,6 +185,11 @@ const KIND_CONTROLS = {
   "app-broad-data-permission": APPS,
   "app-risky-delegated-consent": APPS,
   "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6"],
+  "defender-low-score": DEFENDER,
+  "defender-high": DEFENDER,
+  "defender-medium": DEFENDER,
+  "defender-low": DEFENDER,
+  "defender-plan-off": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -219,6 +225,7 @@ const TOOL_KINDS = {
   "stale-accounts": ["stale-user", "stale-guest", "never-signed-in", "guest-invite-pending"],
   "mfa-coverage": ["user-no-mfa", "mfa-weak-only"],
   "conditional-access": ["ca-none", "ca-no-mfa-all-users", "ca-no-admin-mfa", "ca-legacy-auth-not-blocked", "ca-report-only", "ca-many-exclusions", "security-defaults-only"],
+  defender: ["defender-low-score", "defender-high", "defender-medium", "defender-low", "defender-plan-off"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".

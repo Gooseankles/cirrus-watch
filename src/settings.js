@@ -80,6 +80,9 @@ const FIELDS = [
   { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
   { key: "MFA_NEW_USER_DAYS", label: "Leave new accounts alone for (days)", group: "MFA coverage", hint: "Time to set up MFA before an account is flagged; blank = 14" },
   { key: "CA_MAX_EXCLUSIONS", label: "Flag a policy excluding more than", group: "Conditional Access", hint: "Excluded users, groups and roles together; blank = 5" },
+  { key: "DEFENDER_MIN_SCORE", label: "Flag a secure score below (%)", group: "Defender for Cloud", hint: "Per subscription; blank = 70, 0 = off" },
+  { key: "DEFENDER_MIN_SEVERITY", label: "Recommendations from severity", group: "Defender for Cloud", hint: "high, medium or low; blank = medium" },
+  { key: "DEFENDER_REQUIRED_PLANS", label: "Plans that must be on", group: "Defender for Cloud", hint: "Comma-separated plan names, e.g. VirtualMachines, StorageAccounts, KeyVaults, SqlServers, Arm, Containers. all = every plan; blank = no plan check" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
 // may set differently.
@@ -113,6 +116,7 @@ const TOOL_SPNS = [
   { id: "conditional-access", label: "Conditional Access" },
   { id: "app-permissions", label: "App permissions" },
   { id: "licence-coverage", label: "Licence coverage" },
+  { id: "defender", label: "Defender for Cloud" },
   { id: "history-storage", label: "History storage" },
 ];
 

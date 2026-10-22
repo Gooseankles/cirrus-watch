@@ -23,6 +23,7 @@ are needed.
 | Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
 | End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support, services that still accept TLS 1.0/1.1 |
 | Service retirements | Daily | Azure features being retired that your resources still use (from Azure Advisor), with the date |
+| Defender for Cloud | Daily | Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, and Defender plans that are off but should be on |
 | Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage |
 | Diagnostic settings | Daily | Resources whose logs go nowhere, subscriptions whose activity log is not exported |
 | Quotas | Daily | Compute, network and storage quotas close to their limit in the regions you use |
@@ -226,7 +227,7 @@ Terraform) is in **[docs/permissions.md](docs/permissions.md)**. In short, the s
 identity (by default the web app's managed identity, or a service principal):
 
 - **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
-  automatically. Policy check, internet exposure, end of support, service retirements, backup coverage,
+  automatically. Policy check, internet exposure, end of support, service retirements, Defender for Cloud, backup coverage,
   diagnostic settings, quotas, IP addresses and the change log need nothing more.
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,

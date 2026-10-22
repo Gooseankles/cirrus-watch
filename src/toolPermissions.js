@@ -36,6 +36,7 @@ const NEEDS = {
       "EntitlementManagement.Read.All", "PrivilegedEligibilitySchedule.Read.AzureADGroup", "PrivilegedAssignmentSchedule.Read.AzureADGroup",
     ],
   },
+  defender: { azure: READER },
   "access-lookup": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
 };
 

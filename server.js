@@ -215,6 +215,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/conditionalAccess")),
   registerScanTool(app, require("./src/tools/appPermissions")),
   registerScanTool(app, require("./src/tools/licenceCoverage")),
+  registerScanTool(app, require("./src/tools/defender")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

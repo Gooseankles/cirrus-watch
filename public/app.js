@@ -765,65 +765,104 @@ function renderActivity() {
 }
 
 /* ---------- access lookup ---------- */
-const lookupState = { mode: "user" };
+// Type part of a name and the matches show as you type; pick one to see its access.
+// A full sign-in name or mail in Person mode still looks the person up at once.
+const lookupState = { mode: "user", seq: 0, timer: null };
+const LOOKUP_KINDS = { user: "users", group: "groups" };
 function wireLookup() {
   const form = $("#lookup-form");
   const input = $("#lookup-upn");
+  const status = $("#lookup-status");
+  const out = $("#lookup-result");
   $("#lookup-mode").addEventListener("click", (e) => {
     const b = e.target.closest("[data-mode]");
     if (!b || b.dataset.mode === lookupState.mode) return;
     lookupState.mode = b.dataset.mode;
+    lookupState.seq++;
     $$("#lookup-mode [data-mode]").forEach((x) => x.classList.toggle("active", x === b));
     const user = lookupState.mode === "user";
-    input.placeholder = user ? "user@contoso.com" : "Start of the group name, or its ID";
-    input.setAttribute("aria-label", user ? "User principal name" : "Group name");
-    $("#lookup-btn").textContent = user ? "Look up" : "Search";
-    setStatus($("#lookup-status"), "");
-    $("#lookup-result").innerHTML = "";
+    input.placeholder = user ? "Name, sign-in name or mail" : "Group name, mail or ID";
+    input.setAttribute("aria-label", user ? "Person" : "Group");
+    setStatus(status, "");
+    out.innerHTML = "";
+    if (input.value.trim().length >= 2) runSearch(input.value.trim());
     input.focus();
+  });
+  input.addEventListener("input", () => {
+    clearTimeout(lookupState.timer);
+    const text = input.value.trim();
+    if (text.length < 2) {
+      lookupState.seq++;
+      setStatus(status, "");
+      return;
+    }
+    lookupState.timer = setTimeout(() => runSearch(text), 350);
   });
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
+    clearTimeout(lookupState.timer);
     const text = input.value.trim();
-    const btn = $("#lookup-btn");
-    const status = $("#lookup-status");
-    const out = $("#lookup-result");
     if (!text) return;
-    btn.disabled = true;
-    setStatus(status, lookupState.mode === "user" ? "Looking up…" : "Searching…");
-    try {
-      if (lookupState.mode === "user") {
-        const r = await apiJson(`/api/tools/access-lookup/run?upn=${encodeURIComponent(text)}`);
-        setStatus(status, "");
-        out.innerHTML = lookupHtml(r);
-      } else {
-        const r = await apiJson(`/api/tools/access-lookup/groups?q=${encodeURIComponent(text)}`);
-        const groups = r.groups || [];
-        setStatus(status, groups.length ? "" : "No group name starts with that.");
-        out.innerHTML = groups.length === 1 ? "" : groupListHtml(r);
-        if (groups.length === 1) await openGroup(groups[0]);
-      }
-    } catch (err) {
-      setStatus(status, err.message, "error");
-      out.innerHTML = "";
-    }
-    btn.disabled = false;
+    if (lookupState.mode === "user" && text.includes("@")) return openUser({ upn: text });
+    const found = await runSearch(text);
+    if (found && found.length === 1) (lookupState.mode === "user" ? openUser : openGroup)(found[0]);
   });
-  $("#lookup-result").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-group]");
-    if (b) openGroup({ id: b.dataset.group, tenant: b.dataset.tenant, name: b.dataset.name });
+  out.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-group]");
+    if (g) return openGroup({ id: g.dataset.group, tenant: g.dataset.tenant, name: g.dataset.name });
+    const u = e.target.closest("[data-user]");
+    if (u) openUser({ upn: u.dataset.user, name: u.dataset.name });
   });
 }
+// Shows the matches; returns them, or null when a newer search took over or it failed.
+async function runSearch(text) {
+  const seq = ++lookupState.seq;
+  const mode = lookupState.mode;
+  const kind = LOOKUP_KINDS[mode];
+  const status = $("#lookup-status");
+  if (text.length < 2) {
+    setStatus(status, "Type at least 2 characters.");
+    return null;
+  }
+  setStatus(status, "Searching…");
+  try {
+    const r = await apiJson(`/api/tools/access-lookup/${kind}?q=${encodeURIComponent(text)}`);
+    if (seq !== lookupState.seq) return null;
+    const list = r[kind] || [];
+    setStatus(status, list.length ? "" : mode === "user" ? "No person matches that." : "No group matches that.");
+    $("#lookup-result").innerHTML = list.length ? (mode === "user" ? userListHtml(r) : groupListHtml(r)) : "";
+    return list;
+  } catch (err) {
+    if (seq === lookupState.seq) setStatus(status, err.message, "error");
+    return null;
+  }
+}
+async function openUser(u) {
+  const seq = ++lookupState.seq;
+  const status = $("#lookup-status");
+  setStatus(status, `Looking up ${u.name || u.upn}…`);
+  try {
+    const r = await apiJson(`/api/tools/access-lookup/run?upn=${encodeURIComponent(u.upn)}`);
+    if (seq !== lookupState.seq) return;
+    setStatus(status, "");
+    $("#lookup-result").innerHTML = lookupHtml(r);
+    window.scrollTo(0, 0);
+  } catch (err) {
+    if (seq === lookupState.seq) setStatus(status, err.message, "error");
+  }
+}
 async function openGroup(g) {
+  const seq = ++lookupState.seq;
   const status = $("#lookup-status");
   setStatus(status, `Reading ${g.name || "the group"}…`);
   try {
     const r = await apiJson(`/api/tools/access-lookup/group/${encodeURIComponent(g.id)}?in=${encodeURIComponent(g.tenant || "")}&name=${encodeURIComponent(g.name || "")}`);
+    if (seq !== lookupState.seq) return;
     setStatus(status, "");
     $("#lookup-result").innerHTML = groupHtml(r);
     window.scrollTo(0, 0);
   } catch (err) {
-    setStatus(status, err.message, "error");
+    if (seq === lookupState.seq) setStatus(status, err.message, "error");
   }
 }
 function lookupTenantsHtml(r, ok) {
@@ -925,11 +964,36 @@ function groupListHtml(r) {
       <div class="card-head"><h2>Groups</h2><span class="meta">${fmt.int(groups.length)} · pick one to see what it gives</span></div>
       ${tableHtml(
         [{ label: "Group" }, { label: "Description" }, ...(multi ? [{ label: "Tenant" }] : [])],
-        groups.map((g) => [
-          `<a href="#" class="group-pick" data-group="${esc(g.id)}" data-tenant="${esc(g.tenant || "")}" data-name="${esc(g.name)}" onclick="return false">${esc(g.name)}</a>`,
-          `<span class="detail-cell">${esc(g.description || g.mail || "")}</span>`,
-          ...(multi ? [esc(g.tenantName || "")] : []),
-        ])
+        groups.map((g) => ({
+          attrs: `class="clickable" data-group="${esc(g.id)}" data-tenant="${esc(g.tenant || "")}" data-name="${esc(g.name)}"`,
+          cells: [
+            `<a href="#" class="group-pick" onclick="return false">${esc(g.name)}</a>`,
+            `<span class="detail-cell">${esc(g.description || g.mail || "")}</span>`,
+            ...(multi ? [esc(g.tenantName || "")] : []),
+          ],
+        }))
+      )}
+    </div>`;
+}
+// A guest's sign-in name differs per tenant, so a guest is looked up by mail.
+function userListHtml(r) {
+  const users = r.users || [];
+  const multi = Array.isArray(r.tenants) && r.tenants.length > 1;
+  return `
+    ${lookupTenantsHtml(r, "searched")}
+    <div class="card">
+      <div class="card-head"><h2>People</h2><span class="meta">${fmt.int(users.length)} · pick one to see their access</span></div>
+      ${tableHtml(
+        [{ label: "Name" }, { label: "Sign-in name" }, { label: "Job" }, ...(multi ? [{ label: "Tenant" }] : [])],
+        users.map((u) => ({
+          attrs: `class="clickable" data-user="${esc(u.guest && u.mail ? u.mail : u.upn)}" data-name="${esc(u.name)}"`,
+          cells: [
+            `<a href="#" class="group-pick" onclick="return false">${esc(u.name)}</a>${u.guest ? ' <span class="tag">guest</span>' : ""}`,
+            `<span class="text-2">${esc(u.upn)}</span>`,
+            `<span class="detail-cell">${esc([u.jobTitle, u.department].filter(Boolean).join(" · "))}</span>`,
+            ...(multi ? [esc(u.tenantName || "")] : []),
+          ],
+        }))
       )}
     </div>`;
 }

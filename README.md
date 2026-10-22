@@ -37,7 +37,7 @@ are needed.
 | Licence coverage | Daily | How many Entra ID P1, P2 and ID Governance licences are needed for the people using Conditional Access, PIM and access packages, against how many you own |
 | Change log | Daily | What people and apps created, changed or deleted in the last 24 hours, security changes marked (for information; not in totals or the report) |
 | Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
-| Access lookup | On demand | The Azure roles (every subscription) and Entra ID roles (active and PIM-eligible) a person or a group holds, directly or through groups. Nested groups show the whole chain, e.g. Ops team › Azure admins › Owners-Prod. Search a group by name to see what it gives, what it sits in and who is in it |
+| Access lookup | On demand | The Azure roles (every subscription) and Entra ID roles (active and PIM-eligible) a person or a group holds, directly or through groups. Nested groups show the whole chain, e.g. Ops team › Azure admins › Owners-Prod. Type part of a name and pick the person or group from the list (matches show as you type); a group also shows what it sits in and who is in it |
 
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.

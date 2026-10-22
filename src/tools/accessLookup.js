@@ -231,28 +231,50 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GROUP_FIELDS = "$select=id,displayName,description,mail,securityEnabled,groupTypes";
 const MAX_MEMBERS = 500;
 
-// Groups whose name starts with the text (or with this ID), in every tenant
-// the person may see; at most 15 per tenant.
-async function searchGroups(text, keys) {
+const USER_FIELDS = "$select=id,displayName,userPrincipalName,mail,jobTitle,department,userType";
+const SEARCH_TOP = 15; // matches per tenant
+
+// What a search looks for: the start of the name, first name, last name,
+// sign-in name or mail (plain $filter, no advanced query headers), or an ID.
+const SEARCH = {
+  groups: {
+    path: "/groups",
+    fields: GROUP_FIELDS,
+    props: ["displayName", "mail"],
+    row: (g) => ({ id: g.id, name: g.displayName, description: g.description || "", mail: g.mail || "" }),
+  },
+  users: {
+    path: "/users",
+    fields: USER_FIELDS,
+    props: ["displayName", "givenName", "surname", "userPrincipalName", "mail"],
+    row: (u) => ({ id: u.id, name: u.displayName || u.userPrincipalName, upn: u.userPrincipalName || "", mail: u.mail || "", jobTitle: u.jobTitle || "", department: u.department || "", guest: u.userType === "Guest" }),
+  },
+};
+
+// Users or groups matching the text in every tenant the person may see.
+async function search(kind, text, keys) {
+  const s = SEARCH[kind];
   const targets = tenants.scanTargets().filter((t) => access.inScope(keys, t.key));
-  const out = { groups: [], tenants: [] };
+  const out = { [kind]: [], tenants: [] };
   for (const t of targets) {
     try {
       const found = await tenantContext.runIn(t, async () => {
         if (GUID.test(text)) {
-          const g = await graphGet(`/groups/${text}?${GROUP_FIELDS}`, TOOL_ID).catch((err) => (/\(404\)/.test(err.message) ? null : Promise.reject(err)));
-          return g ? [g] : [];
+          const one = await graphGet(`${s.path}/${text}?${s.fields}`, TOOL_ID).catch((err) => (/\(404\)/.test(err.message) ? null : Promise.reject(err)));
+          return one ? [one] : [];
         }
         const q = text.replace(/'/g, "''");
-        const page = await graphGet(`/groups?$filter=${encodeURIComponent(`startswith(displayName,'${q}')`)}&${GROUP_FIELDS}&$top=15`, TOOL_ID);
+        const filter = s.props.map((p) => `startswith(${p},'${q}')`).join(" or ");
+        const page = await graphGet(`${s.path}?$filter=${encodeURIComponent(filter)}&${s.fields}&$top=${SEARCH_TOP}`, TOOL_ID);
         return page.value || [];
       });
-      out.groups.push(...found.map((g) => ({ id: g.id, name: g.displayName, description: g.description || "", mail: g.mail || "", tenant: t.key, tenantName: t.name })));
+      out[kind].push(...found.map((x) => ({ ...s.row(x), tenant: t.key, tenantName: t.name })));
       out.tenants.push({ key: t.key, name: t.name, status: "searched" });
     } catch (err) {
       out.tenants.push({ key: t.key, name: t.name, status: "error", error: err.message.slice(0, 300) });
     }
   }
+  out[kind].sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return out;
 }
 
@@ -293,18 +315,20 @@ function registerRoutes(app) {
       res.status(500).json({ error: err.message });
     }
   });
-  app.get("/api/tools/access-lookup/groups", async (req, res) => {
-    const text = typeof req.query.q === "string" ? req.query.q.trim() : "";
-    if (text.length < 2 || text.length > 120) return res.status(400).json({ error: "type at least 2 characters of the group name" });
-    try {
-      const result = await searchGroups(text, access.readScope(req));
-      const errors = result.tenants.filter((t) => t.status === "error");
-      if (!result.groups.length && errors.length === result.tenants.length && errors.length) return res.status(500).json({ error: errors.map((t) => t.error).join("; ") });
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  for (const kind of ["groups", "users"]) {
+    app.get(`/api/tools/access-lookup/${kind}`, async (req, res) => {
+      const text = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (text.length < 2 || text.length > 120) return res.status(400).json({ error: "type at least 2 characters of the name" });
+      try {
+        const result = await search(kind, text, access.readScope(req));
+        const errors = result.tenants.filter((t) => t.status === "error");
+        if (!result[kind].length && errors.length === result.tenants.length && errors.length) return res.status(500).json({ error: errors.map((t) => t.error).join("; ") });
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  }
   app.get("/api/tools/access-lookup/group/:id", async (req, res) => {
     if (!GUID.test(req.params.id)) return res.status(400).json({ error: "not a group ID" });
     // ?in= names the group's tenant (the page adds ?tenant= for the open tab

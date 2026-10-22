@@ -20,6 +20,7 @@ const NEEDS = {
   "diagnostic-settings": { azure: READER },
   quotas: { azure: READER },
   ipam: { azure: READER },
+  "app-service-usage": { azure: READER },
   "change-log": { azure: READER },
   "privileged-roles": {
     graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All"],

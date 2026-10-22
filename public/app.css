@@ -387,6 +387,16 @@ tr.ip-hit td { background: var(--accent-soft); }
 .ip-form .select, .ip-form .input { max-width: 100%; }
 .ip-sum { margin: 4px 0 10px; }
 .ip-free { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* --- App Service usage --- */
+.as-use { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
+.as-spark { width: 150px; height: 24px; display: block; }
+.as-spark polyline { fill: none; stroke: var(--s1); stroke-width: 1.2; }
+.as-spark.warn polyline { stroke: var(--warning); }
+.as-spark.crit polyline { stroke: var(--critical); }
+.as-spark line { stroke: var(--border); stroke-dasharray: 2 2; }
+.as-apps { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.nowrap { white-space: nowrap; }
 .ar-nested { margin-top: 8px; font-size: 0.8rem; }
 .ar-nested > summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }
 .ar-nested > summary::-webkit-details-marker { display: none; }

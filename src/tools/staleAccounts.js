@@ -27,7 +27,12 @@ function classify(users, { memberDays, guestDays, now = Date.now() }) {
     const guest = u.userType === "Guest";
     const limit = guest ? guestDays : memberDays;
     const created = Date.parse(u.createdDateTime);
-    const base = { name: u.userPrincipalName || u.displayName || u.id, resourceGroup: null, subscriptionId: null, principalId: u.id };
+    const synced = u.onPremisesSyncEnabled === true;
+    const where = synced ? "Synced from on-premises AD" : "Cloud-only account";
+    // A synced account is disabled in on-premises AD; disabling it in Entra
+    // is undone by the next sync.
+    const disable = synced ? "Disable it in on-premises AD if nobody needs it" : "Disable it if nobody needs it";
+    const base = { name: u.userPrincipalName || u.displayName || u.id, resourceGroup: null, subscriptionId: null, principalId: u.id, source: synced ? "ad-synced" : "cloud" };
     const last = lastSignIn(u);
     if (guest && u.externalUserState === "PendingAcceptance") {
       if (Number.isFinite(created) && ageDays(created, now) > limit) {
@@ -37,13 +42,13 @@ function classify(users, { memberDays, guestDays, now = Date.now() }) {
     }
     if (last == null) {
       if (Number.isFinite(created) && ageDays(created, now) > limit) {
-        findings.push({ ...base, kind: "never-signed-in", id: `${u.id}#never`, detail: `${guest ? "Guest" : "Account"} created ${day(created)} has never signed in` });
+        findings.push({ ...base, kind: "never-signed-in", id: `${u.id}#never`, detail: `${guest ? "Guest" : where} created ${day(created)} has never signed in${guest ? "" : `. ${disable}`}` });
       }
       continue;
     }
     const age = ageDays(last, now);
     if (age > limit) {
-      findings.push({ ...base, kind: guest ? "stale-guest" : "stale-user", id: `${u.id}#stale`, detail: `No sign-in for ${age} days (last ${day(last)}). Disable it if nobody needs it` });
+      findings.push({ ...base, kind: guest ? "stale-guest" : "stale-user", id: `${u.id}#stale`, detail: `${guest ? "Guest" : where}: no sign-in for ${age} days (last ${day(last)}). ${guest ? "Disable it if nobody needs it" : disable}` });
     }
   }
   return findings;
@@ -55,7 +60,7 @@ async function run() {
   let users;
   try {
     users = await graphGetAll(
-      "/users?$select=id,displayName,userPrincipalName,userType,accountEnabled,createdDateTime,externalUserState,signInActivity",
+      "/users?$select=id,displayName,userPrincipalName,userType,accountEnabled,createdDateTime,externalUserState,onPremisesSyncEnabled,signInActivity",
       TOOL_ID
     );
   } catch (err) {

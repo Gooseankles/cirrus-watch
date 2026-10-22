@@ -10,6 +10,7 @@ const { numberSetting, runChecks, nameOf, mapLimit, itemErrors } = require("./ut
 const TOOL_ID = "backup-coverage";
 const ITEM_API = "2023-04-01";
 const MAX_LIVE_READS = 300;
+const MAX_POINT_PAGES = 5;
 
 async function protectedItems() {
   return resourceGraphQuery(
@@ -39,6 +40,23 @@ function suspicious(it, maxAgeHours) {
   return Boolean(it.lastTime) && (Date.now() - Date.parse(it.lastTime)) / 3600000 > maxAgeHours;
 }
 
+// The newest recovery point the vault holds for an item. The item's own
+// lastBackupTime and lastRecoveryPoint can stay old even on a direct read, but
+// a recovery point only exists if a backup really ran.
+async function newestRecoveryPoint(itemId) {
+  let url = `https://management.azure.com${itemId}/recoveryPoints?api-version=${ITEM_API}`;
+  let newest = "";
+  for (let page = 0; url && page < MAX_POINT_PAGES; page++) {
+    const body = (await armGet(url, TOOL_ID)) || {};
+    for (const rp of body.value || []) {
+      const t = (rp.properties || {}).recoveryPointTime;
+      if (t && !Number.isNaN(Date.parse(t)) && (!newest || Date.parse(t) > Date.parse(newest))) newest = t;
+    }
+    url = body.nextLink;
+  }
+  return newest;
+}
+
 // Replaces the Resource Graph values of suspicious items with the vault's own.
 async function refreshFromVault(items, maxAgeHours) {
   for (const it of items) it.lastTime = lastOf({ lastBackupTime: it.lastTime, lastRecoveryPoint: it.lastPoint });
@@ -47,13 +65,18 @@ async function refreshFromVault(items, maxAgeHours) {
     const p = ((await armGet(`https://management.azure.com${it.id}?api-version=${ITEM_API}`, TOOL_ID)) || {}).properties || {};
     if (p.protectionState) it.state = p.protectionState;
     if (p.lastBackupStatus) it.lastStatus = p.lastBackupStatus;
+    const newer = (t) => t && (!it.lastTime || Date.parse(t) > Date.parse(it.lastTime));
     const live = lastOf(p);
-    if (live && (!it.lastTime || Date.parse(live) > Date.parse(it.lastTime))) it.lastTime = live;
+    if (newer(live)) it.lastTime = live;
+    if (!suspicious(it, maxAgeHours) || /ProtectionStopped|BackupsSuspended|Failed/i.test(`${it.state} ${it.lastStatus}`)) return;
+    const point = await newestRecoveryPoint(it.id);
+    if (newer(point)) it.lastTime = point;
+    it.pointsChecked = true;
   });
   return itemErrors(TOOL_ID, "live-items", "backup items' live status (Resource Graph's possibly old values used)", failures, check.length);
 }
 
-async function itemFindings(items) {
+async function itemFindings(items, vmIds) {
   const maxAgeHours = numberSetting("BACKUP_MAX_AGE_HOURS", 48, { min: 1, max: 24 * 365 });
   const findings = await refreshFromVault(items, maxAgeHours);
   for (const it of items) {
@@ -70,7 +93,13 @@ async function itemFindings(items) {
     }
     const age = it.lastTime ? (Date.now() - Date.parse(it.lastTime)) / 3600000 : null;
     if (age != null && age > maxAgeHours) {
-      findings.push({ ...base, kind: "backup-stale", id: `${it.id}#stale`, detail: `No backup for ${Math.round(age)} hours (${where}); last ${it.lastTime.slice(0, 10)}` });
+      // Only said of VMs in the vault's own subscription, which was scanned.
+      const sameSub = it.source && it.source.startsWith(`/subscriptions/${String(it.subscriptionId).toLowerCase()}/`);
+      const gone = /vm/i.test(it.workload) && sameSub && !vmIds.has(it.source);
+      const why = gone
+        ? ". The VM no longer exists: stop protection on this item (keep or delete its data)"
+        : it.pointsChecked ? "; the vault holds no newer recovery point" : "";
+      findings.push({ ...base, kind: "backup-stale", id: `${it.id}#stale`, detail: `No backup for ${Math.round(age)} hours (${where}); last ${it.lastTime.slice(0, 10)}${why}` });
     }
   }
   return findings;
@@ -95,7 +124,7 @@ async function coverageFindings() {
       subscriptionId: vm.subscriptionId,
       detail: "No Recovery Services vault backs up this VM. Accept it if it holds nothing worth restoring",
     }));
-  return [...findings, ...(await itemFindings(items))];
+  return [...findings, ...(await itemFindings(items, new Set(vms.map((vm) => vm.id.toLowerCase()))))];
 }
 
 async function vaultFindings() {

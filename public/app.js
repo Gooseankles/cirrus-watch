@@ -123,7 +123,6 @@ const TOOLS = [
   { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere (no diagnostic setting) and subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
   { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
-  { id: "app-service-usage", group: "resources", label: "App Service usage", icon: "cpu", schedule: "Daily at 06:45", sub: "CPU and memory of every App Service plan over the last 7 days, hour by hour, and what to act on: plans running hot, plans far bigger than their load and plans with no apps that are still paid for." },
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
   { id: "privileged-roles", group: "identity", label: "Privileged roles", icon: "crown", schedule: "Daily at 05:00", sub: "Who holds the powerful Entra roles: too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is in use, and admins with no MFA registered." },
   { id: "stale-accounts", group: "identity", label: "Stale accounts", icon: "userx", schedule: "Daily at 05:30", sub: "Enabled members and guests with no sign-in for a long time, accounts that never signed in and guest invitations never accepted. Sign-in data needs Microsoft Entra ID P1." },
@@ -264,10 +263,6 @@ const KINDS = {
   "vnet-no-room": ["No room for subnets", ""],
   "peering-disconnected": ["Peering disconnected", "crit"],
   "peering-not-synced": ["Peering not synced", "warn"],
-  "appservice-cpu-high": ["CPU running hot", "warn"],
-  "appservice-memory-high": ["Memory running hot", "warn"],
-  "appservice-plan-oversized": ["Plan bigger than needed", ""],
-  "appservice-plan-empty": ["Plan with no apps", "warn"],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");

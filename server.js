@@ -175,7 +175,6 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/diagnosticSettings")),
   registerScanTool(app, require("./src/tools/quotas")),
   registerScanTool(app, require("./src/tools/ipam")),
-  registerScanTool(app, require("./src/tools/appServiceUsage")),
   registerScanTool(app, require("./src/tools/changeLog")),
   registerScanTool(app, require("./src/tools/privilegedRoles")),
   registerScanTool(app, require("./src/tools/staleAccounts")),

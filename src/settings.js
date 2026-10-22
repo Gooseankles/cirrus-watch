@@ -43,6 +43,11 @@ const FIELDS = [
   { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
   { key: "HISTORY_RETENTION_DAYS", label: "Keep run history (days)", group: "History storage", hint: "Blank = 365" },
 
+  // The dashboard's own server, so not per tenant.
+  { key: "MONITOR_CPU_WARN_PCT", label: "Alarm when the instance's CPU stays above (%)", group: "Server load", hint: "For 5 minutes; blank = 90" },
+  { key: "MONITOR_MEMORY_WARN_PCT", label: "Alarm when memory is above (%)", group: "Server load", hint: "The instance's memory, the container's limit or the dashboard's heap limit; blank = 85" },
+  { key: "MONITOR_LAG_WARN_MS", label: "Alarm when the dashboard stops answering for (ms)", group: "Server load", hint: "Event-loop delay; blank = 2000" },
+
   { key: "ROLE_ASSIGNMENT_LIMIT_WARN_PCT", label: "Warn at % of the 4,000 limit", group: "Role assignments", hint: "Blank = 80" },
   { key: "POLICY_PROBES", label: "Probe tests to run", group: "Policy check", hint: "Comma-separated: storage-public-blob, storage-http, storage-old-tls, public-ip, keyvault-no-purge-protection, sql-public-network, untagged-resource, denied-region. Blank = all, none = off" },
   { key: "POLICY_PROBE_REGION", label: "Region for probes", group: "Policy check", hint: "An allowed region; blank = norwayeast" },
@@ -67,11 +72,6 @@ const FIELDS = [
   { key: "QUOTA_WARN_PCT", label: "Warn at % of a quota", group: "Quotas", hint: "95% and over is critical; blank = 80" },
   { key: "IPAM_SUBNET_WARN_PCT", label: "Warn when a subnet is this % full", group: "IP addresses", hint: "95% and over is critical; blank = 80" },
   { key: "IPAM_POOLS", label: "Address plan (ranges you hand out)", group: "IP addresses", hint: "Comma-separated, e.g. 10.0.0.0/8, 172.16.0.0/12. VNets outside them are flagged; also offered in Free ranges. Blank = no plan check" },
-  { key: "APPSERVICE_CPU_WARN_PCT", label: "Warn when CPU is above (%)", group: "App Service usage", hint: "In more than 5% of hours over 7 days; blank = 80" },
-  { key: "APPSERVICE_MEMORY_WARN_PCT", label: "Warn when memory is above (%)", group: "App Service usage", hint: "In more than 5% of hours over 7 days; blank = 85" },
-  { key: "MONITOR_CPU_WARN_PCT", label: "Alarm when the instance's CPU stays above (%)", group: "Server load", hint: "For 5 minutes; blank = 90" },
-  { key: "MONITOR_MEMORY_WARN_PCT", label: "Alarm when memory is above (%)", group: "Server load", hint: "The instance's memory, the container's limit or the dashboard's heap limit; blank = 85" },
-  { key: "MONITOR_LAG_WARN_MS", label: "Alarm when the dashboard stops answering for (ms)", group: "Server load", hint: "Event-loop delay; blank = 2000" },
   { key: "CHANGE_LOG_HOURS", label: "Changes from the last (hours)", group: "Change log", hint: "Match the schedule (daily); blank = 24, at most 336" },
   { key: "STALE_ACCOUNT_DAYS", label: "Member accounts are stale after (days)", group: "Stale accounts", hint: "Days without a sign-in; blank = 90" },
   { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
@@ -103,7 +103,6 @@ const TOOL_SPNS = [
   { id: "diagnostic-settings", label: "Diagnostic settings" },
   { id: "quotas", label: "Quotas" },
   { id: "ipam", label: "IP addresses" },
-  { id: "app-service-usage", label: "App Service usage" },
   { id: "change-log", label: "Change log" },
   { id: "privileged-roles", label: "Privileged roles" },
   { id: "stale-accounts", label: "Stale accounts" },

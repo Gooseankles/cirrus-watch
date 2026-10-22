@@ -10,7 +10,7 @@ const NEEDS = {
   "access-review": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
   "secret-expiry": { graph: ["Application.Read.All"] },
   "key-vault": { azure: ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] },
-  "access-packages": { graph: ["EntitlementManagement.Read.All"], licence: "Entra ID P2 or ID Governance" },
+  "access-packages": { graph: ["EntitlementManagement.Read.All", "GroupMember.Read.All", "User.Read.All"], licence: "Entra ID P2 or ID Governance" },
   "role-assignments": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] },
   "policy-check": { azure: READER },
   "internet-exposure": { azure: READER },

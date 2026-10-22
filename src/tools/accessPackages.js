@@ -1,10 +1,13 @@
 // Entra ID Governance "access packages" (entitlement management) — the
 // self-service catalog people request time-bound access through. Needs
 // Graph Application permission EntitlementManagement.Read.All (admin
-// consent) in addition to the ones the other tools use.
-const { graphGetAll } = require("../graphClient");
+// consent) in addition to the ones the other tools use, plus
+// GroupMember.Read.All and User.Read.All to see who is behind the approvers.
+const graph = require("../graphClient");
 const settings = require("../settings");
-const { runChecks } = require("./util");
+const { runChecks, mapLimit, scanError, graphHint } = require("./util");
+
+const graphGetAll = (path, toolId) => graph.graphGetAll(path, toolId);
 
 const TOOL_ID = "access-packages";
 
@@ -135,51 +138,174 @@ async function unusedAndDuplicatePackages() {
   return findings;
 }
 
-// The riskiest combination a policy can have: nobody has to approve the
-// request, AND the access it grants never expires on its own. Separately,
-// a policy that does require approval but has exactly one eligible
-// approver across all stages is a bus-factor risk — if that person leaves
-// or is unavailable, nothing can ever get approved.
-async function policyRiskFindings() {
-  const packages = await graphGetAll(
-    "/identityGovernance/entitlementManagement/accessPackages?$expand=assignmentPolicies&$top=999",
-    TOOL_ID
-  );
+const GROUP_APPROVER = "#microsoft.graph.groupMembers";
+const USER_APPROVER = "#microsoft.graph.singleUser";
+const LOOKUP_CONCURRENCY = 8;
 
+const isNotFound = (err) => /failed \(404\)/.test(String((err && err.message) || err));
+
+// The people behind each approver group and named approver, looked up once
+// per run: { groups: Map(id -> { name, deleted, people: [{ id, name }] }),
+// users: Map(id -> { name, deleted, enabled }), failures }. Only enabled
+// accounts count: a disabled one cannot sign in to approve.
+async function resolveApprovers(groupIds, userIds) {
+  const groups = new Map();
+  const users = new Map();
+  const groupFailures = await mapLimit([...groupIds], LOOKUP_CONCURRENCY, async (id) => {
+    try {
+      const [group, members] = await Promise.all([
+        graph.graphGet(`/groups/${id}?$select=id,displayName`, TOOL_ID),
+        graph.graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=id,displayName,accountEnabled&$top=999`, TOOL_ID),
+      ]);
+      const people = members.filter((m) => m.accountEnabled !== false).map((m) => ({ id: m.id, name: m.displayName || m.id }));
+      groups.set(id, { name: group.displayName || id, deleted: false, people, disabled: members.length - people.length });
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+      groups.set(id, { name: id, deleted: true, people: [], disabled: 0 });
+    }
+  });
+  const userFailures = await mapLimit([...userIds], LOOKUP_CONCURRENCY, async (id) => {
+    try {
+      const u = await graph.graphGet(`/users/${id}?$select=id,displayName,accountEnabled`, TOOL_ID);
+      users.set(id, { name: u.displayName || id, deleted: false, enabled: u.accountEnabled !== false });
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+      users.set(id, { name: id, deleted: true, enabled: false });
+    }
+  });
+  return { groups, users, failures: [...groupFailures, ...userFailures] };
+}
+
+// Who can act on one list of approvers (a stage's primary or fallback list).
+// Approvers worked out per request (the requestor's manager, sponsors) are
+// "dynamic": they can't be counted here, so the list is treated as working.
+function approverList(subjects, resolved) {
+  const people = new Map();
+  const broken = []; // plain-words problems: "group X has no members"
+  let dynamic = false;
+  let unknown = false;
+  for (const s of subjects || []) {
+    const type = s["@odata.type"];
+    if (type === GROUP_APPROVER) {
+      const g = resolved.groups.get(s.groupId);
+      if (!g) { unknown = true; continue; }
+      if (g.deleted) broken.push(`group ${s.description || s.groupId} was deleted`);
+      else if (!g.people.length) broken.push(`group ${g.name} has no ${g.disabled ? "enabled " : ""}members`);
+      for (const p of g.people) people.set(p.id, p.name);
+    } else if (type === USER_APPROVER) {
+      const u = resolved.users.get(s.userId);
+      if (!u) { unknown = true; continue; }
+      if (u.deleted) broken.push(`approver ${s.description || s.userId} was deleted`);
+      else if (!u.enabled) broken.push(`approver ${u.name} is disabled`);
+      else people.set(s.userId, u.name);
+    } else {
+      dynamic = true;
+    }
+  }
+  return { people, broken, dynamic, unknown };
+}
+
+// The riskiest combination a policy can have: nobody has to approve the
+// request, AND the access it grants never expires on its own. A policy that
+// requires approval is checked against the people behind its approvers:
+// a stage nobody can approve (empty or deleted groups, deleted or disabled
+// users) blocks every request; an empty group next to working approvers is
+// still worth cleaning up; and exactly one person across the whole policy is
+// a bus-factor risk.
+function policyFindings(packages, resolved) {
   const findings = [];
   for (const p of packages) {
     for (const policy of p.assignmentPolicies || []) {
-      const approvalRequired = policy.requestApprovalSettings && policy.requestApprovalSettings.isApprovalRequired;
+      const approval = policy.requestApprovalSettings || {};
       const expirationType = policy.expiration && policy.expiration.type;
       const policyLabel = `${p.displayName} / ${policy.displayName || policy.id}`;
+      const base = { id: policy.id, name: policyLabel, resourceGroup: null, subscriptionId: null };
 
-      if (!approvalRequired) {
+      if (!approval.isApprovalRequired) {
         if (!expirationType || expirationType === "noExpiration") {
-          findings.push({
-            kind: "access-package-auto-approved-no-expiry",
-            id: policy.id,
-            name: policyLabel,
-            resourceGroup: null,
-            subscriptionId: null,
-            detail: "no approval required and access never expires",
-          });
+          findings.push({ ...base, kind: "access-package-auto-approved-no-expiry", detail: "no approval required and access never expires" });
         }
         continue;
       }
 
-      const stages = (policy.requestApprovalSettings && policy.requestApprovalSettings.approvalStages) || [];
-      const approverCount = stages.reduce((sum, stage) => sum + ((stage.primaryApprovers || []).length), 0);
-      if (approverCount === 1) {
+      const stages = approval.approvalStages || [];
+      const everyone = new Map();
+      const blocked = stages.length ? [] : ["no approvers set"];
+      const emptyGroups = [];
+      let dynamic = false;
+      let unknown = false;
+      stages.forEach((stage, i) => {
+        const primary = approverList(stage.primaryApprovers, resolved);
+        const fallback = approverList(stage.fallbackPrimaryApprovers, resolved);
+        for (const [id, name] of [...primary.people, ...fallback.people]) everyone.set(id, name);
+        dynamic = dynamic || primary.dynamic || fallback.dynamic;
+        unknown = unknown || primary.unknown || fallback.unknown;
+        const problems = [...primary.broken, ...fallback.broken];
+        const nobody = !primary.people.size && !fallback.people.size && !primary.dynamic && !fallback.dynamic && !primary.unknown && !fallback.unknown;
+        const where = stages.length > 1 ? `stage ${i + 1}: ` : "";
+        if (nobody) blocked.push(where + (problems.length ? problems.join(", ") : "no approvers set"));
+        else if (problems.length) emptyGroups.push(where + problems.join(", "));
+      });
+
+      if (blocked.length) {
         findings.push({
+          ...base,
+          id: `${policy.id}#approvers`,
+          kind: "access-package-no-approver",
+          detail: `Nobody can approve requests: ${blocked.join("; ")}. Requests wait until they expire`,
+        });
+      } else if (emptyGroups.length) {
+        findings.push({
+          ...base,
+          id: `${policy.id}#approvers`,
+          kind: "access-package-empty-approver-group",
+          detail: `${emptyGroups.join("; ")}. Other approvers can still approve; remove or fill it`,
+        });
+      }
+      if (!blocked.length && !dynamic && !unknown && everyone.size === 1) {
+        const [only] = everyone.values();
+        findings.push({
+          ...base,
           kind: "access-package-single-approver",
-          id: policy.id,
-          name: policyLabel,
-          resourceGroup: null,
-          subscriptionId: null,
-          detail: "only one person can approve requests for this policy",
+          detail: `only one person can approve requests for this policy (${only}); if they are away, nothing gets approved`,
         });
       }
     }
+  }
+  return findings;
+}
+
+async function policyRiskFindings() {
+  const packages = await graph.graphGetAll(
+    "/identityGovernance/entitlementManagement/accessPackages?$expand=assignmentPolicies&$top=999",
+    TOOL_ID
+  );
+  const groupIds = new Set();
+  const userIds = new Set();
+  for (const p of packages) {
+    for (const policy of p.assignmentPolicies || []) {
+      const approval = policy.requestApprovalSettings || {};
+      if (!approval.isApprovalRequired) continue;
+      for (const stage of approval.approvalStages || []) {
+        for (const s of [...(stage.primaryApprovers || []), ...(stage.fallbackPrimaryApprovers || [])]) {
+          if (s["@odata.type"] === GROUP_APPROVER && s.groupId) groupIds.add(s.groupId);
+          if (s["@odata.type"] === USER_APPROVER && s.userId) userIds.add(s.userId);
+        }
+      }
+    }
+  }
+  const resolved = await resolveApprovers(groupIds, userIds);
+  const findings = policyFindings(packages, resolved);
+  if (resolved.failures.length) {
+    const first = resolved.failures[0];
+    findings.push(
+      scanError(
+        TOOL_ID,
+        "approvers",
+        `${resolved.failures.length} of ${groupIds.size + userIds.size} approvers not checked`,
+        graphHint(first.message, "GroupMember.Read.All and User.Read.All")
+      )
+    );
   }
   return findings;
 }
@@ -200,4 +326,5 @@ module.exports = {
   label: "Access packages",
   schedule: "0 5 * * *", // nightly at 05:00
   run,
+  _test: { policyFindings, approverList },
 };

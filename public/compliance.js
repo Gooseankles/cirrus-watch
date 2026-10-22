@@ -112,6 +112,8 @@ const KIND_CONTROLS = {
   "access-package-duplicate-name": PACKAGES,
   "access-package-pending-too-long": PACKAGES,
   "access-package-single-approver": PACKAGES,
+  "access-package-no-approver": PACKAGES,
+  "access-package-empty-approver-group": PACKAGES,
   "access-package-unused": PACKAGES,
   "orphaned-assignment": REVOKE,
   "probe-not-blocked": POLICY,

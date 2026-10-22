@@ -17,7 +17,7 @@ are needed.
 | Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree) |
 | Expiring app credentials | Daily | App registration secrets and certificates that expire soon |
 | Key Vault | Daily | Vault settings (soft delete, purge protection, open networks, access policies); secrets, keys and certificates that expired, expire soon or have no expiry date; who can read secrets (broad roles, many readers, guests, deleted identities); vaults with no audit log, no owner tag, nothing in them or no use |
-| Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date or have a single approver |
+| Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date, have a single approver, or have approver groups with no (enabled) members, so requests cannot be approved |
 | Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
 | Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
@@ -98,11 +98,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.19.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.19.1.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.19.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.19.1.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },

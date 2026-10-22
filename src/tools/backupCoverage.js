@@ -5,11 +5,11 @@
 // backup (its lastBackupTime can be months old), so items it shows as stale,
 // failing or stopped are read again from the vault before they count.
 const { resourceGraphQuery, armGet } = require("../armClient");
-const { numberSetting, runChecks, nameOf, mapLimit, itemErrors } = require("./util");
+const { numberSetting, runChecks, nameOf, mapLimit, itemErrors, scanError } = require("./util");
 
 const TOOL_ID = "backup-coverage";
 const ITEM_API = "2023-04-01";
-const MAX_LIVE_READS = 300;
+const MAX_LIVE_READS = 1000;
 const MAX_POINT_PAGES = 5;
 
 async function protectedItems() {
@@ -58,9 +58,14 @@ async function newestRecoveryPoint(itemId) {
 }
 
 // Replaces the Resource Graph values of suspicious items with the vault's own.
+// Items that look overdue go first: old stopped items (often many) must not use
+// up the reads. Items left unchecked are marked so their rows say so.
 async function refreshFromVault(items, maxAgeHours) {
   for (const it of items) it.lastTime = lastOf({ lastBackupTime: it.lastTime, lastRecoveryPoint: it.lastPoint });
-  const check = items.filter((it) => suspicious(it, maxAgeHours)).slice(0, MAX_LIVE_READS);
+  const rank = (it) => (/ProtectionStopped|BackupsSuspended/i.test(it.state) ? 2 : /Failed/i.test(it.lastStatus) ? 1 : 0);
+  const all = items.filter((it) => suspicious(it, maxAgeHours)).sort((a, b) => rank(a) - rank(b));
+  const check = all.slice(0, MAX_LIVE_READS);
+  for (const it of all.slice(MAX_LIVE_READS)) it.notChecked = true;
   const failures = await mapLimit(check, 6, async (it) => {
     const p = ((await armGet(`https://management.azure.com${it.id}?api-version=${ITEM_API}`, TOOL_ID)) || {}).properties || {};
     if (p.protectionState) it.state = p.protectionState;
@@ -73,7 +78,12 @@ async function refreshFromVault(items, maxAgeHours) {
     if (newer(point)) it.lastTime = point;
     it.pointsChecked = true;
   });
-  return itemErrors(TOOL_ID, "live-items", "backup items' live status (Resource Graph's possibly old values used)", failures, check.length);
+  for (const f of failures) f.item.notChecked = true;
+  const errors = itemErrors(TOOL_ID, "live-items", "backup items' live status (Resource Graph's possibly old values used)", failures, check.length);
+  if (all.length > check.length) {
+    errors.push(scanError(TOOL_ID, "live-items-limit", `${all.length - check.length} of ${all.length} backup items not checked against the vault`, `At most ${MAX_LIVE_READS} are read per run (overdue-looking ones first); the rest use Resource Graph's values, which can be months old`));
+  }
+  return errors;
 }
 
 async function itemFindings(items, vmIds) {
@@ -98,7 +108,11 @@ async function itemFindings(items, vmIds) {
       const gone = /vm/i.test(it.workload) && sameSub && !vmIds.has(it.source);
       const why = gone
         ? ". The VM no longer exists: stop protection on this item (keep or delete its data)"
-        : it.pointsChecked ? "; the vault holds no newer recovery point" : "";
+        : it.pointsChecked
+          ? "; the vault holds no newer recovery point"
+          : it.notChecked
+            ? "; not checked against the vault this run, so this date may be old"
+            : "";
       findings.push({ ...base, kind: "backup-stale", id: `${it.id}#stale`, detail: `No backup for ${Math.round(age)} hours (${where}); last ${it.lastTime.slice(0, 10)}${why}` });
     }
   }

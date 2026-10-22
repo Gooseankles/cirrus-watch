@@ -16,6 +16,7 @@ const settings = require("./settings");
 const log = require("./log");
 const tenants = require("./tenants");
 const tenantContext = require("./tenantContext");
+const monitor = require("./monitor");
 
 const TOOL_ID = "cost-anomaly"; // same identity as the cost tool (Cost Management Reader)
 const CONCURRENCY = 2; // Cost Management throttles per tenant
@@ -229,6 +230,7 @@ async function collectTenant(tenant, today) {
 // the other tenants' rows as they were.
 async function collectAll(only = null) {
   if (running) return running;
+  monitor.scanStarted("cost-history", only || []);
   running = (async () => {
     const today = new Date();
     const targets = tenants.scanTargets().filter((t) => !only || only.includes(t.key));
@@ -267,6 +269,7 @@ async function collectAll(only = null) {
     return await running;
   } finally {
     running = null;
+    monitor.scanEnded("cost-history");
   }
 }
 

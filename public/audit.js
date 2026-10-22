@@ -28,7 +28,7 @@ const Audit = (() => {
   const CHANGES = new Set(["run-scan", "refresh-cost", "accept-finding", "snooze-finding", "reopen-finding", "change-settings", "save-tenant", "delete-tenant"]);
   const SIGNIN = new Set(["sign-in", "sign-out", "sign-in-refused", "sign-in-failed"]);
   const label = (a) => LABELS[a] || a;
-  const PAGES = { overview: "Overview", lookup: "Access lookup", report: "Monthly report", cost: "Cost history", audit: "Audit log", settings: "Settings" };
+  const PAGES = { overview: "Overview", lookup: "Access lookup", report: "Monthly report", cost: "Cost history", audit: "Audit log", load: "Server load", settings: "Settings" };
   function target(e) {
     const t = e.target || "";
     if (e.action === "view-page") {

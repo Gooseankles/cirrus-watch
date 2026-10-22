@@ -255,6 +255,15 @@ app.get("/api/audit", auth.requireRole("Admin"), (req, res) => {
   });
 });
 
+// Server load (Admin): the dashboard's own CPU, memory and event-loop delay,
+// with the scans that ran at the time, and any load alarm.
+const monitor = require("./src/monitor");
+monitor.setLabels(Object.fromEntries(registeredTools.map((t) => [t.id, t.label])));
+monitor.start();
+app.get("/api/monitor", auth.requireRole("Admin"), (req, res) => {
+  res.json({ ...monitor.snapshot(), labels: Object.fromEntries(registeredTools.map((t) => [t.id, t.label]).concat([["cost-history", "Cost history"]])) });
+});
+
 app.get("/api/logs", (req, res) => {
   // Someone limited to some tenants sees only those tenants' entries.
   res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req) }));

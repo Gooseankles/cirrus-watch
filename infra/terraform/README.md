@@ -122,6 +122,18 @@ NAT gateway or firewall for internet access). The App Service plan must support 
 Terraform creates the containers through the storage data plane, so run it from a network that can reach the
 private endpoint, or apply once with `private_network = false` first so the containers exist.
 
+## Load alarms
+
+```hcl
+alert_emails = ["ops@contoso.com"]
+```
+
+Azure Monitor emails these addresses when the App Service plan's average CPU (`alert_cpu_pct`, default 85) or
+memory (`alert_memory_pct`, default 85) stays above the limit for 15 minutes, or when the app answers with more than
+`alert_5xx_count` (10) server errors in 15 minutes. These come from Azure, so they also arrive when the dashboard
+itself is down. Three alert rules and an action group, about 0.30 USD a month; nothing is created while the list is
+empty. Which scans caused the load is on the dashboard's Server load page (Admin).
+
 ## Who can run it
 
 (All in one table in [docs/permissions.md](../../docs/permissions.md#whoever-runs-terraform).)
@@ -210,7 +222,7 @@ provider "azurerm" {
 }
 
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.20.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.21.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -229,7 +241,7 @@ output "url" {
 `?ref=` picks the module version. Every version has a git tag `v<version>` (see the repo's tags), so pin one and
 raise it when you choose to upgrade; `?ref=main` follows every push. The tag pins the infrastructure only: the app
 image is the `image` input (default `trozity/azure-ops-dashboard:latest`), so set it to `:stable` or a version such
-as `:0.20.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
+as `:0.21.0.0` to pin the app too. Inputs are in `modules/dashboard/variables.tf`, outputs
 (`url`, `web_app_id`, `web_app_principal_id`, `shared_spn_role_assignments`, `resource_group_name`, the SSO values,
 `history_storage_url`, `secret_vault_uri`, `role_groups`, `customer_onboarding`, `customer_containers` and
 `private_network`) in `modules/dashboard/outputs.tf`.

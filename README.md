@@ -99,11 +99,11 @@ repo's tags for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.20.0.0"
+  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.21.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.20.0.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:0.21.0.0" # the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -160,6 +160,17 @@ the monthly report, cost history, a past run, a subscription's cost), whom they 
 what they changed: Run now, accepted, snoozed and reopened findings, settings (which ones, never the values),
 customer tenants and Test buttons. A refused request (403) is kept too. Opening the same page again within ten
 minutes counts once. Kept `AUDIT_RETENTION_DAYS` (default 365); only Admin can read it.
+
+### Server load
+
+Admin → **Server load** watches the dashboard's own App Service: CPU and memory of the instance, the dashboard's
+own memory and heap, and how quickly it answers (event-loop delay), sampled every 15 seconds and kept 48 hours as
+the worst value of each minute. Each point and each scan run records which scans were running, so the page shows
+which scan pushed the load up, with a timeline, the peak of every run and a list of restarts (marked when the
+previous one did not stop cleanly, for example out of memory). An alarm goes to Recent activity, with the
+scans running at the time, when CPU stays above `MONITOR_CPU_WARN_PCT` (90) for 5 minutes, memory or heap passes
+`MONITOR_MEMORY_WARN_PCT` (85), or answers take longer than `MONITOR_LAG_WARN_MS` (2000); another line follows when
+it is back to normal. For email, set `alert_emails` in Terraform (see `infra/terraform/README.md`, Load alarms).
 
 ## Customer tenants
 

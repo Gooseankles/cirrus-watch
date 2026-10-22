@@ -123,6 +123,30 @@ variable "history_retention_days" {
   default     = 730
 }
 
+variable "alert_emails" {
+  description = "Email addresses for alarms on the dashboard's own App Service (CPU, memory, server errors), sent by Azure Monitor. Empty = no alerts are created. Each alert rule costs about 0.10 USD a month."
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_cpu_pct" {
+  description = "Alarm when the plan's average CPU stays above this percentage for 15 minutes."
+  type        = number
+  default     = 85
+}
+
+variable "alert_memory_pct" {
+  description = "Alarm when the plan's average memory stays above this percentage for 15 minutes."
+  type        = number
+  default     = 85
+}
+
+variable "alert_5xx_count" {
+  description = "Alarm when the app answers with more server errors (5xx) than this in 15 minutes."
+  type        = number
+  default     = 10
+}
+
 variable "create_secret_vault" {
   description = "Create a key vault for the client secrets entered in Settings (SPN overrides, customer tenants); the web app reads and writes it with its managed identity. false = those secrets stay in files on the app's own disk."
   type        = bool

@@ -287,6 +287,7 @@ const PROBE_SHORT = {
 const LOG_TOOLS = {
   "access-lookup": "Access lookup",
   "cost-history": "Cost history",
+  "server-load": "Server load",
 };
 
 /* ---------- state and API ---------- */
@@ -575,6 +576,9 @@ function render() {
   } else if (r.page === "audit" && state.me && state.me.isAdmin) {
     pageId = "page-audit";
     show = () => Audit.show();
+  } else if (r.page === "load" && state.me && state.me.isAdmin) {
+    pageId = "page-load";
+    show = () => ServerLoad.show();
   } else if (r.page === "settings" && state.me && state.me.isAdmin) {
     pageId = "page-settings";
     show = () => Settings.show();
@@ -610,7 +614,7 @@ function buildNav() {
       ],
     })),
   ];
-  if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "settings", label: "Settings", icon: "settings" }] });
+  if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "load", label: "Server load", icon: "cpu" },{ route: "settings", label: "Settings", icon: "settings" }] });
   $("#nav").innerHTML = groups
     .map(
       (g) =>

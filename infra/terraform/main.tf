@@ -21,6 +21,11 @@ module "dashboard" {
   storage_account_name    = var.storage_account_name
   history_retention_days  = var.history_retention_days
 
+  alert_emails     = var.alert_emails
+  alert_cpu_pct    = var.alert_cpu_pct
+  alert_memory_pct = var.alert_memory_pct
+  alert_5xx_count  = var.alert_5xx_count
+
   create_secret_vault           = var.create_secret_vault
   secret_vault_name             = var.secret_vault_name
   secret_vault_purge_protection = var.secret_vault_purge_protection

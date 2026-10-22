@@ -6,6 +6,7 @@ const tenantContext = require("./tenantContext");
 const access = require("./access");
 const suppressions = require("./suppressions");
 const { subscriptionNames } = require("./armClient");
+const monitor = require("./monitor");
 
 // Findings carry subscription IDs; add the names so people can read them.
 // A failed lookup only costs the names, never the scan. Runs inside the
@@ -85,10 +86,13 @@ function registerScanTool(app, tool) {
     }
     if (!targets.length) return;
     targets.forEach((t) => busy.add(t.key));
+    monitor.scanStarted(tool.id, targets.map((t) => t.key));
+    let ok = false;
     try {
-      await scan(targets);
+      ok = await scan(targets);
     } finally {
       targets.forEach((t) => busy.delete(t.key));
+      monitor.scanEnded(tool.id, { ok });
     }
   }
 
@@ -124,7 +128,7 @@ function registerScanTool(app, tool) {
         await findingsStore.writeTenantError(tool.id, k, at, message).catch((err) => log.record({ tool: tool.id, level: "error", message: `could not save the error: ${err.message}` }));
       }
       if (targets.length > 1) log.record({ tool: tool.id, level: "error", final: true, message: "scan failed in every tenant" });
-      return;
+      return false;
     }
     try {
       const saved = await findingsStore.write(tool.id, findings, { tenants: done, errors });
@@ -139,7 +143,9 @@ function registerScanTool(app, tool) {
       });
     } catch (err) {
       log.record({ tool: tool.id, level: "error", message: err.message });
+      return false;
     }
+    return true;
   }
 
   // Global Admin runs every tenant; Admin-<key> only theirs (?tenant= narrows).

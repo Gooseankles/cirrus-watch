@@ -90,6 +90,14 @@ user_principal_ids  = []
 # storage_account_name   = "" # blank = st<name> plus a random suffix
 # history_retention_days = 730
 
+# Email alarms on the dashboard's own App Service (Azure Monitor): average CPU
+# or memory of the plan above the limit for 15 minutes, or server errors.
+# Empty = none. About 0.10 USD a month per alert rule (three rules).
+# alert_emails     = ["ops@contoso.com"]
+# alert_cpu_pct    = 85
+# alert_memory_pct = 85
+# alert_5xx_count  = 10
+
 # Key vault for the client secrets entered in Settings (SPN overrides,
 # customer tenants); false = in files on the app's own disk.
 # create_secret_vault           = true

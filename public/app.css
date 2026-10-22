@@ -600,3 +600,23 @@ dialog.dialog h2 { margin-bottom: 10px; }
 .act-action.change { color: var(--warning); }
 .act-action.signin { color: var(--accent-text); }
 .act-action.denied { color: var(--critical-text); }
+
+/* --- Server load --- */
+.sl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 0 14px; }
+.sl-chart { height: 200px; }
+.sl-alarm { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid rgba(208, 59, 59, 0.5); background: rgba(208, 59, 59, 0.1); color: var(--critical-text); }
+.sl-alarm > div { display: flex; flex-direction: column; gap: 4px; }
+.sl-alarm .muted { color: var(--text-2); }
+.sl-lanes { display: flex; flex-direction: column; gap: 6px; }
+.sl-lane { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: center; font-size: 0.8rem; }
+.sl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.sl-track { position: relative; height: 14px; border-radius: 3px; background: var(--surface-3); }
+.sl-bar { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 3px; background: var(--s1); }
+.sl-bar.hot { background: var(--warning); }
+.sl-bar.failed { background: var(--critical); }
+.sl-bar.live { background: repeating-linear-gradient(45deg, var(--s1), var(--s1) 4px, transparent 4px, transparent 8px); border: 1px solid var(--s1); }
+.sl-axis .sl-track { background: none; height: 16px; }
+.sl-axis .sl-track span { position: absolute; transform: translateX(-50%); color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+.sl-axis .sl-track span:first-child { transform: none; }
+.sl-axis .sl-track span:last-child { transform: translateX(-100%); }
+@media (max-width: 700px) { .sl-lane { grid-template-columns: 110px 1fr; } }

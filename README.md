@@ -78,8 +78,8 @@ docker run -p 7070:7070 -e DASHBOARD_ADMIN_PASSWORD=<choose one> -e SESSION_SECR
 ```
 
 Open http://localhost:7070 and sign in as `admin`. Image tags: `latest` (every push to `main`), `stable` (promoted
-by hand with the "Promote to stable" workflow once a build has proven itself), each version (e.g. `0.7.0.0`) and
-`sha-<commit>`.
+by hand with the "Promote to stable" workflow once a build has proven itself), and each version (e.g.
+`0.7.0.0`).
 
 ### From source
 

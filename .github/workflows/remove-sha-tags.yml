@@ -1,0 +1,49 @@
+name: Remove sha tags
+
+# Run by hand: deletes the old sha-<commit> tags from Docker Hub (builds no
+# longer make them). Only the tags go; an image that also has a version,
+# latest or stable tag stays under those. The Docker Hub token needs the
+# Delete scope.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list the tags, delete nothing"
+        type: boolean
+        default: false
+
+env:
+  DOCKERHUB_USERNAME: trozity
+  IMAGE: trozity/azure-ops-dashboard
+
+permissions:
+  contents: read
+
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete sha-* tags
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          jwt=$(jq -n --arg u "$DOCKERHUB_USERNAME" --arg p "$DOCKERHUB_TOKEN" '{username: $u, password: $p}' \
+            | curl -fsS -H "Content-Type: application/json" -d @- https://hub.docker.com/v2/users/login | jq -r .token)
+          url="https://hub.docker.com/v2/repositories/$IMAGE/tags?page_size=100"
+          tags=()
+          while [ -n "$url" ] && [ "$url" != "null" ]; do
+            page=$(curl -fsS -H "Authorization: Bearer $jwt" "$url")
+            mapfile -t found < <(echo "$page" | jq -r '.results[].name | select(test("^sha-[0-9a-f]+$"))')
+            tags+=("${found[@]}")
+            url=$(echo "$page" | jq -r .next)
+          done
+          echo "${#tags[@]} sha tags"
+          deleted=0
+          for t in "${tags[@]}"; do
+            [ -z "$t" ] && continue
+            if [ "$DRY_RUN" = "true" ]; then echo "would delete $t"; continue; fi
+            curl -fsS -X DELETE -H "Authorization: Bearer $jwt" "https://hub.docker.com/v2/repositories/$IMAGE/tags/$t/" && deleted=$((deleted + 1)) && echo "deleted $t"
+          done
+          echo "### Removed $deleted sha tags${DRY_RUN:+ (dry run: $DRY_RUN)}" >> "$GITHUB_STEP_SUMMARY"

@@ -303,7 +303,7 @@ firewall to reach Docker Hub, ARM and Graph.
 flowchart LR
   dev["Commit to main<br/>(VERSION bumped)"] --> gh["GitHub<br/>Gooseankles/azure-ops-dashboard"]
   gh --> ci["Actions: Docker image<br/>build + push"]
-  ci --> hub[("Docker Hub<br/>latest, &lt;version&gt;, sha-&lt;commit&gt;")]
+  ci --> hub[("Docker Hub<br/>latest, &lt;version&gt;, stable")]
   ci --> tag["Git tag v&lt;version&gt;<br/>(Terraform module ref)"]
   promote["Actions: Promote to stable<br/>(by hand)"] --> hub
   tfrun["terraform apply<br/>image = ...:&lt;version&gt;"] --> web["App Service"]

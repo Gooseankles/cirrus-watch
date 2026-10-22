@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Tag to promote (latest, a version like 0.7.0.0, or sha-<commit>)"
+        description: "Tag to promote (latest or a version like 0.7.0.0)"
         required: true
         default: latest
 

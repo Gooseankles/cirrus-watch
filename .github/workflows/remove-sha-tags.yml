@@ -41,9 +41,13 @@ jobs:
           done
           echo "${#tags[@]} sha tags"
           deleted=0
+          failed=0
           for t in "${tags[@]}"; do
             [ -z "$t" ] && continue
             if [ "$DRY_RUN" = "true" ]; then echo "would delete $t"; continue; fi
-            curl -fsS -X DELETE -H "Authorization: Bearer $jwt" "https://hub.docker.com/v2/repositories/$IMAGE/tags/$t/" && deleted=$((deleted + 1)) && echo "deleted $t"
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: Bearer $jwt" "https://hub.docker.com/v2/repositories/$IMAGE/tags/$t/")
+            if [ "$code" = "204" ] || [ "$code" = "200" ]; then deleted=$((deleted + 1)); echo "deleted $t"; else failed=$((failed + 1)); echo "::warning::$t not deleted (HTTP $code)"; fi
+            [ "$code" = "403" ] && { echo "::error::Docker Hub said 403: DOCKERHUB_TOKEN needs the Read, Write, Delete scope"; break; }
           done
-          echo "### Removed $deleted sha tags${DRY_RUN:+ (dry run: $DRY_RUN)}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Removed $deleted of ${#tags[@]} sha tags" >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]

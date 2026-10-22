@@ -30,9 +30,20 @@ const PRIVILEGED_TEMPLATES = new Set([
   "3a2c62db-5318-420d-8d74-23affee5d9d5", // Intune Administrator
 ]);
 
+// isPrivileged (Microsoft's own list of privileged roles) is only on the beta
+// endpoint; v1.0 refuses the whole request if it is selected. Beta can change
+// or fail, so fall back to v1.0 and the PRIVILEGED_TEMPLATES list.
+async function roleDefinitions() {
+  try {
+    return await graphGetAll("https://graph.microsoft.com/beta/roleManagement/directory/roleDefinitions?$select=id,displayName,templateId,isPrivileged,isBuiltIn", TOOL_ID);
+  } catch {
+    return graphGetAll("/roleManagement/directory/roleDefinitions?$select=id,displayName,templateId,isBuiltIn", TOOL_ID);
+  }
+}
+
 async function loadRoles() {
   const [defs, assignments] = await Promise.all([
-    graphGetAll("/roleManagement/directory/roleDefinitions?$select=id,displayName,templateId,isPrivileged,isBuiltIn", TOOL_ID),
+    roleDefinitions(),
     graphGetAll("/roleManagement/directory/roleAssignments?$expand=principal", TOOL_ID),
   ]);
   const roleById = new Map();

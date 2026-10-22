@@ -21,12 +21,17 @@ function unusedAgeDays() {
   return Number(settings.get("ACCESS_PACKAGE_UNUSED_AGE_DAYS")) || 30;
 }
 
+// Graph v1.0 has no accessPackageId/targetId/requestorId on assignments and
+// requests: names and ids come only from the expanded objects.
+const subjectName = (s) => (s && (s.displayName || s.email || s.principalName || s.objectId || s.id)) || "unknown";
+const packageName = (p) => (p && (p.displayName || p.id)) || "unknown package";
+
 async function expiringAssignments() {
   // $expand pulls in the package + target names so findings are readable
   // without a second round-trip per assignment.
   const assignments = await graphGetAll(
     "/identityGovernance/entitlementManagement/assignments" +
-      "?$filter=state eq 'Delivered'&$expand=accessPackage,target&$top=999",
+      "?$filter=state eq 'delivered'&$expand=accessPackage,target&$top=999",
     TOOL_ID
   );
 
@@ -40,7 +45,7 @@ async function expiringAssignments() {
     findings.push({
       kind: "access-package-expiring",
       id: a.id,
-      name: `${(a.target && a.target.displayName) || a.targetId} -> ${(a.accessPackage && a.accessPackage.displayName) || a.accessPackageId}`,
+      name: `${subjectName(a.target)} -> ${packageName(a.accessPackage)}`,
       resourceGroup: null,
       subscriptionId: null,
       detail: `expires ${expiresOn}`,
@@ -51,8 +56,8 @@ async function expiringAssignments() {
 
 async function stalePendingRequests() {
   const requests = await graphGetAll(
-    "/identityGovernance/entitlementManagement/accessPackageAssignmentRequests" +
-      "?$filter=state eq 'PendingApproval'&$expand=accessPackage,requestor&$top=999",
+    "/identityGovernance/entitlementManagement/assignmentRequests" +
+      "?$filter=state eq 'pendingApproval'&$expand=accessPackage,requestor&$top=999",
     TOOL_ID
   );
 
@@ -65,7 +70,7 @@ async function stalePendingRequests() {
     findings.push({
       kind: "access-package-pending-too-long",
       id: r.id,
-      name: `${(r.requestor && r.requestor.displayName) || r.requestorId} -> ${(r.accessPackage && r.accessPackage.displayName) || r.accessPackageId}`,
+      name: `${subjectName(r.requestor)} -> ${packageName(r.accessPackage)}`,
       resourceGroup: null,
       subscriptionId: null,
       detail: `pending approval since ${r.createdDateTime}`,
@@ -89,14 +94,15 @@ async function unusedAndDuplicatePackages() {
     ),
     graphGetAll(
       "/identityGovernance/entitlementManagement/assignments" +
-        "?$filter=state eq 'Delivered'&$select=accessPackageId&$top=999",
+        "?$filter=state eq 'delivered'&$select=id&$expand=accessPackage($select=id)&$top=999",
       TOOL_ID
     ),
   ]);
 
   const assignmentCountByPackage = {};
   for (const a of assignments) {
-    assignmentCountByPackage[a.accessPackageId] = (assignmentCountByPackage[a.accessPackageId] || 0) + 1;
+    const id = a.accessPackage && a.accessPackage.id;
+    if (id) assignmentCountByPackage[id] = (assignmentCountByPackage[id] || 0) + 1;
   }
 
   const findings = [];

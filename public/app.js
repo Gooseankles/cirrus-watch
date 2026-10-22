@@ -357,7 +357,7 @@ function toolState(id) {
     state.tools[id] = {
       id, loaded: false, loading: null, data: { ranAt: null, findings: [] }, history: [], snapshots: {}, selectedRun: null,
       accepted: [],
-      filters: { q: "", kind: "", sub: "", newOnly: false, role: "", ptype: "", view: "probes", accepted: false, framework: "" },
+      filters: { q: "", kind: "", source: "", sub: "", newOnly: false, role: "", ptype: "", view: "probes", accepted: false, framework: "" },
       shown: 150, open: new Set(), running: false, runError: null, runStarted: null, runFinished: null, error: null,
     };
   }
@@ -469,6 +469,16 @@ function kindChips(counts, active) {
   if (entries.length < 2 && !active) return "";
   return entries.map(([k, n]) => `<button class="chip${active === k ? " active" : ""}" data-kind="${esc(k)}">${esc(kindLabel(k))} <span class="n">${fmt.int(n)}</span></button>`).join("");
 }
+// Where an account comes from (stale accounts): a second chip group that
+// combines with the kind chips.
+const SOURCES = { "ad-synced": "Synced from AD", cloud: "Entra ID only" };
+function sourceChips(findings, t) {
+  const counts = {};
+  for (const f of findings) if (f.source && (!t.filters.kind || f.kind === t.filters.kind)) counts[f.source] = (counts[f.source] || 0) + 1;
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (entries.length < 2 && !t.filters.source) return "";
+  return `<span class="chip-sep"></span>` + entries.map(([k, n]) => `<button class="chip${t.filters.source === k ? " active" : ""}" data-source="${esc(k)}">${esc(SOURCES[k] || k)} <span class="n">${fmt.int(n)}</span></button>`).join("");
+}
 function fillSubSelect(all, t) {
   const sel = $("#scan-sub");
   if (!sel) return;
@@ -494,6 +504,7 @@ function searchText(f) {
 function baseFilter(f, t) {
   const fl = t.filters;
   if (fl.kind && f.kind !== fl.kind) return false;
+  if (fl.source && f.source !== fl.source) return false;
   if (fl.sub && (f.subscriptionId || "") !== fl.sub) return false;
   if (fl.newOnly && !isNew(f, t.data.ranAt)) return false;
   if (fl.framework && !Compliance.of(f).some((c) => c.fw === fl.framework)) return false;
@@ -853,7 +864,7 @@ function wireScan() {
   page.addEventListener("click", (e) => {
     const t = cur();
     const id = page.dataset.tool;
-    const el = e.target.closest("[data-kind],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],[data-accept],[data-unaccept],#scan-run");
+    const el = e.target.closest("[data-kind],[data-source],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],[data-accept],[data-unaccept],#scan-run");
     if (!el) return;
     if (el.id === "scan-run") return runTool(id);
     if (el.dataset.accept) return openAccept(id, el.dataset.accept);
@@ -861,14 +872,18 @@ function wireScan() {
     if (el.tagName === "SELECT") return;
     if (el.dataset.kind !== undefined) {
       t.filters.kind = t.filters.kind === el.dataset.kind ? "" : el.dataset.kind;
+    } else if (el.dataset.source !== undefined) {
+      t.filters.source = t.filters.source === el.dataset.source ? "" : el.dataset.source;
     } else if (el.dataset.filter === "newOnly") {
       t.filters.newOnly = !t.filters.newOnly;
     } else if (el.dataset.filter === "accepted") {
       t.filters.accepted = !t.filters.accepted;
       t.filters.kind = "";
+      t.filters.source = "";
     } else if (el.dataset.view) {
       t.filters.view = el.dataset.view;
       t.filters.kind = "";
+      t.filters.source = "";
     } else if (el.dataset.ranat) {
       return selectRun(id, el.dataset.ranat);
     } else if (el.dataset.more) {
@@ -956,7 +971,7 @@ function renderFindings(id) {
   }
   const scoped = view.scope ? all.filter((f) => view.scope(f, t)) : all;
   const showKinds = view.showKinds ? view.showKinds(t) : true;
-  $("#scan-kinds").innerHTML = showKinds ? kindChips(countKinds(scoped), t.filters.kind) : "";
+  $("#scan-kinds").innerHTML = showKinds ? kindChips(countKinds(scoped), t.filters.kind) + sourceChips(scoped, t) : "";
   $("#scan-extra").innerHTML = view.extra ? view.extra(all, t) : "";
   // A view with pages of its own (IPAM's networks and free ranges) shows them
   // in place of the findings table.

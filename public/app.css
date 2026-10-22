@@ -189,6 +189,7 @@ main { min-width: 0; padding: 26px 32px 72px; }
 .chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .chip.active .n { color: var(--text-2); }
 .chip svg { width: 12px; height: 12px; stroke: currentColor; }
+.chip-sep { display: inline-block; width: 1px; height: 18px; margin: 0 4px; background: var(--border-strong); vertical-align: middle; }
 
 /* --- Cards --- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px; }

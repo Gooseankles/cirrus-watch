@@ -63,8 +63,8 @@ async function build(tools, month, keys, decorate) {
       startByKind: byKind(openStart),
       accepted: after.findings.length - openEnd.length,
       openList: openEnd.slice(0, LIST_MAX).map(slim),
-      added: { total: added.length, open: added.filter((f) => !f.accepted).length, list: added.slice(0, LIST_MAX).map(slim) },
-      resolved: { total: resolved.length, list: resolved.slice(0, LIST_MAX).map(slim) },
+      added: { total: added.length, open: added.filter((f) => !f.accepted).length, byKind: byKind(added), list: added.slice(0, LIST_MAX).map(slim) },
+      resolved: { total: resolved.length, byKind: byKind(resolved), list: resolved.slice(0, LIST_MAX).map(slim) },
     });
   }
   return { month, start, end, until, generatedAt: now, tools: out };

@@ -98,70 +98,88 @@ const Report = (() => {
     const runs = tools.reduce((n, t) => n + t.runs, 0);
     const names = (r.tenants || []).map((t) => t.name);
     const current = r.month === thisMonth();
+    const scoreCls = !hadStart ? "" : scoreEnd > scoreStart ? "good" : scoreEnd < scoreStart ? "bad" : "";
 
     body.innerHTML = `
-      <div class="report-title">
-        <div class="rt-who">${esc(names.length === 1 ? names[0] : names.length ? `${names.length} tenants: ${names.join(", ")}` : "No tenants")}</div>
-        <div class="rt-when">${esc(fmt.month(r.month))}${current ? ` · up to ${esc(fmt.date(r.until))}` : ""} · made ${esc(fmt.dateTime(r.generatedAt))}</div>
+      <div class="rp-head">
+        <div>
+          <div class="rp-kicker">Monthly report · ${esc(fmt.month(r.month))}${current ? ` (up to ${esc(fmt.date(r.until))})` : ""}</div>
+          <div class="rp-who">${esc(names.length === 1 ? names[0] : names.length ? `${names.length} tenants` : "No tenants")}</div>
+          ${names.length > 1 ? `<div class="rp-tenants">${esc(names.join(" · "))}</div>` : ""}
+        </div>
+        <div class="rp-score ${scoreCls}"><span class="n">${scoreEnd}</span><span class="of">/ 100</span><span class="d">${hadStart ? `${fmt.signed(scoreEnd - scoreStart)} this month` : "score"}</span></div>
       </div>
-      ${!runs && !tools.some((t) => t.ranAt) ? `<div class="status-msg">No scan results for this month yet.</div>` : ""}
-      <div class="stat-row">
-        ${statTile({ label: "Score", value: `${scoreEnd} / 100`, delta: hadStart ? `${fmt.signed(scoreEnd - scoreStart)} since the month began` : "no results from before the month", deltaCls: !hadStart ? "" : scoreEnd > scoreStart ? "good" : scoreEnd < scoreStart ? "bad" : "" })}
+      ${!runs && !tools.some((t) => t.ranAt) ? `<div class="status-msg">No scan results for this month yet.</div>` : `<p class="rp-summary">${summary({ open, sev, found, fixed, openStart, hadStart, accepted })}</p>`}
+      <div class="stat-row rp-stats">
         ${statTile({ label: "Open findings", value: fmt.int(open), delta: `${fmt.int(sev.crit)} critical · ${fmt.int(sev.warn)} warning`, deltaCls: sev.crit ? "bad" : "" })}
+        ${statTile({ label: "Fixed this month", value: fmt.int(fixed), deltaCls: fixed ? "good" : "", delta: hadStart ? `of ${fmt.int(openStart)} open at the start` : "" })}
         ${statTile({ label: "Found this month", value: fmt.int(found), deltaCls: found ? "bad" : "", delta: found ? "new and still open" : "nothing new" })}
-        ${statTile({ label: "Fixed this month", value: fmt.int(fixed), deltaCls: fixed ? "good" : "", delta: hadStart ? `open at the start: ${fmt.int(openStart)}` : "" })}
-        ${statTile({ label: "Accepted", value: fmt.int(accepted), delta: "known and agreed, not counted" })}
+        ${statTile({ label: "Accepted", value: fmt.int(accepted), delta: "known and agreed" })}
       </div>
-      <div class="note">Score = 100 × 100 / (100 + 5 × critical + 2 × warning + 0.5 × other open findings): 100 means nothing open. ${fmt.int(runs)} scan run${runs === 1 ? "" : "s"} this month.</div>
-      ${toolsCard(tools)}
       ${criticalCard(tools)}
+      ${toolsCard(tools)}
+      ${changeCard("Fixed this month", "good", tools, (t) => t.resolved)}
+      ${changeCard("Found this month", "bad", tools, (t) => t.added)}
       ${complianceCard(tools)}
-      ${changeCard("Fixed this month", "delta-down", tools, (t) => t.resolved)}
-      ${changeCard("Found this month", "delta-up", tools, (t) => ({ total: t.added.total, list: t.added.list }))}`;
+      <div class="note rp-foot">Score = 100 × 100 / (100 + 5 × critical + 2 × warning + 0.5 × other open findings); 100 means nothing open. Accepted findings are not counted. ${fmt.int(runs)} scan run${runs === 1 ? "" : "s"} this month. Made ${esc(fmt.dateTime(r.generatedAt))}.</div>`;
     for (const el of $$("#rp-body [data-spark]")) {
       const t = tools.find((x) => x.id === el.dataset.spark);
       Charts.sparkline(el, t ? t.trend.map((p) => p.count) : []);
     }
   }
 
+  // One or two plain sentences a customer can read without the tables.
+  function summary({ open, sev, found, fixed, openStart, hadStart, accepted }) {
+    const n = (x, word) => `${fmt.int(x)} ${word}${x === 1 ? "" : "s"}`;
+    const first = open
+      ? `${n(open, "finding")} ${open === 1 ? "is" : "are"} open${sev.crit ? `, <b class="bad">${fmt.int(sev.crit)} of them critical</b>` : ", none critical"}.`
+      : `<b class="good">Nothing is open.</b>`;
+    const parts = [];
+    if (fixed) parts.push(`<b class="good">${fmt.int(fixed)} fixed</b>${hadStart ? ` of the ${fmt.int(openStart)} open when the month began` : ""}`);
+    if (found) parts.push(`${fmt.int(found)} new found`);
+    const second = parts.length ? ` This month: ${parts.join(", ")}.` : " Nothing was fixed or found this month.";
+    return first + second + (accepted ? ` ${n(accepted, "finding")} ${accepted === 1 ? "is" : "are"} accepted as known.` : "");
+  }
+
+  // Scans with something open or something that changed get a row; the rest are named in one line.
   function toolsCard(tools) {
-    const rows = tools.map((t) => {
+    const active = tools.filter((t) => t.open || t.added.total || t.resolved.total).sort((a, b) => sevCounts(b.openByKind).crit - sevCounts(a.openByKind).crit || b.open - a.open);
+    const clean = tools.filter((t) => t.ranAt && !active.includes(t));
+    const never = tools.filter((t) => !t.ranAt && !active.includes(t));
+    const rows = active.map((t) => {
       const s = sevCounts(t.openByKind);
       const change = t.open - t.openStart;
+      const sevs = [s.crit ? `<span class="bad">${fmt.int(s.crit)} critical</span>` : "", s.warn ? `${fmt.int(s.warn)} warning` : ""].filter(Boolean).join(" · ");
       return [
         `<a href="#/scan/${esc(t.id)}">${esc(TOOL_BY_ID[t.id].label)}</a>`,
-        fmt.int(t.open),
-        s.crit ? `<span class="bad">${fmt.int(s.crit)}</span>` : `<span class="muted">0</span>`,
-        fmt.int(s.warn),
-        t.startRanAt ? `<span class="${change > 0 ? "delta-up" : change < 0 ? "delta-down" : "muted"}">${fmt.signed(change)}</span>` : `<span class="muted">–</span>`,
-        fmt.int(t.added.open),
-        fmt.int(t.resolved.total),
-        t.accepted ? fmt.int(t.accepted) : `<span class="muted">0</span>`,
+        `<b>${fmt.int(t.open)}</b>${sevs ? `<div class="secondary">${sevs}</div>` : ""}`,
+        t.startRanAt ? `<span class="${change > 0 ? "delta-up" : change < 0 ? "delta-down" : "muted"}">${change ? fmt.signed(change) : "±0"}</span>` : `<span class="muted">–</span>`,
+        t.resolved.total ? `<span class="good">${fmt.int(t.resolved.total)}</span>` : `<span class="muted">0</span>`,
+        t.added.open ? fmt.int(t.added.open) : `<span class="muted">0</span>`,
         `<div class="rp-spark" data-spark="${esc(t.id)}"></div>`,
-        t.ranAt ? `<span class="muted">${esc(fmt.date(t.ranAt))}</span>` : `<span class="muted">never</span>`,
       ];
     });
     const n = { cls: "num" };
-    return `<div class="card"><div class="card-head"><h2>${icon("list")} By scan</h2><span class="meta">open at the end of the month, change since its start</span></div>
-      ${tableHtml([{ label: "Scan" }, { label: "Open", ...n }, { label: "Critical", ...n }, { label: "Warning", ...n }, { label: "Change", ...n }, { label: "Found", ...n }, { label: "Fixed", ...n }, { label: "Accepted", ...n }, { label: "Runs this month" }, { label: "Last run" }], rows)}</div>`;
-  }
-
-  function findingRow(f, toolId) {
-    return [
-      kindBadge(f.kind),
-      `<div class="name-cell"><div class="primary">${esc(f.name || "")}</div><div class="secondary">${esc(TOOL_BY_ID[toolId] ? TOOL_BY_ID[toolId].label : toolId)}</div></div>`,
-      subCell(f),
-      `<span class="detail-cell">${esc(f.detail || "")}</span>${controlTags(f)}`,
-    ];
+    const label = (list) => list.map((t) => esc(TOOL_BY_ID[t.id].label)).join(", ");
+    return `<div class="card"><div class="card-head"><h2>${icon("list")} By scan</h2><span class="meta">open at the end of the month</span></div>
+      ${rows.length ? tableHtml([{ label: "Scan" }, { label: "Open" }, { label: "Change", ...n }, { label: "Fixed", ...n }, { label: "Found", ...n }, { label: "This month" }], rows) : ""}
+      ${clean.length ? `<div class="rp-line"><span class="good">${icon("check")} Nothing open</span> ${label(clean)}</div>` : ""}
+      ${never.length ? `<div class="rp-line muted">Not run: ${label(never)}</div>` : ""}</div>`;
   }
 
   function criticalCard(tools) {
     const list = [];
     for (const t of tools) for (const f of t.openList) if (kindSev(f.kind) === "crit") list.push([f, t.id]);
+    if (!list.length) return "";
     list.sort((a, b) => String(a[0].firstSeen || "").localeCompare(String(b[0].firstSeen || "")));
-    const rows = list.slice(0, LIST_ROWS).map(([f, id]) => [...findingRow(f, id), `<span class="muted nowrap">${esc(fmt.date(f.firstSeen))}</span>`]);
-    return `<div class="card"><div class="card-head"><h2>${icon("alert")} Open critical findings</h2><span class="meta">${fmt.int(list.length)}, oldest first</span></div>
-      ${rows.length ? tableHtml([{ label: "Kind" }, { label: "Name" }, { label: "Subscription" }, { label: "Detail" }, { label: "Open since", cls: "nowrap" }], rows) : `<div class="empty-state">No critical findings open.</div>`}
+    const rows = list.slice(0, LIST_ROWS).map(([f, id]) => [
+      `<div class="name-cell"><div class="primary">${esc(f.name || "")}</div><div class="secondary">${kindBadge(f.kind)} ${esc(TOOL_BY_ID[id] ? TOOL_BY_ID[id].label : id)}</div></div>`,
+      subCell(f),
+      `<span class="detail-cell">${esc(f.detail || "")}</span>${controlTags(f)}`,
+      `<span class="muted nowrap">${esc(fmt.date(f.firstSeen))}</span>`,
+    ]);
+    return `<div class="card rp-crit"><div class="card-head"><h2>${icon("alert")} Needs action: critical findings</h2><span class="meta">${fmt.int(list.length)}, oldest first</span></div>
+      ${tableHtml([{ label: "What" }, { label: "Subscription" }, { label: "Detail" }, { label: "Open since", cls: "nowrap" }], rows)}
       ${list.length > LIST_ROWS ? `<div class="note">Showing the oldest ${LIST_ROWS} of ${fmt.int(list.length)}.</div>` : ""}</div>`;
   }
 
@@ -182,26 +200,46 @@ const Report = (() => {
         for (const [kind, n] of Object.entries(t.openByKind)) for (const c of Compliance.of({ kind })) add(c, n, kindSev(kind) === "crit" ? n : 0);
       }
     }
-    const rows = [...ctl.values()]
-      .sort((a, b) => a.c.fw.localeCompare(b.c.fw) || b.crit - a.crit || b.n - a.n)
-      .map((e) => [`<span class="ctl ctl-${esc(e.c.fw)}">${esc(e.c.label)}</span>`, esc(e.c.title), fmt.int(e.n), e.crit ? `<span class="bad">${fmt.int(e.crit)}</span>` : `<span class="muted">0</span>`]);
-    return `<div class="card"><div class="card-head"><h2>${icon("policy")} Compliance</h2><span class="meta">${Object.values(FRAMEWORKS).map(esc).join(" · ")}</span></div>
-      ${rows.length ? tableHtml([{ label: "Control" }, { label: "What it asks for" }, { label: "Open findings", cls: "num" }, { label: "Critical", cls: "num" }], rows) : `<div class="empty-state">No open finding bears on a mapped control.</div>`}
-      <div class="note">Controls with open findings that bear on them. A pointer, not an audit: a control with no findings is not proven to be met.</div></div>`;
+    const entries = [...ctl.values()];
+    const groups = Object.keys(FRAMEWORKS)
+      .map((fw) => [fw, entries.filter((e) => e.c.fw === fw).sort((a, b) => b.crit - a.crit || b.n - a.n)])
+      .filter(([, list]) => list.length);
+    const rows = groups.flatMap(([fw, list]) => [
+      { attrs: 'class="kind-group-head"', cells: [esc(FRAMEWORKS[fw]), "", "", ""] },
+      ...list.map((e) => [`<span class="ctl ctl-${esc(e.c.fw)}">${esc(e.c.label)}</span>`, esc(e.c.title), fmt.int(e.n), e.crit ? `<span class="bad">${fmt.int(e.crit)}</span>` : `<span class="muted">0</span>`]),
+    ]);
+    const body = rows.length ? tableHtml([{ label: "Control" }, { label: "What it asks for" }, { label: "Open", cls: "num" }, { label: "Critical", cls: "num" }], rows) : "";
+    return `<div class="card"><div class="card-head"><h2>${icon("policy")} Compliance</h2><span class="meta">controls with open findings</span></div>
+      ${body || `<div class="empty-state">No open finding bears on a mapped control.</div>`}
+      <div class="note">A pointer, not an audit: a control with no findings is not proven to be met.</div></div>`;
   }
 
+  // Grouped by scan and kind, with a few names each, so a month with hundreds of changes still reads in a glance.
+  const EXAMPLES = 4;
   function changeCard(title, cls, tools, pick) {
-    const list = [];
     let total = 0;
+    const rows = [];
     for (const t of tools) {
       const c = pick(t);
+      if (!c.total) continue;
       total += c.total;
-      for (const f of c.list) list.push([f, t.id]);
+      // Reports saved before byKind existed are counted from their list.
+      const counts = c.byKind || c.list.reduce((o, f) => ((o[f.kind || "other"] = (o[f.kind || "other"] || 0) + 1), o), {});
+      const kinds = Object.entries(counts);
+      kinds.sort((a, b) => b[1] - a[1]);
+      kinds.forEach(([kind, n], i) => {
+        const names = c.list.filter((f) => (f.kind || "other") === kind).map((f) => f.name).filter(Boolean);
+        const shown = [...new Set(names)].slice(0, EXAMPLES);
+        rows.push([
+          i === 0 ? `<a href="#/scan/${esc(t.id)}">${esc(TOOL_BY_ID[t.id].label)}</a>` : "",
+          kindBadge(kind),
+          `<span class="${cls}">${fmt.int(n)}</span>`,
+          `<span class="rp-names">${shown.map(esc).join(", ")}${n > shown.length ? ` <span class="muted">and ${fmt.int(n - shown.length)} more</span>` : ""}</span>`,
+        ]);
+      });
     }
-    const rows = list.slice(0, LIST_ROWS).map(([f, id]) => findingRow(f, id));
-    return `<div class="card"><div class="card-head"><h2><span class="${cls}">${esc(title)}</span></h2><span class="meta">${fmt.int(total)}</span></div>
-      ${rows.length ? tableHtml([{ label: "Kind" }, { label: "Name" }, { label: "Subscription" }, { label: "Detail" }], rows) : `<div class="empty-state">None.</div>`}
-      ${total > rows.length ? `<div class="note">Showing ${fmt.int(rows.length)} of ${fmt.int(total)}.</div>` : ""}</div>`;
+    return `<div class="card rp-change"><div class="card-head"><h2><span class="${cls}">${esc(title)}</span></h2><span class="meta">${fmt.int(total)}</span></div>
+      ${rows.length ? tableHtml([{ label: "Scan" }, { label: "Kind" }, { label: "Count", cls: "num" }, { label: "For example" }], rows) : `<div class="empty-state">None.</div>`}</div>`;
   }
 
   function reset() {

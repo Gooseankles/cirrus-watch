@@ -387,6 +387,13 @@ tr.ip-hit td { background: var(--accent-soft); }
 .ip-form .select, .ip-form .input { max-width: 100%; }
 .ip-sum { margin: 4px 0 10px; }
 .ip-free { display: flex; flex-wrap: wrap; gap: 6px; }
+.ip-entries { display: flex; flex-wrap: wrap; gap: 5px; max-height: 260px; overflow-y: auto; }
+.tag.hit { border-color: rgba(57, 135, 229, 0.6); background: var(--accent-soft); color: var(--text); }
+.tag.good { border-color: rgba(12, 163, 12, 0.5); color: var(--good-text); }
+.ip-cmp { margin-top: 14px; display: grid; gap: 8px; }
+.ip-cmp textarea.input { width: 100%; min-height: 90px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; }
+.ip-cmp pre { margin: 0; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.78rem; max-height: 200px; overflow-y: auto; }
+.ip-cmp .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 .ar-nested { margin-top: 8px; font-size: 0.8rem; }
 .ar-nested > summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }

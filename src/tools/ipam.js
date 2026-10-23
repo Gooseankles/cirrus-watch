@@ -2,10 +2,12 @@
 // with how full they are, plus findings for what goes wrong with addresses:
 // overlapping ranges (peering or VPN impossible later), subnets running out of
 // addresses, public address space used inside a VNet, ranges outside the
-// organisation's plan and peerings that are broken or out of sync. Each run
-// also saves the address inventory (ipam/inventory.json in the tenant's
-// history storage) for the Networks and Free ranges views. IPv4 only.
-// Overlaps are found within one tenant. Reader is enough.
+// organisation's plan and peerings that are broken or out of sync. Also the
+// firewall IP groups: their entries, what uses them, when they last changed,
+// and findings for empty, unused, failed, nearly full or untidy groups. Each
+// run also saves the address inventory (ipam/inventory.json in the tenant's
+// history storage) for the Networks, IP groups and Free ranges views. IPv4
+// only. Overlaps are found within one tenant. Reader is enough.
 const settings = require("../settings");
 const store = require("../findingsStore");
 const tenants = require("../tenants");
@@ -20,6 +22,10 @@ const FULL_PCT = 95;
 const MAX_NAMED = 5; // overlapping networks named in one finding
 const INVENTORY_KEY = "ipam/inventory.json";
 const USAGES_API = "api-version=2024-05-01";
+const IPGROUP_LIMIT = 5000; // entries Azure allows in one IP group
+const IPGROUP_WARN_PCT = 80;
+const WIDE_SIZE = 2 ** 24; // an entry wider than a /8
+const MAX_CHANGE_LIST = 100; // added or removed entries kept per group
 
 // IPAM_POOLS: the ranges the organisation hands out, e.g. "10.0.0.0/8, 172.16.0.0/12".
 function pools() {
@@ -92,6 +98,128 @@ async function readNetworks() {
       prefixes: prefixList(o.prefixes),
     })),
   };
+}
+
+// Firewall IP groups with their entries and the firewalls and firewall
+// policies that use them.
+async function readIpGroups() {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type =~ 'microsoft.network/ipgroups'
+    | project id, name, subscriptionId, resourceGroup, location, ips = properties.ipAddresses,
+        firewalls = properties.firewalls, policies = properties.firewallPolicies, state = tostring(properties.provisioningState)`,
+    { toolId: TOOL_ID }
+  );
+  const refs = (list) => (Array.isArray(list) ? list : []).map((x) => (x && x.id) || null).filter(Boolean);
+  return rows.map((g) => ({
+    id: g.id,
+    name: g.name,
+    subscriptionId: g.subscriptionId,
+    resourceGroup: g.resourceGroup,
+    location: g.location,
+    state: g.state || null,
+    entries: prefixList(g.ips).map((s) => s.trim()),
+    firewalls: refs(g.firewalls),
+    policies: refs(g.policies),
+  }));
+}
+
+// When each group's entries last changed, by comparing with the inventory the
+// last run saved: changedAt and the entries added and removed then. A group
+// not seen before gets firstSeen.
+function trackIpGroupChanges(groups, previous, now) {
+  const before = new Map((previous || []).map((g) => [String(g.id).toLowerCase(), g]));
+  const norm = (list) => new Set(list.map((e) => e.toLowerCase().replace(/\s+/g, "")));
+  for (const g of groups) {
+    const p = before.get(String(g.id).toLowerCase());
+    if (!p) {
+      g.firstSeen = now;
+      continue;
+    }
+    g.firstSeen = p.firstSeen || null;
+    const was = norm(p.entries || []);
+    const is = norm(g.entries);
+    const added = g.entries.filter((e) => !was.has(e.toLowerCase().replace(/\s+/g, "")));
+    const removed = (p.entries || []).filter((e) => !is.has(e.toLowerCase().replace(/\s+/g, "")));
+    if (added.length || removed.length) {
+      g.changedAt = now;
+      g.added = added.slice(0, MAX_CHANGE_LIST);
+      g.removed = removed.slice(0, MAX_CHANGE_LIST);
+      g.addedCount = added.length;
+      g.removedCount = removed.length;
+    } else if (p.changedAt) {
+      for (const k of ["changedAt", "added", "removed", "addedCount", "removedCount"]) g[k] = p[k];
+    }
+  }
+  return groups;
+}
+
+// Entries another entry of the same group already covers (or repeats):
+// [{ entry, by }]. Sorted by start, widest first, so a covered entry always
+// comes after the one covering it.
+function coveredEntries(entries) {
+  const parsed = entries.map(ip.parseEntry).filter(Boolean).sort((a, b) => a.start - b.start || b.end - a.end);
+  const out = [];
+  let widest = null;
+  for (const e of parsed) {
+    if (widest && e.end <= widest.end) out.push({ entry: e.text, by: widest.text });
+    else widest = e;
+  }
+  return out;
+}
+
+const plural = (n, word) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+
+function ipGroupFindings(groups) {
+  const out = [];
+  const sameAs = new Map(); // merged address spans -> groups
+  for (const g of groups) {
+    const base = { id: g.id, name: g.name, ...where(g) };
+    const users = g.firewalls.length + g.policies.length;
+    if (g.state && g.state !== "Succeeded") {
+      out.push({ ...base, id: `${g.id}#state`, kind: "ipgroup-failed", detail: `Provisioning state is ${g.state}: the last change did not finish, so firewalls using it may still have the old entries. Save the group again` });
+    }
+    if (!g.entries.length) {
+      out.push({ ...base, id: `${g.id}#empty`, kind: "ipgroup-empty", detail: users ? `Has no entries but ${plural(users, "firewall or policy")} uses it: rules with it match nothing` : "Has no entries and nothing uses it. Delete it if it is not needed" });
+      continue;
+    }
+    if (!users) {
+      out.push({ ...base, id: `${g.id}#unused`, kind: "ipgroup-unused", detail: `${plural(g.entries.length, "entry")}, but no firewall or firewall policy uses it. Delete it, or keep it if a rule is coming` });
+    }
+    const pct = (g.entries.length / IPGROUP_LIMIT) * 100;
+    if (pct >= IPGROUP_WARN_PCT) {
+      out.push({ ...base, id: `${g.id}#limit`, kind: "ipgroup-near-limit", detail: `${plural(g.entries.length, "entry")} of the ${IPGROUP_LIMIT.toLocaleString("en-US")} Azure allows (${Math.round(pct)}%). Merge single addresses into ranges or split the group` });
+    }
+    const covered = coveredEntries(g.entries);
+    if (covered.length) {
+      const named = covered.slice(0, MAX_NAMED).map((c) => (c.entry.toLowerCase() === c.by.toLowerCase() ? `${c.entry} (twice)` : `${c.entry} (in ${c.by})`)).join(", ");
+      out.push({ ...base, id: `${g.id}#covered`, kind: "ipgroup-redundant", count: covered.length, detail: `${plural(covered.length, "entry")} already covered by another entry: ${named}${covered.length > MAX_NAMED ? ` and ${covered.length - MAX_NAMED} more` : ""}. Removing ${covered.length === 1 ? "it" : "them"} changes nothing` });
+    }
+    const wide = g.entries.map(ip.parseEntry).filter((e) => e && e.size > WIDE_SIZE);
+    if (wide.length) {
+      out.push({ ...base, id: `${g.id}#wide`, kind: "ipgroup-wide", detail: `${wide.map((e) => e.text).join(", ")} is wider than a /8 (${wide[0].size.toLocaleString("en-US")} addresses); a rule using this group lets in far more than one site. Check it is meant` });
+    }
+    const parsed = g.entries.map(ip.parseEntry).filter(Boolean);
+    if (parsed.length) {
+      const key = ip.merge(parsed).map((s) => s.join("-")).join(",");
+      if (!sameAs.has(key)) sameAs.set(key, []);
+      sameAs.get(key).push(g);
+    }
+  }
+  for (const same of sameAs.values()) {
+    if (same.length < 2) continue;
+    for (const g of same) {
+      const others = same.filter((o) => o !== g);
+      out.push({
+        id: `${g.id}#duplicate`,
+        name: g.name,
+        ...where(g),
+        kind: "ipgroup-duplicate",
+        detail: `Holds the same addresses as ${others.slice(0, MAX_NAMED).map((o) => `${o.name} (rg ${o.resourceGroup})`).join(", ")}${others.length > MAX_NAMED ? ` and ${others.length - MAX_NAMED} more` : ""}. Two copies drift apart when only one is updated; use one group`,
+      });
+    }
+  }
+  return out;
 }
 
 // Used and usable addresses per subnet (Azure keeps 5 in each), one call per VNet.
@@ -263,7 +391,13 @@ function peeringFindings(vnets) {
 async function run() {
   const warnPct = numberSetting("IPAM_SUBNET_WARN_PCT", 80, { min: 1, max: 100 });
   const plan = pools();
-  const { vnets, sites } = await readNetworks();
+  const [{ vnets, sites }, ipGroups, previous] = await Promise.all([
+    readNetworks(),
+    readIpGroups(),
+    store.getDoc(INVENTORY_KEY).catch(() => null), // only for when IP groups last changed
+  ]);
+  const now = new Date().toISOString();
+  trackIpGroupChanges(ipGroups, previous && previous.ipGroups, now);
   const usageErrors = await addUsage(vnets);
   vnets.forEach(summarize);
   const findings = await runChecks(TOOL_ID, {
@@ -271,15 +405,16 @@ async function run() {
     Overlaps: async () => overlapFindings(vnets, sites),
     "Address space": async () => spaceFindings(vnets, plan),
     Peerings: async () => peeringFindings(vnets),
+    "IP groups": async () => ipGroupFindings(ipGroups),
   });
-  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), vnets, sites });
+  await store.putDoc(INVENTORY_KEY, { updatedAt: now, vnets, sites, ipGroups });
   return [...findings, ...usageErrors];
 }
 
 // --- Inventory reads (the IPAM page) ---
 
 async function inventory(keys) {
-  const out = { updatedAt: null, vnets: [], sites: [], failures: [] };
+  const out = { updatedAt: null, vnets: [], sites: [], ipGroups: [], failures: [] };
   for (const k of keys) {
     let doc;
     try {
@@ -293,6 +428,7 @@ async function inventory(keys) {
     const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
     out.vnets.push(...(doc.vnets || []).map(tag));
     out.sites.push(...(doc.sites || []).map(tag));
+    out.ipGroups.push(...(doc.ipGroups || []).map(tag));
   }
   return out;
 }
@@ -331,7 +467,7 @@ function registerRoutes(app, { readKeys, decorate }) {
   app.get("/api/ipam", async (req, res) => {
     try {
       const inv = await inventory(readKeys(req));
-      await decorate(TOOL_ID, [...inv.vnets, ...inv.sites]);
+      await decorate(TOOL_ID, [...inv.vnets, ...inv.sites, ...inv.ipGroups]);
       res.json({ ...inv, pools: pools().map((p) => p.cidr) });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -354,5 +490,5 @@ module.exports = {
   schedule: "20 4 * * *", // daily at 04:20
   run,
   registerRoutes,
-  _test: { summarize, subnetFindings, overlapFindings, spaceFindings, peeringFindings, findFree },
+  _test: { summarize, subnetFindings, overlapFindings, spaceFindings, peeringFindings, findFree, trackIpGroupChanges, coveredEntries, ipGroupFindings },
 };

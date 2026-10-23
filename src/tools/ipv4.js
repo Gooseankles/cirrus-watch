@@ -18,6 +18,22 @@ function parse(text) {
   return { cidr: `${toIp(start)}/${bits}`, start, end: start + size - 1, bits, size };
 }
 
+// An IP group entry: a single address, a CIDR prefix or a range
+// "10.0.0.1-10.0.0.50" -> { text, start, end, size }. Null for IPv6 and
+// anything else.
+function parseEntry(text) {
+  const s = String(text || "").trim();
+  const dash = /^([\d.]+)\s*-\s*([\d.]+)$/.exec(s);
+  if (dash) {
+    const a = parse(dash[1]);
+    const b = parse(dash[2]);
+    if (!a || !b || a.bits !== 32 || b.bits !== 32 || b.start < a.start) return null;
+    return { text: s, start: a.start, end: b.start, size: b.start - a.start + 1 };
+  }
+  const r = parse(s);
+  return r ? { text: s, start: r.start, end: r.end, size: r.size } : null;
+}
+
 function toIp(n) {
   return [24, 16, 8, 0].map((s) => Math.floor(n / 2 ** s) % 256).join(".");
 }
@@ -94,4 +110,4 @@ function freeAddresses(pool, used) {
   return freeBlocks(pool, used).reduce((n, b) => n + b.size, 0);
 }
 
-module.exports = { parse, toIp, overlaps, contains, isPrivate, merge, freeBlocks, freeOfSize, freeAddresses };
+module.exports = { parse, parseEntry, toIp, overlaps, contains, isPrivate, merge, freeBlocks, freeOfSize, freeAddresses };

@@ -12,6 +12,8 @@ const { resourceGraphQuery, armGet, armPost, subscriptionIdsToScan } = require("
 const settings = require("../settings");
 const log = require("../log");
 const { scanError } = require("./util");
+const store = require("../findingsStore");
+const tenantContext = require("../tenantContext");
 
 const TOOL_ID = "policy-check";
 const CONCURRENCY = 4;
@@ -134,7 +136,21 @@ function probeVerdict(result) {
   return { verdict: "allowed" };
 }
 
-async function runProbes(subscriptionIds, findings, tally) {
+// "ARM request failed POST … (409): {"error":{"code":"X",…}}" -> "X (409)".
+function errorReason(message) {
+  const status = (String(message).match(/\((\d{3})\)/) || [])[1];
+  const code = (String(message).match(/"code"\s*:\s*"([^"]+)"/) || [])[1];
+  return code ? `${code}${status ? ` (${status})` : ""}` : status ? `HTTP ${status}` : String(message).slice(0, 80);
+}
+
+const REASON_HINTS = {
+  missingsubscriptionregistration: "register the Microsoft.PolicyInsights resource provider in those subscriptions",
+  authorizationfailed: "the scan identity may not run policy checks there",
+};
+
+// previous: last run's probe findings by id; a probe that fails this time keeps
+// its old finding instead of counting as resolved.
+async function runProbes(subscriptionIds, findings, tally, previous = new Map()) {
   const probes = enabledProbes();
   const jobs = subscriptionIds.flatMap((sub) => probes.map((probe) => ({ sub, probe })));
   await mapLimit(jobs, CONCURRENCY, async ({ sub, probe }) => {
@@ -144,7 +160,11 @@ async function runProbes(subscriptionIds, findings, tally) {
       v = probeVerdict(await armPost(url, probeBody(probe), TOOL_ID));
     } catch (err) {
       tally.probeErrors++;
+      const reason = errorReason(err.message);
+      tally.probeReasons.set(reason, (tally.probeReasons.get(reason) || 0) + 1);
       if (tally.probeErrors <= 3) log.record({ tool: TOOL_ID, level: "error", message: `probe ${probe.id} in ${sub}: ${err.message.slice(0, 300)}` });
+      const old = previous.get(`probe/${sub}/${probe.id}`);
+      if (old) findings.push(old);
       return;
     }
     tally[v.verdict]++;
@@ -273,7 +293,7 @@ async function analyseAssignment(a, getDef) {
   const defId = (a.properties || {}).policyDefinitionId;
   const top = await getDef(defId);
   if (top === null) return { missing: [defId], effects: [] };
-  if (top === undefined) return { unknown: true, effects: [] };
+  if (top === undefined) return { unknown: true, effects: [], missing: [] };
   const describe = (def, set, memberParams) => ({
     definitionId: def.id,
     name: (def.properties || {}).displayName || def.name,
@@ -481,18 +501,42 @@ async function remediationChecks(items, stateBy, tally) {
   }
 }
 
+function probeErrorDetail(reasons) {
+  const top = [...reasons].sort((a, b) => b[1] - a[1]);
+  const text = top.slice(0, 3).map(([r, n]) => `${r}: ${n}`).join(", ");
+  const hint = REASON_HINTS[top[0][0].replace(/\s.*$/, "").toLowerCase()];
+  return `Those probes were not checked (earlier verdicts kept). Reasons: ${text}${top.length > 3 ? ", …" : ""}${hint ? `; ${hint}` : ""}. The log has the first errors in full`;
+}
+
+async function previousProbes() {
+  const t = tenantContext.current();
+  const key = (t && t.key) || tenantContext.HOME;
+  try {
+    const { findings } = await store.read(TOOL_ID, [key]);
+    const out = new Map();
+    for (const f of findings) {
+      if (!String(f.kind).startsWith("probe-")) continue;
+      const { kind, id, name, subscriptionId, resourceGroup, probe, detail } = f;
+      out.set(id, { kind, id, name, subscriptionId, resourceGroup, probe, detail });
+    }
+    return out;
+  } catch {
+    return new Map();
+  }
+}
+
 async function run() {
   const findings = [];
-  const tally = { blocked: 0, audited: 0, allowed: 0, probeErrors: 0, lookupErrors: 0, assignments: 0, nonCompliant: 0 };
+  const tally = { blocked: 0, audited: 0, allowed: 0, probeErrors: 0, probeReasons: new Map(), lookupErrors: 0, assignments: 0, nonCompliant: 0 };
   const subs = await subscriptionIdsToScan(TOOL_ID);
-  const results = await Promise.allSettled([runProbes(subs, findings, tally), healthChecks(findings, tally)]);
+  const results = await Promise.allSettled([previousProbes().then((prev) => runProbes(subs, findings, tally, prev)), healthChecks(findings, tally)]);
   if (results.every((r) => r.status === "rejected")) throw results[0].reason;
   // Shown on the scan page, not only in the log.
   const names = ["Probes", "Assignment health"];
   results.forEach((r, i) => {
     if (r.status === "rejected") findings.push(scanError(TOOL_ID, names[i], `${names[i]} check failed`, String(r.reason.message).slice(0, 300)));
   });
-  if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, "Those probes were not checked; the log has the first errors"));
+  if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, probeErrorDetail(tally.probeReasons)));
   if (tally.lookupErrors) findings.push(scanError(TOOL_ID, "lookups", `${tally.lookupErrors} definition or remediation lookup(s) failed`, "Those assignments were only partly checked; the log has the first errors"));
   log.record({
     tool: TOOL_ID,
@@ -508,5 +552,5 @@ module.exports = {
   schedule: "30 5 * * *", // nightly at 05:30
   run,
   PROBES,
-  _test: { probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes },
+  _test: { probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes, errorReason, probeErrorDetail },
 };

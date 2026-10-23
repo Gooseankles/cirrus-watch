@@ -1114,6 +1114,7 @@ function wireScan() {
       t.filters.source = "";
     } else if (el.dataset.view) {
       t.filters.view = el.dataset.view;
+      t.viewPicked = true;
       t.filters.kind = "";
       t.filters.source = "";
     } else if (el.dataset.ranat) {
@@ -1491,15 +1492,22 @@ function arBody(shown, t) {
 
 /* policy check view */
 const isProbe = (f) => String(f.kind || "").startsWith("probe-");
+// Probe call or check failures (scan-error findings named after the probes).
+const pcProbeErrors = (all) => all.filter((f) => f.kind === "scan-error" && /\/scan-errors\/(probe-calls|Probes)$/.test(f.id || ""));
+// With no probe findings, the page opens on Assignment health until a view is picked.
+const pcView = (t) => (t.filters.view === "health" || (!t.viewPicked && t.pcNoProbes) ? "health" : "probes");
 function pcStats(all, t) {
   const probes = all.filter(isProbe);
   const open = probes.filter((f) => f.kind === "probe-not-blocked");
   const audit = probes.filter((f) => f.kind === "probe-only-audited");
-  const health = all.filter((f) => !isProbe(f));
+  const health = all.filter((f) => !isProbe(f) && f.kind !== "scan-error");
   const subs = new Set(open.map((f) => f.subscriptionId).filter(Boolean)).size;
   const fresh = all.filter((f) => isNew(f, t.data.ranAt)).length;
+  const failed = pcProbeErrors(all).length > 0;
+  t.pcNoProbes = !probes.length && health.length > 0;
+  const probeDelta = open.length ? `in ${fmt.int(subs)} subscription${subs === 1 ? "" : "s"}` : failed ? "probes failed; see the errors above" : "every probe was denied";
   return (
-    statTile({ label: "Probes not blocked", value: fmt.int(open.length), deltaCls: open.length ? "bad" : "good", delta: open.length ? `in ${fmt.int(subs)} subscription${subs === 1 ? "" : "s"}` : "every probe was denied" }) +
+    statTile({ label: "Probes not blocked", value: fmt.int(open.length), deltaCls: open.length || failed ? "bad" : "good", delta: probeDelta }) +
     statTile({ label: "Only audited", value: fmt.int(audit.length), deltaCls: audit.length ? "" : "", delta: "allowed, but logged" }) +
     statTile({ label: "Assignment health issues", value: fmt.int(health.length), deltaCls: health.length ? "bad" : "" }) +
     statTile({ label: "New this run", value: fmt.int(fresh), deltaCls: fresh ? "bad" : "" })
@@ -1507,11 +1515,18 @@ function pcStats(all, t) {
 }
 function pcExtra(all, t) {
   const nProbes = all.filter(isProbe).length;
-  const nHealth = all.length - nProbes;
-  const v = t.filters.view;
+  const nHealth = all.filter((f) => !isProbe(f) && f.kind !== "scan-error").length;
+  const v = pcView(t);
   return `<div class="seg"><button type="button" data-view="probes" class="${v === "probes" ? "active" : ""}">Probes <span class="n">${fmt.int(nProbes)}</span></button><button type="button" data-view="health" class="${v === "health" ? "active" : ""}">Assignment health <span class="n">${fmt.int(nHealth)}</span></button></div>`;
 }
-const pcScope = (f, t) => (t.filters.view === "health" ? !isProbe(f) : isProbe(f));
+const pcScope = (f, t) => (pcView(t) === "health" ? !isProbe(f) : isProbe(f));
+// Probes view with no probe findings at all: say why, not "no findings match".
+function pcEmptyProbes(all, t) {
+  if (pcView(t) !== "probes" || all.some(isProbe)) return null;
+  return pcProbeErrors(all).length
+    ? `<div class="empty-state">The probes could not run this time (see the errors above), so no subscription is listed.</div>`
+    : `<div class="empty-state">Every probe was blocked by policy in every subscription.</div>`;
+}
 function pcMatrix(shown, t) {
   const ranAt = t.data.ranAt;
   const subs = new Map();
@@ -1631,7 +1646,7 @@ const VIEWS = {
   "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },
-  "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => t.filters.view === "health", body: (shown, t) => (t.filters.view === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },
+  "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => pcView(t) === "health", page: pcEmptyProbes, body: (shown, t) => (pcView(t) === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },
 };
 
 /* history */

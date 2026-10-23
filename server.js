@@ -161,7 +161,7 @@ const notify = require("./src/notify");
 function notifyTenant(req, res) {
   const key = String(req.query.tenant || tenants.HOME).toLowerCase();
   if (!tenants.byKey(key)) {
-    res.status(400).json({ error: "no such tenant" });
+    res.status(400).json({ error: `no such tenant: "${key.slice(0, 60)}" (known: ${tenants.all().map((t) => t.key).join(", ")})` });
     return null;
   }
   return key;

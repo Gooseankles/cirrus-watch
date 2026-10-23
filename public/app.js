@@ -386,7 +386,8 @@ function setTenant(key) {
 // what the person may see).
 const TENANTLESS = /^\/api\/(me|settings|tenants|storage)(\/|\?|$)/;
 function withTenant(path) {
-  if (!state.tenant || !path.startsWith("/api/") || TENANTLESS.test(path)) return path;
+  // A path that names its own tenant (Settings, notifications) keeps it.
+  if (!state.tenant || !path.startsWith("/api/") || TENANTLESS.test(path) || /[?&]tenant=/.test(path)) return path;
   return `${path}${path.includes("?") ? "&" : "?"}tenant=${encodeURIComponent(state.tenant)}`;
 }
 

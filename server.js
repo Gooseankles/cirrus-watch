@@ -159,7 +159,8 @@ app.delete("/api/tenants/:key", auth.requireRole("Admin"), async (req, res) => {
 // = home). The link itself never comes back, only whether one is set.
 const notify = require("./src/notify");
 function notifyTenant(req, res) {
-  const key = String(req.query.tenant || tenants.HOME).toLowerCase();
+  const raw = Array.isArray(req.query.tenant) ? req.query.tenant[0] : req.query.tenant;
+  const key = String(raw || tenants.HOME).toLowerCase();
   if (!tenants.byKey(key)) {
     res.status(400).json({ error: `no such tenant: "${key.slice(0, 60)}" (known: ${tenants.all().map((t) => t.key).join(", ")})` });
     return null;

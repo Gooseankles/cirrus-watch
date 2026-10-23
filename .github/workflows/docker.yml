@@ -94,7 +94,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Tags each new VERSION on main as v<version> (e.g. for Terraform module ?ref=).
+  # Tags each new VERSION on main as v<version>.
   tag-version:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build-and-push

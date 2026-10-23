@@ -4,7 +4,7 @@ A self-hosted dashboard for the everyday checks and chores of running an Azure t
 risky access and broken policy, cost history per subscription and a "who has access to what" lookup.
 
 It is a small Node.js (Express) app with a no-build front end. Run it locally with `npm start`, or as a container on
-Azure App Service, where the included Terraform sets up everything, including a managed identity, so no secrets
+Azure App Service, where the [Terraform module](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard) sets up everything, including a managed identity, so no secrets
 are needed.
 
 ## Tools
@@ -93,18 +93,19 @@ Uses Node.js 24 (the version the image is built on; the Azure libraries need 22 
 
 ### On Azure App Service
 
-`infra/terraform` creates the App Service, the managed identity with the read roles and Graph permissions the
-scans need, secretless SSO, the storage account for run history and the key vault for secrets entered in Settings. See
-[infra/terraform/README.md](infra/terraform/README.md).
+The Terraform module in its own public repo, [terraform-azurerm-ops-dashboard](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard), creates the App
+Service, the managed identity with the read roles and Graph permissions the scans need, secretless SSO, the storage
+account for run history and the key vault for secrets entered in Settings. Its `examples/default` folder is a
+ready-made root configuration.
 
 ### As a Terraform module
 
-Use the module from your own configuration and pin a version tag (every version is tagged `v<version>`; see the
-repo's tags for the newest):
+Use the module from your own configuration and pin a version tag (`v<major>.<minor>.<patch>`; see that repo's tags
+for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/azure-ops-dashboard//infra/terraform/modules/dashboard?ref=v0.21.2.0"
+  source = "github.com/Gooseankles/terraform-azurerm-ops-dashboard?ref=v1.0.0"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
@@ -117,7 +118,7 @@ module "dashboard" {
 }
 ```
 
-All inputs, the provider setup and what each one does are in [infra/terraform/README.md](infra/terraform/README.md).
+All inputs, the provider setup and what each one does are in the [module's README](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard#readme).
 To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access restrictions" there).
 
 ## Signing in and roles
@@ -175,7 +176,7 @@ which scan pushed the load up, with a timeline, the peak of every run and a list
 previous one did not stop cleanly, for example out of memory). An alarm goes to Recent activity, with the
 scans running at the time, when CPU stays above `MONITOR_CPU_WARN_PCT` (90) for 5 minutes, memory or heap passes
 `MONITOR_MEMORY_WARN_PCT` (85), or answers take longer than `MONITOR_LAG_WARN_MS` (2000); another line follows when
-it is back to normal. For email, set `alert_emails` in Terraform (see `infra/terraform/README.md`, Load alarms).
+it is back to normal. For email, set `alert_emails` in Terraform (see the module's README, Load alarms).
 
 ### Notifications
 

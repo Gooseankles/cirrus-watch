@@ -3,7 +3,7 @@
 How the dashboard is built and deployed: first the big picture (high-level design), then the parts inside it
 (low-level design). The diagrams are Mermaid, drawn by GitHub. Names in `code` are settings, Terraform inputs or
 files in this repo. Permissions per identity are listed in [permissions.md](permissions.md); every Terraform input
-in [infra/terraform/README.md](../infra/terraform/README.md).
+in the [Terraform module's README](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard#readme).
 
 - [1. Overview](#1-overview)
 - [2. Azure resources (Terraform)](#2-azure-resources-terraform)
@@ -62,7 +62,8 @@ flowchart TB
 
 ## 2. Azure resources (Terraform)
 
-`infra/terraform` calls the module in `infra/terraform/modules/dashboard`. Dashed boxes are optional
+The module lives in its own repo, [terraform-azurerm-ops-dashboard](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard) (the module at its root,
+a root configuration in `examples/default`). Dashed boxes are optional
 (`create_history_storage`, `create_secret_vault`, `create_sso_app`, `create_role_groups`, `private_network`).
 
 ```mermaid
@@ -304,14 +305,15 @@ flowchart LR
   dev["Commit to main<br/>(VERSION bumped)"] --> gh["GitHub<br/>Gooseankles/azure-ops-dashboard"]
   gh --> ci["Actions: Docker image<br/>build + push"]
   ci --> hub[("Docker Hub<br/>latest, &lt;version&gt;, stable")]
-  ci --> tag["Git tag v&lt;version&gt;<br/>(Terraform module ref)"]
+  ci --> tag["Git tag v&lt;version&gt;"]
   promote["Actions: Promote to stable<br/>(by hand)"] --> hub
   tfrun["terraform apply<br/>image = ...:&lt;version&gt;"] --> web["App Service"]
   hub -- "pull on restart / image change" --> web
 ```
 
 - Versions are `major.minor.revision.package` (feature, small change, docs only). The image tag and the git tag carry
-  the same number, so a Terraform `?ref=v<version>` and `image = ...:<version>` match.
+  the same number. The Terraform module has its own versions (`v<major>.<minor>.<patch>` in its repo); set
+  `image = ...:<version>` to pin the app.
 - `stable` is moved by hand once a build has proven itself; nothing is rebuilt, the same image gets one more tag.
 - Pull requests build the image but do not push it.
 

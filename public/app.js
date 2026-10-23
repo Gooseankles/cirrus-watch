@@ -40,6 +40,7 @@ const ICON_PATHS = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   gauge: '<path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
@@ -1062,6 +1063,7 @@ function scanSkeleton(tool) {
           </select>
           <button class="chip" id="scan-new" data-filter="newOnly">${icon("alert")} New this run</button>
           <button class="chip" id="scan-accepted" data-filter="accepted">${icon("check")} Accepted <span class="n" id="scan-accepted-n"></span></button>
+          <button class="chip hidden" id="scan-csv" title="Download the findings these filters show as a CSV file">${icon("download")} CSV</button>
         </div>
       </div>
       <div class="inline-list" id="scan-kinds"></div>
@@ -1097,9 +1099,10 @@ function wireScan() {
   page.addEventListener("click", (e) => {
     const t = cur();
     const id = page.dataset.tool;
-    const el = e.target.closest("[data-kind],[data-source],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],[data-accept],[data-unaccept],#scan-run");
+    const el = e.target.closest("[data-kind],[data-source],[data-filter],[data-view],[data-ranat],[data-more],[data-toggle],[data-accept],[data-unaccept],#scan-run,#scan-csv");
     if (!el) return;
     if (el.id === "scan-run") return runTool(id);
+    if (el.id === "scan-csv") return downloadScanCsv(id);
     if (el.dataset.accept) return openAccept(id, el.dataset.accept);
     if (el.dataset.unaccept) return reopenFinding(id, el.dataset.unaccept, el);
     if (el.tagName === "SELECT") return;
@@ -1168,6 +1171,7 @@ function renderFindings(id) {
     ? `Last run <b title="${esc(t.data.ranAt)}">${esc(fmt.rel(t.data.ranAt))}</b><br>${esc(tool.schedule)}`
     : `<b>Never run</b><br>${esc(tool.schedule)}`;
   const all = t.data.findings;
+  $("#scan-csv").classList.toggle("hidden", !t.loaded || !t.data.ranAt || Boolean(t.error));
   if (!t.loaded) {
     $("#scan-body").innerHTML = `<div class="empty-state">Loading…</div>`;
     return;
@@ -1223,6 +1227,56 @@ function renderFindings(id) {
       ? view.body(shown, t)
       : `<div class="empty-state">No findings match these filters.</div>`
     : `<div class="empty-state big"><h3>All clear</h3><p>The last run found nothing open.${esc(acceptedNote)}</p></div>`;
+}
+
+/* CSV export of one scan: the findings the current filters show (the accepted list when that is open). */
+function csvCell(v) {
+  let s = v == null ? "" : String(v);
+  // A cell Excel would read as a formula is kept as text.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function scanCsvRows(id) {
+  const t = toolState(id);
+  const view = VIEWS[id] || GENERIC;
+  if (t.filters.accepted) return { accepted: true, rows: t.accepted.filter((f) => baseFilter(f, t)) };
+  const all = t.data.findings;
+  const scoped = view.scope ? all.filter((f) => view.scope(f, t)) : all;
+  return { accepted: false, rows: scoped.filter((f) => baseFilter(f, t)) };
+}
+function scanCsv(rows, ranAt, accepted) {
+  const has = (k) => rows.some((f) => f[k] != null && f[k] !== "");
+  const cols = [];
+  if (has("tenantName") || has("tenant")) cols.push(["Tenant", (f) => f.tenantName || f.tenant]);
+  cols.push(["Kind", (f) => kindLabel(f.kind)], ["Severity", (f) => kindSev(f.kind)], ["Name", (f) => f.name || f.id], ["Detail", (f) => f.detail]);
+  if (has("subscriptionId")) cols.push(["Subscription", (f) => f.subscriptionName], ["Subscription ID", (f) => f.subscriptionId]);
+  if (has("resourceGroup")) cols.push(["Resource group", (f) => f.resourceGroup]);
+  if (has("scopeText") || has("scope")) cols.push(["Scope", (f) => f.scopeText || f.scope]);
+  if (has("role")) cols.push(["Role", (f) => f.role]);
+  if (has("upn")) cols.push(["User", (f) => f.upn]);
+  cols.push(["First seen", (f) => f.firstSeen], ["New this run", (f) => (isNew(f, ranAt) ? "yes" : "")]);
+  cols.push(["Controls", (f) => Compliance.of(f).map((c) => c.label).join(", ")]);
+  if (accepted) cols.push(["Accepted reason", (f) => f.accepted && f.accepted.reason], ["Accepted by", (f) => f.accepted && f.accepted.by], ["Accepted at", (f) => f.accepted && f.accepted.at], ["Until", (f) => f.accepted && f.accepted.until]);
+  cols.push(["ID", (f) => f.id]);
+  const lines = [cols.map(([h]) => csvCell(h)).join(",")];
+  for (const f of rows) lines.push(cols.map(([, get]) => csvCell(get(f))).join(","));
+  // The BOM makes Excel read the file as UTF-8 (æ, ø, å).
+  return "﻿" + lines.join("\r\n") + "\r\n";
+}
+function downloadScanCsv(id) {
+  const t = toolState(id);
+  const { accepted, rows } = scanCsvRows(id);
+  const csv = scanCsv(rows, t.data.ranAt, accepted);
+  const day = new Date().toISOString().slice(0, 10);
+  const name = `${id}${accepted ? "-accepted" : ""}-${(state.tenant || "all-tenants").replace(/[^\w-]/g, "")}-${day}.csv`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* accepted and snoozed findings */

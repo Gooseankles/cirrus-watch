@@ -108,14 +108,14 @@ const fmt = {
 
 /* ---------- static knowledge about the tools ---------- */
 const TOOLS = [
-  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Unattached disks, NICs, unused public IPs and empty resource groups that still cost money or clutter the tenant." },
+  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Unattached disks, unused public IPs, snapshots of deleted disks, App Service plans with no apps, orphaned NICs and empty resource groups, with what each costs a month at Azure's list price for its region, size and tier." },
   { id: "tag-compliance", group: "resources", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
   { id: "cost-anomaly", group: "cost", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
   { id: "access-review", group: "access", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
   { id: "secret-expiry", group: "access", label: "Expiring app credentials", icon: "key", schedule: "Daily at 06:00", sub: "App registration secrets and certificates that expire soon." },
   { id: "key-vault", group: "resources", label: "Key Vault", icon: "shield", schedule: "Daily at 05:45", sub: "Vault settings (soft delete, purge protection, open networks, access policies), secrets, keys and certificates that expired, expire soon or never expire, who can read secrets, and vaults with no logging, no owner or no use." },
   { id: "access-packages", group: "access", label: "Access packages", icon: "box", schedule: "Daily at 05:00", sub: "Entitlement management packages that expire soon, auto-approve without an end date, go unused or have weak approval: approver groups with no members, one approver only." },
-  { id: "role-assignments", group: "access", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), and subscriptions getting close to Azure's limit of 4,000 role assignments." },
+  { id: "role-assignments", group: "access", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), Owner and access-granting roles given to a person directly on a whole subscription, Azure roles held by guests, custom roles that allow everything or can hand out access, and subscriptions close to Azure's limit of 4,000 role assignments." },
   { id: "policy-check", group: "governance", label: "Policy check", icon: "policy", schedule: "Daily at 05:30", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find policy assignments that cannot work." },
   { id: "internet-exposure", group: "resources", label: "Internet exposure", icon: "globe", schedule: "Daily at 03:30", sub: "Network security group rules open to the whole internet (admin and database ports, all ports), VMs with a public IP, storage containers anyone can read and database firewalls open to everyone or to all of Azure." },
   { id: "end-of-support", group: "resources", label: "End of support", icon: "clock", schedule: "Weekly, Monday at 06:00", sub: "AKS clusters on a Kubernetes version Azure no longer supports, App Service runtimes (Node.js, Python, .NET, PHP) and VM operating systems past or near end of support, and services that still accept TLS 1.0 or 1.1." },
@@ -123,7 +123,7 @@ const TOOLS = [
   { id: "defender", group: "resources", label: "Defender for Cloud", icon: "shield", schedule: "Daily at 06:40", sub: "Microsoft Defender for Cloud in short: subscriptions whose secure score is low, unhealthy recommendations with how many resources each hits, and Defender plans that are off although they should be on." },
   { id: "safety-nets", group: "governance", label: "Safety nets", icon: "alert", schedule: "Daily at 06:50", sub: "Subscriptions with no cost budget, or a budget that alerts nobody, and key resources (key vaults, backup vaults, VNets, DNS zones) with no delete lock on them, their resource group or their subscription." },
   { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
-  { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere (no diagnostic setting) and subscriptions whose activity log is not exported beyond Azure's 90 days." },
+  { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere: no diagnostic setting, a setting that sends to a deleted workspace, storage account or event hub, or one that sends metrics but no logs. Also subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "azure-monitor", group: "governance", label: "Azure Monitor", icon: "activity", schedule: "Daily at 04:55", sub: "Whether Azure Monitor watches everything and works: VMs and Arc servers with no agent, the retired legacy agent, no data collection rule or no heartbeat, alert rules that are off, alert nobody or watch a deleted resource, broken action groups and workspaces at their daily cap. Switch it off per tenant in Settings (Azure Monitor) for customers who do not use it." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
   { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
@@ -150,6 +150,8 @@ const KINDS = {
   "orphaned-nic": ["Orphaned NIC", "warn"],
   "unused-public-ip": ["Unused public IP", "warn"],
   "empty-resource-group": ["Empty resource group", ""],
+  "orphaned-snapshot": ["Snapshot of deleted disk", "warn"],
+  "empty-app-service-plan": ["App Service plan, no apps", "warn"],
   "missing-tags": ["Missing tags", "warn"],
   "cost-jump": ["Cost jump", "crit"],
   "scan-error": ["Scan error", "warn"],
@@ -183,6 +185,10 @@ const KINDS = {
   "access-package-unused": ["Unused package", ""],
   "orphaned-assignment": ["Identity not found", "warn"],
   "assignment-limit": ["Near assignment limit", "crit"],
+  "privileged-direct-user": ["Admin role to a person", "warn"],
+  "guest-azure-admin": ["Guest with admin role", "crit"],
+  "guest-azure-role": ["Guest with Azure role", "warn"],
+  "custom-role-broad": ["Broad custom role", "warn"],
   "probe-not-blocked": ["Not blocked", "crit"],
   "probe-only-audited": ["Only audited", "warn"],
   "enforcement-off": ["Enforcement off", "crit"],
@@ -224,6 +230,8 @@ const KINDS = {
   "vault-lrs": ["Locally redundant vault", ""],
   "no-diagnostic-setting": ["No diagnostic setting", "warn"],
   "activity-log-not-exported": ["Activity log not exported", "warn"],
+  "diagnostic-destination-missing": ["Logs sent to deleted target", "crit"],
+  "diagnostic-no-logs": ["Metrics only, no logs", "warn"],
   "monitor-no-agent": ["No monitoring agent", "warn"],
   "monitor-legacy-agent": ["Legacy agent only", "crit"],
   "monitor-agent-failed": ["Agent failed", "crit"],
@@ -1258,6 +1266,7 @@ function scanCsv(rows, ranAt, accepted) {
   if (has("subscriptionId")) cols.push(["Subscription", (f) => f.subscriptionName], ["Subscription ID", (f) => f.subscriptionId]);
   if (has("resourceGroup")) cols.push(["Resource group", (f) => f.resourceGroup]);
   if (has("scopeText") || has("scope")) cols.push(["Scope", (f) => f.scopeText || f.scope]);
+  if (has("monthlyCost")) cols.push(["Cost a month (list price)", (f) => (f.monthlyCost == null ? "" : Math.round(f.monthlyCost))], ["Currency", (f) => (f.monthlyCost == null ? "" : f.currency)]);
   if (has("role")) cols.push(["Role", (f) => f.role]);
   if (has("upn")) cols.push(["User", (f) => f.upn]);
   cols.push(["First seen", (f) => f.firstSeen], ["New this run", (f) => (isNew(f, ranAt) ? "yes" : "")]);
@@ -1446,6 +1455,36 @@ function genericBody(shown, t) {
   return tableHtml(genericColumns(t.data.ranAt, hasSubs, hasExpiry), slice.map((f) => genericRow(f, t.data.ranAt, hasSubs, hasExpiry))) + moreButton(slice.length, shown.length, t);
 }
 const GENERIC = { stats: genericStats, body: genericBody };
+
+/* Orphaned resources: what the leftovers cost a month at list price, most expensive first. */
+function orCosts(list) {
+  const by = {};
+  for (const f of list) if (f.monthlyCost > 0) by[f.currency || ""] = (by[f.currency || ""] || 0) + f.monthlyCost;
+  return Object.entries(by).sort((a, b) => b[1] - a[1]);
+}
+function orStats(all, t) {
+  const costs = orCosts(all);
+  const unpriced = all.filter((f) => f.monthlyCost === null).length;
+  const money = (pairs, k) => (pairs.length ? pairs.map(([c, v]) => fmt.money(v * k, c, true)).join(" + ") : "–");
+  return (
+    statTile({ label: "Wasted a month", value: money(costs, 1), delta: unpriced ? `${fmt.int(unpriced)} without a price` : "Azure list price, before discounts", deltaCls: costs.length ? "bad" : "" }) +
+    statTile({ label: "Wasted a year", value: money(costs, 12), delta: "if nothing is cleaned up" }) +
+    genericStats(all, t)
+  );
+}
+function orBody(shown, t) {
+  const sorted = shown.slice().sort((a, b) => (b.monthlyCost || 0) - (a.monthlyCost || 0));
+  const hasSubs = sorted.some((f) => f.subscriptionId);
+  const slice = sorted.slice(0, t.shown);
+  const cols = genericColumns(t.data.ranAt, hasSubs, false);
+  cols.splice(hasSubs ? 3 : 2, 0, { label: "A month", cls: "num nowrap" });
+  const rows = slice.map((f) => {
+    const row = genericRow(f, t.data.ranAt, hasSubs, false);
+    row.splice(hasSubs ? 3 : 2, 0, f.monthlyCost == null ? (f.currency ? `<span class="muted">?</span>` : "") : f.monthlyCost === 0 ? `<span class="muted">0</span>` : esc(fmt.money(f.monthlyCost, f.currency)));
+    return row;
+  });
+  return tableHtml(cols, rows) + moreButton(slice.length, sorted.length, t);
+}
 
 /* access review view */
 function arStats(all, t) {
@@ -1712,6 +1751,7 @@ function lcStats(all, t) {
 }
 
 const VIEWS = {
+  "orphaned-resources": { stats: orStats, body: orBody },
   "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },

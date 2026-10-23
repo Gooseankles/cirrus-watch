@@ -646,3 +646,19 @@ dialog.dialog h2 { margin-bottom: 10px; }
 .sl-axis .sl-track span:first-child { transform: none; }
 .sl-axis .sl-track span:last-child { transform: translateX(-100%); }
 @media (max-width: 700px) { .sl-lane { grid-template-columns: 110px 1fr; } }
+/* policy assignment details */
+.pa-detail { display: grid; gap: 14px; }
+.pa-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 18px; }
+.pa-fact { min-width: 0; overflow-wrap: anywhere; }
+.pa-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); margin-bottom: 2px; }
+.pa-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.pa-cols h4 { margin: 0 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pa-scroll { max-height: 420px; overflow: auto; }
+.pa-val { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8rem; }
+.pa-fact .mono { font-size: 0.74rem; font-weight: 400; color: var(--muted); }
+.pa-params { table-layout: fixed; width: 100%; }
+.pa-params th:nth-child(1) { width: 48%; }
+.pa-params th:nth-child(3) { width: 92px; }
+.pa-params td { overflow-wrap: anywhere; }
+tr.pa-hit td { background: var(--accent-soft); }
+@media (max-width: 900px) { .pa-cols { grid-template-columns: minmax(0, 1fr); } }

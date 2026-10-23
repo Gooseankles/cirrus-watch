@@ -14,8 +14,10 @@ const log = require("../log");
 const { scanError } = require("./util");
 const store = require("../findingsStore");
 const tenantContext = require("../tenantContext");
+const tenants = require("../tenants");
 
 const TOOL_ID = "policy-check";
+const ASSIGNMENTS_KEY = "policy-check/assignments.json";
 const CONCURRENCY = 4;
 const MAX_DEFINITIONS = 800; // initiatives like the security benchmark hold hundreds
 const DAY = 24 * 60 * 60 * 1000;
@@ -106,17 +108,17 @@ function enabledProbes() {
   return PROBES.filter((p) => (!wanted || wanted.has(p.id)) && (!p.needsDeniedRegion || deniedRegion));
 }
 
+// A field is either in the content or pending, never both (Azure answers
+// InvalidCheckRestrictionsRequest). Name is pending so naming rules do not
+// decide the verdict; tags are pending unless the probe is about tags.
 function probeBody(probe) {
   const region = probe.needsDeniedRegion
     ? settings.get("POLICY_PROBE_DENIED_REGION")
     : settings.get("POLICY_PROBE_REGION") || "norwayeast";
-  return {
-    resourceDetails: {
-      resourceContent: { type: probe.type, name: `policyprobe${probe.id.replace(/[^a-z0-9]/g, "").slice(0, 12)}`, location: region, ...probe.content },
-      apiVersion: probe.apiVersion,
-    },
-    pendingFields: [{ field: "name" }, { field: "tags" }],
-  };
+  const content = { type: probe.type, location: region, ...probe.content };
+  const pendingFields = [{ field: "name", values: [`policyprobe${probe.id.replace(/[^a-z0-9]/g, "").slice(0, 12)}`] }];
+  if (!("tags" in content)) pendingFields.push({ field: "tags" });
+  return { resourceDetails: { resourceContent: content, apiVersion: probe.apiVersion }, pendingFields };
 }
 
 // "blocked" when any Deny says no; "audited" when only Audit-type effects
@@ -142,6 +144,11 @@ function errorReason(message) {
   const code = (String(message).match(/"code"\s*:\s*"([^"]+)"/) || [])[1];
   return code ? `${code}${status ? ` (${status})` : ""}` : status ? `HTTP ${status}` : String(message).slice(0, 80);
 }
+// Azure's own explanation from the error body, if there is one.
+function errorText(message) {
+  const m = String(message).match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  return m ? m[1].replace(/\\(.)/g, "$1").slice(0, 240) : "";
+}
 
 const REASON_HINTS = {
   missingsubscriptionregistration: "register the Microsoft.PolicyInsights resource provider in those subscriptions",
@@ -162,6 +169,7 @@ async function runProbes(subscriptionIds, findings, tally, previous = new Map())
       tally.probeErrors++;
       const reason = errorReason(err.message);
       tally.probeReasons.set(reason, (tally.probeReasons.get(reason) || 0) + 1);
+      if (!tally.probeSample) tally.probeSample = errorText(err.message);
       if (tally.probeErrors <= 3) log.record({ tool: TOOL_ID, level: "error", message: `probe ${probe.id} in ${sub}: ${err.message.slice(0, 300)}` });
       const old = previous.get(`probe/${sub}/${probe.id}`);
       if (old) findings.push(old);
@@ -300,7 +308,7 @@ async function analyseAssignment(a, getDef) {
     effect: effectOf(def, a, set, memberParams),
     roles: ((ruleThen(def).details || {}).roleDefinitionIds || []).map(guidOf),
   });
-  if (!/policysetdefinitions/i.test(defId)) return { effects: [describe(top)], missing: [] };
+  if (!/policysetdefinitions/i.test(defId)) return { effects: [describe(top)], missing: [], def: top };
 
   const effects = [];
   const missing = [];
@@ -310,7 +318,7 @@ async function analyseAssignment(a, getDef) {
     if (def === null) missing.push(m.policyDefinitionId);
     else if (def) effects.push(describe(def, top, m.parameters));
   });
-  return { effects, missing };
+  return { effects, missing, def: top };
 }
 
 async function mapLimit(items, limit, fn) {
@@ -343,7 +351,7 @@ async function healthChecks(findings, tally) {
     resourceGraphQuery(
       `PolicyResources
        | where type =~ 'microsoft.authorization/policyassignments'
-       | project id, name, subscriptionId, resourceGroup, identity, properties`,
+       | project id, name, subscriptionId, resourceGroup, location, identity, properties`,
       { toolId: TOOL_ID }
     ),
     resourceGraphQuery(
@@ -364,6 +372,13 @@ async function healthChecks(findings, tally) {
   tally.assignments = assignments.length;
   const stateBy = new Map(states.map((s) => [s.assignmentId, s]));
   const getDef = makeDefinitionCache();
+  const exemptionsBy = new Map();
+  for (const x of exemptions) {
+    const key = String((x.properties || {}).policyAssignmentId || "").toLowerCase();
+    if (!exemptionsBy.has(key)) exemptionsBy.set(key, []);
+    exemptionsBy.get(key).push(x);
+  }
+  const inventory = [];
 
   // Every role held by every policy identity, in one query.
   const principals = [...new Set(assignments.flatMap((a) => identityPrincipals(a.identity)))];
@@ -403,8 +418,10 @@ async function healthChecks(findings, tally) {
     } catch (err) {
       tally.lookupErrors++;
       if (tally.lookupErrors <= 3) log.record({ tool: TOOL_ID, level: "error", message: `definition lookup for ${name}: ${err.message.slice(0, 300)}` });
+      inventory.push(assignmentInfo(a, base, null, stateBy.get(a.id.toLowerCase()), exemptionsBy.get(a.id.toLowerCase())));
       return;
     }
+    inventory.push(assignmentInfo(a, base, analysis, stateBy.get(a.id.toLowerCase()), exemptionsBy.get(a.id.toLowerCase())));
     if (analysis.missing.length) {
       add("definition-missing", `${analysis.missing.length} policy definition(s) it points to no longer exist`);
     }
@@ -456,6 +473,82 @@ async function healthChecks(findings, tally) {
       findings.push({ ...base, kind: "exemption-expiring", id: `exemption-expiring/${x.id}`, detail: `expires ${p.expiresOn}` });
     }
   }
+  return inventory;
+}
+
+// --- Assignment details (saved for the Assignments page) ---
+
+const MAX_VALUE = 2000; // characters of one parameter value
+const MAX_POLICIES = 1000; // member policies listed per assignment
+
+function shortValue(v) {
+  if (v === undefined) return undefined;
+  const s = JSON.stringify(v);
+  return s.length > MAX_VALUE ? s.slice(0, MAX_VALUE) + " …" : s;
+}
+
+// Every parameter the definition declares, with the value in force and whether
+// the assignment set it or the default applies; then any set but not declared.
+function parameterRows(assigned, declared) {
+  const rows = [];
+  const set = assigned || {};
+  for (const [name, d] of Object.entries(declared || {})) {
+    const has = set[name] && set[name].value !== undefined;
+    const meta = d.metadata || {};
+    rows.push({
+      name,
+      label: meta.displayName && meta.displayName !== name ? meta.displayName : undefined,
+      description: meta.description ? String(meta.description).slice(0, 300) : undefined,
+      type: d.type,
+      value: shortValue(has ? set[name].value : d.defaultValue),
+      source: has ? "set" : d.defaultValue !== undefined ? "default" : "none",
+    });
+  }
+  for (const [name, v] of Object.entries(set)) {
+    if (!(declared || {})[name]) rows.push({ name, value: shortValue((v || {}).value), source: "set" });
+  }
+  return rows.sort((x, y) => x.name.localeCompare(y.name));
+}
+
+const EFFECT_ORDER = ["deny", "denyaction", "modify", "deployifnotexists", "append", "audit", "auditifnotexists", "manual", "disabled"];
+const effectRank = (e) => (EFFECT_ORDER.includes(e) ? EFFECT_ORDER.indexOf(e) : EFFECT_ORDER.length - 1.5);
+
+function assignmentInfo(a, base, analysis, st, exemptions) {
+  const p = a.properties || {};
+  const def = (analysis && analysis.def) || null;
+  const dp = (def && def.properties) || {};
+  const policies = analysis ? [...analysis.effects].sort((x, y) => effectRank(x.effect) - effectRank(y.effect) || String(x.name).localeCompare(String(y.name))) : [];
+  const meta = p.metadata || {};
+  return {
+    id: a.id,
+    name: base.name,
+    description: p.description ? String(p.description).slice(0, 1000) : undefined,
+    subscriptionId: base.subscriptionId,
+    resourceGroup: base.resourceGroup,
+    scope: base.scope,
+    scopeText: base.scopeText,
+    enforcement: String(p.enforcementMode || "Default"),
+    definition: {
+      id: p.policyDefinitionId,
+      name: dp.displayName || (def && def.name) || String(p.policyDefinitionId || "").split("/").pop(),
+      initiative: /policysetdefinitions/i.test(p.policyDefinitionId || ""),
+      type: dp.policyType,
+      version: dp.version || (dp.metadata || {}).version,
+      state: !analysis || analysis.unknown ? "not read" : !analysis.def ? "missing" : "ok",
+    },
+    parameters: parameterRows(p.parameters, def ? dp.parameters : null),
+    policies: policies.slice(0, MAX_POLICIES).map((e) => ({ name: e.name, effect: e.effect || "unknown" })),
+    policyCount: policies.length,
+    missingPolicies: analysis ? analysis.missing.length : 0,
+    notScopes: p.notScopes || [],
+    nonComplianceMessages: (p.nonComplianceMessages || []).map((m) => ({ message: m.message, policy: m.policyDefinitionReferenceId })),
+    identity: a.identity ? { type: a.identity.type, principalIds: identityPrincipals(a.identity), location: a.location } : null,
+    assignedBy: meta.assignedBy,
+    createdOn: meta.createdOn,
+    updatedOn: meta.updatedOn,
+    compliance: st ? { total: st.total, nonCompliant: st.nonCompliant } : null,
+    exemptions: (exemptions || []).map((x) => ({ name: (x.properties || {}).displayName || x.name, category: (x.properties || {}).exemptionCategory, expiresOn: (x.properties || {}).expiresOn || null })),
+  };
 }
 
 // Deploy/modify policies only fix existing resources through a remediation
@@ -501,11 +594,11 @@ async function remediationChecks(items, stateBy, tally) {
   }
 }
 
-function probeErrorDetail(reasons) {
+function probeErrorDetail(reasons, sample) {
   const top = [...reasons].sort((a, b) => b[1] - a[1]);
   const text = top.slice(0, 3).map(([r, n]) => `${r}: ${n}`).join(", ");
   const hint = REASON_HINTS[top[0][0].replace(/\s.*$/, "").toLowerCase()];
-  return `Those probes were not checked (earlier verdicts kept). Reasons: ${text}${top.length > 3 ? ", …" : ""}${hint ? `; ${hint}` : ""}. The log has the first errors in full`;
+  return `Those probes were not checked (earlier verdicts kept). Reasons: ${text}${top.length > 3 ? ", …" : ""}${hint ? `; ${hint}` : ""}.${sample ? ` Azure said: "${sample}".` : ""} The log has the first errors in full`;
 }
 
 async function previousProbes() {
@@ -536,7 +629,14 @@ async function run() {
   results.forEach((r, i) => {
     if (r.status === "rejected") findings.push(scanError(TOOL_ID, names[i], `${names[i]} check failed`, String(r.reason.message).slice(0, 300)));
   });
-  if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, probeErrorDetail(tally.probeReasons)));
+  if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, probeErrorDetail(tally.probeReasons, tally.probeSample)));
+  if (results[1].status === "fulfilled") {
+    try {
+      await store.putDoc(ASSIGNMENTS_KEY, { updatedAt: new Date().toISOString(), assignments: results[1].value });
+    } catch (err) {
+      log.record({ tool: TOOL_ID, level: "error", message: `could not save the assignment list: ${err.message}` });
+    }
+  }
   if (tally.lookupErrors) findings.push(scanError(TOOL_ID, "lookups", `${tally.lookupErrors} definition or remediation lookup(s) failed`, "Those assignments were only partly checked; the log has the first errors"));
   log.record({
     tool: TOOL_ID,
@@ -546,11 +646,39 @@ async function run() {
   return findings;
 }
 
+/* ---------- read routes ---------- */
+
+// Each tenant's assignments from its last scan.
+function registerRoutes(app, { readKeys, decorate }) {
+  app.get(`/api/${TOOL_ID}/assignments`, async (req, res) => {
+    try {
+      const out = { updatedAt: null, assignments: [], failures: [] };
+      for (const k of readKeys(req)) {
+        let doc;
+        try {
+          doc = await store.getDoc(ASSIGNMENTS_KEY, k);
+        } catch (err) {
+          out.failures.push({ tenant: k, error: `could not read the assignment list: ${err.message}` });
+          continue;
+        }
+        if (!doc) continue;
+        if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
+        out.assignments.push(...(doc.assignments || []).map((x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) })));
+      }
+      await decorate(TOOL_ID, out.assignments);
+      res.json(out);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
+
 module.exports = {
   id: TOOL_ID,
   label: "Policy check",
   schedule: "30 5 * * *", // nightly at 05:30
   run,
+  registerRoutes,
   PROBES,
-  _test: { probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes, errorReason, probeErrorDetail },
+  _test: { probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes, errorReason, errorText, probeErrorDetail, parameterRows, assignmentInfo, probeBody },
 };

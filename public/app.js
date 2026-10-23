@@ -1127,6 +1127,12 @@ function wireScan() {
       t.shown += 150;
     } else if (el.dataset.toggle) {
       const key = el.dataset.toggle;
+      // Policy details are drawn only when opened.
+      if (key.startsWith("pa:")) {
+        if (t.open.has(key)) t.open.delete(key);
+        else t.open.add(key);
+        return renderFindings(id);
+      }
       const row = page.querySelector(`tr[data-members="${CSS.escape(key)}"]`);
       const open = t.open.has(key);
       if (open) t.open.delete(key);
@@ -1550,7 +1556,7 @@ const isProbe = (f) => String(f.kind || "").startsWith("probe-");
 // Probe call or check failures (scan-error findings named after the probes).
 const pcProbeErrors = (all) => all.filter((f) => f.kind === "scan-error" && /\/scan-errors\/(probe-calls|Probes)$/.test(f.id || ""));
 // With no probe findings, the page opens on Assignment health until a view is picked.
-const pcView = (t) => (t.filters.view === "health" || (!t.viewPicked && t.pcNoProbes) ? "health" : "probes");
+const pcView = (t) => (t.filters.view === "assignments" ? "assignments" : t.filters.view === "health" || (!t.viewPicked && t.pcNoProbes) ? "health" : "probes");
 function pcStats(all, t) {
   const probes = all.filter(isProbe);
   const open = probes.filter((f) => f.kind === "probe-not-blocked");
@@ -1572,11 +1578,14 @@ function pcExtra(all, t) {
   const nProbes = all.filter(isProbe).length;
   const nHealth = all.filter((f) => !isProbe(f) && f.kind !== "scan-error").length;
   const v = pcView(t);
-  return `<div class="seg"><button type="button" data-view="probes" class="${v === "probes" ? "active" : ""}">Probes <span class="n">${fmt.int(nProbes)}</span></button><button type="button" data-view="health" class="${v === "health" ? "active" : ""}">Assignment health <span class="n">${fmt.int(nHealth)}</span></button></div>`;
+  for (const sel of ["#scan-fw", "#scan-new"]) $(sel).classList.toggle("hidden", v === "assignments");
+  $("#scan-q").placeholder = v === "assignments" ? "Search assignment, parameter, policy inside" : "Search name, detail, subscription";
+  return `<div class="seg"><button type="button" data-view="probes" class="${v === "probes" ? "active" : ""}">Probes <span class="n">${fmt.int(nProbes)}</span></button><button type="button" data-view="health" class="${v === "health" ? "active" : ""}">Assignment health <span class="n">${fmt.int(nHealth)}</span></button><button type="button" data-view="assignments" class="${v === "assignments" ? "active" : ""}">Assignments</button></div>${v === "assignments" ? PolicyAssignments.extra(t) : ""}`;
 }
-const pcScope = (f, t) => (pcView(t) === "health" ? !isProbe(f) : isProbe(f));
+const pcScope = (f, t) => (pcView(t) === "assignments" ? true : pcView(t) === "health" ? !isProbe(f) : isProbe(f));
 // Probes view with no probe findings at all: say why, not "no findings match".
 function pcEmptyProbes(all, t) {
+  if (pcView(t) === "assignments") return PolicyAssignments.page(t);
   if (pcView(t) !== "probes" || all.some(isProbe)) return null;
   return pcProbeErrors(all).length
     ? `<div class="empty-state">The probes could not run this time (see the errors above), so no subscription is listed.</div>`
@@ -1635,7 +1644,12 @@ function pcHealth(shown, t) {
     for (const f of list) {
       if (n++ >= t.shown) break;
       const roles = Array.isArray(f.missingRoles) && f.missingRoles.length ? `<div class="inline-list" style="margin-top:4px">${f.missingRoles.map((r) => `<span class="tag">${esc(r)}</span>`).join("")}</div>` : "";
-      html += `<tr><td>${nameCell(f, ranAt, f.scopeText || shortScope(f.scope) || (f.resourceGroup ? "rg " + f.resourceGroup : ""))}</td><td>${subCell(f)}</td><td><span class="detail-cell">${esc(f.detail || "")}</span>${roles}${controlTags(f)}</td><td class="nowrap"><span class="muted">${esc(fmt.date(f.firstSeen))}</span></td><td>${acceptButton(f)}</td></tr>`;
+      // Details: the assignment's parameters, policies and effects (policyAssignments.js).
+      const key = `pa:${f.id}`;
+      const open = t.open.has(key);
+      const details = PolicyAssignments.hasDetail(f) ? `<button type="button" class="chip${open ? " active" : ""}" data-toggle="${esc(key)}">${icon("chevron")} Details</button>` : "";
+      html += `<tr><td>${nameCell(f, ranAt, f.scopeText || shortScope(f.scope) || (f.resourceGroup ? "rg " + f.resourceGroup : ""))}</td><td>${subCell(f)}</td><td><span class="detail-cell">${esc(f.detail || "")}</span>${roles}${controlTags(f)}</td><td class="nowrap"><span class="muted">${esc(fmt.date(f.firstSeen))}</span></td><td><div class="ar-actions">${details}${acceptButton(f)}</div></td></tr>`;
+      if (open && details) html += `<tr class="ar-members-row" data-members="${esc(key)}"><td colspan="5">${PolicyAssignments.detailFor(f, t)}</td></tr>`;
     }
     if (n >= t.shown) break;
   }

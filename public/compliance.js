@@ -79,6 +79,7 @@ const IN_TRANSIT = ["cis:3.10", "nis2:h", "nsm:2.7"];
 const DATA_OPEN = ["cis:3.3", "nis2:i", "nsm:2.5"];
 const SECRET_READERS = ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6"];
 const LOGS = ["cis:8.2", "nis2:b", "nsm:3.2"];
+const ALERTING = ["nis2:b", "nsm:3.2", "nsm:3.3"];
 const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6"];
 const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6"];
 const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1"];
@@ -158,6 +159,10 @@ const KIND_CONTROLS = {
   "vault-lrs": RECOVERY,
   "no-diagnostic-setting": LOGS,
   "activity-log-not-exported": LOGS,
+  ...Object.fromEntries(["monitor-no-agent", "monitor-legacy-agent", "monitor-agent-failed", "monitor-no-dcr", "monitor-no-heartbeat", "monitor-arc-disconnected",
+    "dcr-destination-missing", "workspace-over-quota", "workspace-near-quota"].map((k) => [k, LOGS])),
+  ...Object.fromEntries(["alert-disabled", "alert-no-action", "alert-action-group-missing", "alert-scope-missing", "action-group-disabled", "action-group-empty",
+    "action-group-email-off"].map((k) => [k, ALERTING])),
   "quota-near-limit": ["nis2:c"],
   "quota-at-limit": ["nis2:c"],
   "too-many-global-admins": ADMINS,
@@ -223,6 +228,9 @@ const TOOL_KINDS = {
   "backup-coverage": ["vm-no-backup", "backup-stopped", "backup-failing", "backup-stale", "vault-soft-delete-off", "vault-lrs"],
   "diagnostic-settings": ["no-diagnostic-setting", "activity-log-not-exported"],
   quotas: ["quota-near-limit", "quota-at-limit"],
+  "azure-monitor": ["monitor-no-agent", "monitor-legacy-agent", "monitor-agent-failed", "monitor-no-dcr", "monitor-no-heartbeat", "monitor-arc-disconnected",
+    "dcr-destination-missing", "workspace-over-quota", "workspace-near-quota", "alert-disabled", "alert-no-action", "alert-action-group-missing",
+    "alert-scope-missing", "action-group-disabled", "action-group-empty", "action-group-email-off"],
   "privileged-roles": ["too-many-global-admins", "too-few-global-admins", "privileged-guest", "privileged-app", "privileged-group", "privileged-disabled",
     "privileged-standing", "privileged-no-mfa"],
   "stale-accounts": ["stale-user", "stale-guest", "never-signed-in", "guest-invite-pending"],

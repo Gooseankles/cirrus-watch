@@ -77,11 +77,14 @@ const Settings = (() => {
     let control;
     if (Array.isArray(f.options)) {
       // Options come as {value, label} from the server; accept plain strings too.
-      const current = f.value || f.envDefault || f.defaultValue || "";
-      control = `<select class="select" data-setting="${esc(f.key)}"${/AZURE_AUTH_TYPE$/.test(f.key) ? ' data-auth-type="1"' : ""} data-fallback="${esc(f.envDefault || f.defaultValue || "")}">${f.options
-        .map((o) => (o && typeof o === "object" ? { value: String(o.value), label: String(o.label || o.value) } : { value: String(o), label: String(o) }))
-        .map((o) => `<option value="${esc(o.value)}"${o.value === current ? " selected" : ""}>${esc(o.label)}</option>`)
-        .join("")}</select>`;
+      const opts = f.options.map((o) => (o && typeof o === "object" ? { value: String(o.value), label: String(o.label || o.value) } : { value: String(o), label: String(o) }));
+      // A customer tenant's field may follow Home (blank).
+      const tenantField = f.homeValue !== undefined;
+      const current = tenantField ? f.value || "" : f.value || f.envDefault || f.defaultValue || "";
+      const homeOpt = opts.find((o) => o.value === (f.homeValue || f.defaultValue || ""));
+      control = `<select class="select" data-setting="${esc(f.key)}"${/AZURE_AUTH_TYPE$/.test(f.key) ? ' data-auth-type="1"' : ""} data-fallback="${esc(tenantField ? "" : f.envDefault || f.defaultValue || "")}">${
+        tenantField ? `<option value=""${current ? "" : " selected"}>Same as Home${homeOpt ? ` (${esc(homeOpt.label)})` : ""}</option>` : ""
+      }${opts.map((o) => `<option value="${esc(o.value)}"${o.value === current ? " selected" : ""}>${esc(o.label)}</option>`).join("")}</select>`;
     } else if (f.secret) {
       control = `<input class="input" type="password" data-setting="${esc(f.key)}" placeholder="leave blank to keep current value" autocomplete="new-password" />
         <span class="secret-state${f.isSet ? " is-set" : ""}">${f.isSet ? `set (${esc(f.source)})` : "not set"}</span>${

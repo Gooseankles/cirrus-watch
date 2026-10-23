@@ -83,6 +83,8 @@ const FIELDS = [
   { key: "DEFENDER_MIN_SCORE", label: "Flag a secure score below (%)", group: "Defender for Cloud", hint: "Per subscription; blank = 70, 0 = off" },
   { key: "DEFENDER_MIN_SEVERITY", label: "Recommendations from severity", group: "Defender for Cloud", hint: "high, medium or low; blank = medium" },
   { key: "LOCK_RESOURCE_TYPES", label: "Resource types that need a delete lock", group: "Safety nets", hint: "Comma-separated, e.g. microsoft.sql/servers. Blank = key vaults, Recovery Services and backup vaults, VNets, DNS and private DNS zones; none = off" },
+  { key: "AZURE_MONITOR_IN_USE", label: "Uses Azure Monitor", group: "Azure Monitor", options: [{ value: "off", label: "No: skip the check, no findings" }, { value: "on", label: "Yes: check agents, alerts and workspaces" }], defaultValue: "off", hint: "Off = the Azure Monitor scan makes no requests and reports nothing for this tenant" },
+  { key: "AZURE_MONITOR_HEARTBEAT_HOURS", label: "Flag a running machine with no heartbeat for (hours)", group: "Azure Monitor", hint: "Blank = 2" },
   { key: "DEFENDER_REQUIRED_PLANS", label: "Plans that must be on", group: "Defender for Cloud", hint: "Comma-separated plan names, e.g. VirtualMachines, StorageAccounts, KeyVaults, SqlServers, Arm, Containers. all = every plan; blank = no plan check" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
@@ -119,6 +121,7 @@ const TOOL_SPNS = [
   { id: "licence-coverage", label: "Licence coverage" },
   { id: "defender", label: "Defender for Cloud" },
   { id: "safety-nets", label: "Safety nets" },
+  { id: "azure-monitor", label: "Azure Monitor" },
   { id: "history-storage", label: "History storage" },
 ];
 

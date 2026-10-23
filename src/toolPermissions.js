@@ -38,6 +38,7 @@ const NEEDS = {
   },
   defender: { azure: READER },
   "safety-nets": { azure: READER },
+  "azure-monitor": { azure: ["Reader", "Log Analytics Reader on the workspaces, if Reader alone cannot query them (heartbeat check)"] },
   "access-lookup": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory"], licence: "Entra ID P2 to see eligible (PIM) roles" },
 };
 

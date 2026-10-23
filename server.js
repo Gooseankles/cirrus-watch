@@ -217,6 +217,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/licenceCoverage")),
   registerScanTool(app, require("./src/tools/defender")),
   registerScanTool(app, require("./src/tools/safetyNets")),
+  registerScanTool(app, require("./src/tools/azureMonitor")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

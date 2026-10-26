@@ -11,7 +11,7 @@ are needed.
 
 | Tool | Runs | What it finds or does |
 |---|---|---|
-| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups; **Cleaned up** lists the priced ones that were deleted since and what that saves (list price, so it works where cost analysis is off) |
+| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups, old snapshots and snapshots of deleted disks, VMs stopped but not deallocated, empty App Service plans, idle NAT, VPN, ExpressRoute and application gateways, empty load balancers, disconnected private endpoints, unlinked private DNS zones, unused NSGs and route tables, empty availability sets and SQL elastic pools, each priced at list price where Azure publishes one; Azure Advisor cost tips with Advisor's own estimate (settings: old snapshot age, Advisor tips on or off); **Cleaned up** lists the priced ones that were deleted since and what that saves (list price, so it works where cost analysis is off) |
 | Tag compliance | Daily | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
 | Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
 | Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree) |

@@ -56,7 +56,7 @@ async function query(filter) {
 function monthly(item) {
   if (!item) return null;
   const unit = String(item.unitOfMeasure || "");
-  if (/^1 Hour$/i.test(unit)) return item.retailPrice * HOURS_PER_MONTH;
+  if (/^1[ /]Hour$/i.test(unit)) return item.retailPrice * HOURS_PER_MONTH;
   if (/^1\/Month$/i.test(unit) || /^1 GB\/Month$/i.test(unit)) return item.retailPrice;
   return null;
 }

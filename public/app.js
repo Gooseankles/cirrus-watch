@@ -108,7 +108,7 @@ const fmt = {
 
 /* ---------- static knowledge about the tools ---------- */
 const TOOLS = [
-  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Unattached disks, unused public IPs, snapshots of deleted disks, App Service plans with no apps, orphaned NICs and empty resource groups, with what each costs a month at Azure's list price for its region, size and tier." },
+  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Leftovers that cost money or just clutter: disks, IPs, snapshots, VMs stopped but still billed, idle gateways, load balancers, endpoints and more, with what each costs a month at Azure's list price. Plus Azure Advisor's cost tips." },
   { id: "tag-compliance", group: "resources", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
   { id: "cost-anomaly", group: "cost", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
   { id: "access-review", group: "access", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
@@ -153,6 +153,19 @@ const KINDS = {
   "empty-resource-group": ["Empty resource group", ""],
   "orphaned-snapshot": ["Snapshot of deleted disk", "warn"],
   "empty-app-service-plan": ["App Service plan, no apps", "warn"],
+  "old-snapshot": ["Old snapshot", "info"],
+  "stopped-vm": ["VM stopped, still billed", "warn"],
+  "idle-nat-gateway": ["NAT gateway, no subnet", "warn"],
+  "empty-load-balancer": ["Load balancer, empty pools", "warn"],
+  "idle-app-gateway": ["App gateway, empty pools", "warn"],
+  "idle-vnet-gateway": ["VPN/ER gateway, no connections", "warn"],
+  "disconnected-private-endpoint": ["Private endpoint, disconnected", "warn"],
+  "unlinked-private-dns-zone": ["Private DNS zone, no links", "info"],
+  "unused-nsg": ["NSG, attached to nothing", "info"],
+  "unused-route-table": ["Route table, attached to nothing", "info"],
+  "empty-availability-set": ["Availability set, no VMs", "info"],
+  "empty-elastic-pool": ["SQL elastic pool, no databases", "warn"],
+  "advisor-cost": ["Azure Advisor cost tip", "info"],
   "missing-tags": ["Missing tags", "warn"],
   "cost-jump": ["Cost jump", "crit"],
   "scan-error": ["Scan error", "warn"],
@@ -1542,8 +1555,10 @@ function orSaved(entries) {
 }
 const orView = (t) => (t.filters.view === "saved" ? "saved" : "findings");
 function orStats(all, t) {
-  const costs = orCosts(all);
-  const unpriced = all.filter((f) => f.monthlyCost === null).length;
+  // Advisor's tips are its own estimates (often in USD), shown apart from the leftovers' list prices
+  const tips = orCosts(all.filter((f) => f.kind === "advisor-cost"));
+  const costs = orCosts(all.filter((f) => f.kind !== "advisor-cost"));
+  const unpriced = all.filter((f) => f.monthlyCost === null && f.kind !== "advisor-cost").length;
   const money = (pairs, k) => (pairs.length ? pairs.map(([c, v]) => fmt.money(v * k, c, true)).join(" + ") : "–");
   const sv = orSavings(t);
   const saved = sv && sv.data ? orSaved(sv.data.entries) : [];
@@ -1555,7 +1570,7 @@ function orStats(all, t) {
   });
   return (
     statTile({ label: "Wasted a month", value: money(costs, 1), delta: unpriced ? `${fmt.int(unpriced)} without a price` : "Azure list price, before discounts", deltaCls: costs.length ? "bad" : "" }) +
-    statTile({ label: "Wasted a year", value: money(costs, 12), delta: "if nothing is cleaned up" }) +
+    statTile({ label: "Wasted a year", value: money(costs, 12), delta: tips.length ? `Advisor tips: ${money(tips, 1)} a month more` : "if nothing is cleaned up" }) +
     savedTile +
     genericStats(all, t)
   );
@@ -1589,8 +1604,8 @@ function orPage(all, t) {
       `<span class="num good">${esc(fmt.money(e.monthlyCost * months, e.currency))}</span>`,
     ];
   });
-  return `<p class="muted small">Orphaned resources that were deleted after the dashboard found them. Each saves its monthly list price from the day it went (before discounts; a resource that was put back in use is not counted). ${saved.map(([c, m, so]) => `${esc(fmt.money(m, c))} a month, about ${esc(fmt.money(so, c))} so far`).join("; ")}.</p>` +
-    tableHtml([{ label: "Kind" }, { label: "Resource" }, { label: "Subscription" }, { label: "A month", cls: "num nowrap" }, { label: "Deleted" }, { label: "Saved so far", cls: "num nowrap" }], rows) +
+  return `<p class="muted small">Orphaned resources that were deleted after the dashboard found them (a stopped VM counts once it is deallocated). Each saves its monthly list price from the day it went (before discounts; a resource that was put back in use is not counted). ${saved.map(([c, m, so]) => `${esc(fmt.money(m, c))} a month, about ${esc(fmt.money(so, c))} so far`).join("; ")}.</p>` +
+    tableHtml([{ label: "Kind" }, { label: "Resource" }, { label: "Subscription" }, { label: "A month", cls: "num nowrap" }, { label: "Cleaned up" }, { label: "Saved so far", cls: "num nowrap" }], rows) +
     moreButton(Math.min(list.length, t.shown), list.length, t);
 }
 function orBody(shown, t) {

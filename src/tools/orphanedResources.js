@@ -1,5 +1,6 @@
 const { resourceGraphQuery, subscriptionIdsToScan } = require("../armClient");
-const { runChecks, mapLimit } = require("./util");
+const { runChecks, mapLimit, numberSetting, nameOf } = require("./util");
+const settings = require("../settings");
 const prices = require("../retailPrices");
 const log = require("../log");
 const store = require("../findingsStore");
@@ -206,37 +207,52 @@ async function emptyResourceGroups() {
 
 // Snapshots whose source disk is gone. Only sources in a scanned subscription are judged (a disk elsewhere may exist).
 const SNAPSHOT_PRODUCTS = { standard: "Standard HDD Managed Disks", premium: "Premium SSD Managed Disks" };
-async function orphanedSnapshots(book) {
-  const [snaps, disks, subs] = await Promise.all([
-    resourceGraphQuery(
-      `Resources
-      | where type == 'microsoft.compute/snapshots'
-      | project id, name, resourceGroup, subscriptionId, location, sizeGb = toint(properties.diskSizeGB), sku = tostring(sku.name),
-          incremental = tobool(properties.incremental), source = tolower(tostring(properties.creationData.sourceResourceId)), created = tostring(properties.timeCreated)`,
-      { toolId: TOOL_ID }
-    ),
-    resourceGraphQuery(`Resources | where type == 'microsoft.compute/disks' | project id = tolower(id)`, { toolId: TOOL_ID }),
-    subscriptionIdsToScan(TOOL_ID),
-  ]);
-  const diskIds = new Set(disks.map((d) => d.id));
-  const scanned = new Set(subs.map((s) => String(s).toLowerCase()));
+function snapshotPrice(book, s) {
+  const [type, red] = String(s.sku || "Standard_LRS").toLowerCase().split("_");
+  const product = SNAPSHOT_PRODUCTS[type];
+  const skuName = `Snapshots ${(red || "lrs").toUpperCase()}`;
+  if (!product) return Promise.resolve(null);
+  return book
+    .get(`snap|${s.location}|${product}|${skuName}`, async () => {
+      const items = await prices.query(`serviceName eq 'Storage' and armRegionName eq ${prices.lit(s.location)} and productName eq ${prices.lit(product)} and skuName eq ${prices.lit(skuName)}`);
+      return prices.monthly(items.find((i) => /Snapshots$/.test(i.meterName) && /GB\/Month/i.test(i.unitOfMeasure)));
+    })
+    .then((perGb) => (perGb == null ? null : perGb * (Number(s.sizeGb) || 0)));
+}
+const snapshotCostText = (s, cost, cur) =>
+  cost == null ? costText(null, cur) : s.incremental ? `up to ${Math.round(cost).toLocaleString("en-US")} ${cur} a month at list price (billed for the data it holds)` : costText(cost, cur);
+
+// The snapshot list is read once and shared by the orphaned and the old snapshot checks.
+function snapshotData() {
+  let p = null;
+  return () =>
+    (p ||= Promise.all([
+      resourceGraphQuery(
+        `Resources
+        | where type == 'microsoft.compute/snapshots'
+        | project id, name, resourceGroup, subscriptionId, location, sizeGb = toint(properties.diskSizeGB), sku = tostring(sku.name),
+            incremental = tobool(properties.incremental), source = tolower(tostring(properties.creationData.sourceResourceId)), created = tostring(properties.timeCreated)`,
+        { toolId: TOOL_ID }
+      ),
+      resourceGraphQuery(`Resources | where type == 'microsoft.compute/disks' | project id = tolower(id)`, { toolId: TOOL_ID }),
+      subscriptionIdsToScan(TOOL_ID),
+    ]).then(([snaps, disks, subs]) => {
+      const diskIds = new Set(disks.map((d) => d.id));
+      const scanned = new Set(subs.map((x) => String(x).toLowerCase()));
+      const orphan = (s) => {
+        const m = /^\/subscriptions\/([^/]+)\/resourcegroups\/[^/]+\/providers\/microsoft\.compute\/disks\//.exec(s.source || "");
+        return Boolean(m && scanned.has(m[1]) && !diskIds.has(s.source));
+      };
+      return { snaps, orphan };
+    }));
+}
+
+async function orphanedSnapshots(book, data) {
+  const { snaps, orphan } = await data();
   const cur = prices.currency();
   const out = [];
-  const orphans = snaps.filter((s) => {
-    const m = /^\/subscriptions\/([^/]+)\/resourcegroups\/[^/]+\/providers\/microsoft\.compute\/disks\//.exec(s.source || "");
-    return m && scanned.has(m[1]) && !diskIds.has(s.source);
-  });
-  await mapLimit(orphans, PRICE_CONCURRENCY, async (s) => {
-    const [type, red] = String(s.sku || "Standard_LRS").toLowerCase().split("_");
-    const product = SNAPSHOT_PRODUCTS[type];
-    const skuName = `Snapshots ${(red || "lrs").toUpperCase()}`;
-    const perGb = product
-      ? await book.get(`snap|${s.location}|${product}|${skuName}`, async () => {
-          const items = await prices.query(`serviceName eq 'Storage' and armRegionName eq ${prices.lit(s.location)} and productName eq ${prices.lit(product)} and skuName eq ${prices.lit(skuName)}`);
-          return prices.monthly(items.find((i) => /Snapshots$/.test(i.meterName) && /GB\/Month/i.test(i.unitOfMeasure)));
-        })
-      : null;
-    const cost = perGb == null ? null : perGb * (Number(s.sizeGb) || 0);
+  await mapLimit(snaps.filter(orphan), PRICE_CONCURRENCY, async (s) => {
+    const cost = await snapshotPrice(book, s);
     out.push({
       kind: "orphaned-snapshot",
       id: s.id,
@@ -246,12 +262,291 @@ async function orphanedSnapshots(book) {
       location: s.location,
       monthlyCost: cost,
       currency: cur,
-      detail: `${s.sizeGb} GB ${/^premium/i.test(s.sku) ? "Premium" : "Standard"} snapshot${s.incremental ? " (incremental)" : ""}, ${s.location}; its disk ${s.source.split("/").pop()} was deleted; ${
-        cost == null ? costText(null, cur) : s.incremental ? `up to ${Math.round(cost).toLocaleString("en-US")} ${cur} a month at list price (billed for the data it holds)` : costText(cost, cur)
-      }${s.created ? `; taken ${s.created.slice(0, 10)}` : ""}`,
+      detail: `${s.sizeGb} GB ${/^premium/i.test(s.sku) ? "Premium" : "Standard"} snapshot${s.incremental ? " (incremental)" : ""}, ${s.location}; its disk ${s.source.split("/").pop()} was deleted; ${snapshotCostText(s, cost, cur)}${s.created ? `; taken ${s.created.slice(0, 10)}` : ""}`,
     });
   });
   return out;
+}
+
+// Snapshots older than OLD_SNAPSHOT_DAYS whose disk still exists (or is elsewhere): often a one-off copy nobody needs.
+async function oldSnapshots(book, data) {
+  const days = numberSetting("OLD_SNAPSHOT_DAYS", 180, { min: 0, max: 3650 });
+  if (!days) return [];
+  const { snaps, orphan } = await data();
+  const cutoff = Date.now() - days * 86400000;
+  const cur = prices.currency();
+  const out = [];
+  await mapLimit(snaps.filter((s) => !orphan(s) && s.created && Date.parse(s.created) < cutoff), PRICE_CONCURRENCY, async (s) => {
+    const cost = await snapshotPrice(book, s);
+    const age = Math.floor((Date.now() - Date.parse(s.created)) / 86400000);
+    out.push({
+      kind: "old-snapshot",
+      id: s.id,
+      name: s.name,
+      resourceGroup: s.resourceGroup,
+      subscriptionId: s.subscriptionId,
+      location: s.location,
+      monthlyCost: cost,
+      currency: cur,
+      detail: `${s.sizeGb} GB ${/^premium/i.test(s.sku) ? "Premium" : "Standard"} snapshot${s.incremental ? " (incremental)" : ""}${s.source ? ` of ${nameOf(s.source)}` : ""}, ${age} days old (taken ${s.created.slice(0, 10)}); ${snapshotCostText(s, cost, cur)}`,
+    });
+  });
+  return out;
+}
+
+const finding = (kind, r, cost, cur, detail) => ({
+  kind, id: r.id, name: r.name, resourceGroup: r.resourceGroup, subscriptionId: r.subscriptionId, location: r.location,
+  monthlyCost: cost, ...(cur && { currency: cur }), detail,
+});
+
+// A price for one exact meter, remembered for the run. Region 'Global' for meters Azure prices the same everywhere.
+function meterPrice(book, key, filter) {
+  return book.get(key, async () => prices.monthly((await prices.query(filter))[0]));
+}
+
+// VMs shut down from inside the OS (or stopped without deallocating) still bill the full compute price. Azure
+// Hybrid Benefit (licenseType Windows_Server) pays the Linux price.
+async function stoppedVms(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.compute/virtualmachines' and tostring(properties.extended.instanceView.powerState.code) =~ 'PowerState/stopped'
+    | project id, name, resourceGroup, subscriptionId, location, size = tostring(properties.hardwareProfile.vmSize),
+        os = tostring(properties.storageProfile.osDisk.osType), license = tostring(properties.licenseType)`,
+    { toolId: TOOL_ID }
+  );
+  const cur = prices.currency();
+  const out = [];
+  await mapLimit(rows, PRICE_CONCURRENCY, async (r) => {
+    const windows = /windows/i.test(r.os) && !/^Windows_(Server|Client)$/i.test(r.license);
+    const cost = r.size
+      ? await book.get(`vm|${r.location}|${r.size}|${windows}`, async () => {
+          const items = await prices.query(`serviceName eq 'Virtual Machines' and armRegionName eq ${prices.lit(r.location)} and armSkuName eq ${prices.lit(r.size)}`);
+          return prices.monthly(items.find((i) => !/Spot|Low Priority/i.test(i.skuName) && !/Cloud Services|Dedicated Host/i.test(i.productName) && / Windows$/.test(i.productName) === windows));
+        })
+      : null;
+    out.push(finding("stopped-vm", r, cost, cur, `${r.size} ${windows ? "Windows" : "Linux"}, ${r.location}; stopped but not deallocated, so compute is still billed: ${cost == null ? costText(null, cur, r.size) : costText(cost, cur)}. Stop it from the portal (that deallocates it) or delete it`));
+  });
+  return out;
+}
+
+async function idleNatGateways(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.network/natgateways' and array_length(properties.subnets) == 0
+    | project id, name, resourceGroup, subscriptionId, location`,
+    { toolId: TOOL_ID }
+  );
+  const cur = prices.currency();
+  const cost = rows.length ? await meterPrice(book, "nat", "productName eq 'NAT Gateway' and armRegionName eq 'Global' and meterName eq 'Standard Gateway'") : null;
+  return rows.map((r) => finding("idle-nat-gateway", r, cost, cur, `${r.location}; attached to no subnet; ${costText(cost, cur)} (plus its public IPs)`));
+}
+
+// Backend pools with no NIC or address in any of them.
+const poolSize = (p) => {
+  const x = (p && p.properties) || {};
+  return (x.backendIPConfigurations || []).length + (x.loadBalancerBackendAddresses || []).length + (x.backendAddresses || []).length;
+};
+const allEmpty = (pools) => (pools || []).every((p) => poolSize(p) === 0);
+
+// A Standard load balancer bills for its rules; one with no rules costs nothing. Basic ones are free and retiring.
+async function emptyLoadBalancers(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.network/loadbalancers' and tostring(sku.name) =~ 'Standard'
+    | project id, name, resourceGroup, subscriptionId, location, pools = properties.backendAddressPools,
+        rules = coalesce(array_length(properties.loadBalancingRules), 0) + coalesce(array_length(properties.outboundRules), 0)`,
+    { toolId: TOOL_ID }
+  );
+  const empty = rows.filter((r) => allEmpty(r.pools));
+  const cur = prices.currency();
+  const ruled = empty.some((r) => r.rules > 0)
+    ? await meterPrice(book, "lb", "productName eq 'Load Balancer' and armRegionName eq 'Global' and meterName eq 'Standard Included LB Rules and Outbound Rules'")
+    : null;
+  return empty.map((r) => {
+    const cost = r.rules > 0 ? ruled : 0;
+    return finding("empty-load-balancer", r, cost, cur, `Standard, ${r.location}; ${(r.pools || []).length ? "every backend pool is empty" : "no backend pool"}, ${r.rules} rule${r.rules === 1 ? "" : "s"}; ${cost === 0 ? "no charge without rules, only clutter" : costText(cost, cur)}`);
+  });
+}
+
+// v2 gateways bill a fixed hourly price plus capacity units (at least the minimum) with nothing behind them.
+// A stopped gateway is not billed. v1 gateways are being retired and are not estimated.
+const AGW_PRODUCTS = { standard_v2: "Application Gateway Standard v2", waf_v2: "Application Gateway WAF v2" };
+async function idleAppGateways(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.network/applicationgateways'
+    | project id, name, resourceGroup, subscriptionId, location, tier = tostring(properties.sku.tier), capacity = toint(properties.sku.capacity),
+        minCapacity = toint(properties.autoscaleConfiguration.minCapacity), state = tostring(properties.operationalState), pools = properties.backendAddressPools`,
+    { toolId: TOOL_ID }
+  );
+  const cur = prices.currency();
+  const out = [];
+  await mapLimit(rows.filter((r) => allEmpty(r.pools)), PRICE_CONCURRENCY, async (r) => {
+    const stopped = /stopped/i.test(r.state);
+    const product = AGW_PRODUCTS[String(r.tier).toLowerCase()];
+    let cost = stopped ? 0 : null;
+    if (!stopped && product) {
+      const items = (await book.get(`agw|${r.location}|${product}`, () => prices.query(`productName eq ${prices.lit(product)} and armRegionName eq ${prices.lit(r.location)}`))) || [];
+      const fixed = prices.monthly(items.find((i) => /Fixed Cost$/.test(i.meterName)));
+      const cu = prices.monthly(items.find((i) => /Capacity Units$/.test(i.meterName)));
+      const units = Math.max(0, Number(r.minCapacity ?? r.capacity) || 0);
+      cost = fixed == null ? null : fixed + units * (cu || 0);
+    }
+    const price = stopped ? "stopped, so not billed" : product ? costText(cost, cur) : "v1 gateway (being retired), not estimated";
+    out.push(finding("idle-app-gateway", r, cost, cur, `${r.tier}, ${r.location}; every backend pool is empty; ${price}`));
+  });
+  return out;
+}
+
+// VPN and ExpressRoute gateways with no connection (and, for VPN, no point-to-site clients) bill by the hour for nothing.
+async function idleVnetGateways(book) {
+  const [gws, conns] = await Promise.all([
+    resourceGraphQuery(
+      `Resources
+      | where type == 'microsoft.network/virtualnetworkgateways'
+      | project id, name, resourceGroup, subscriptionId, location, gatewayType = tostring(properties.gatewayType), sku = tostring(properties.sku.name),
+          p2s = coalesce(array_length(properties.vpnClientConfiguration.vpnClientAddressPool.addressPrefixes), 0) > 0`,
+      { toolId: TOOL_ID }
+    ),
+    resourceGraphQuery(
+      `Resources
+      | where type == 'microsoft.network/connections'
+      | project g1 = tolower(tostring(properties.virtualNetworkGateway1.id)), g2 = tolower(tostring(properties.virtualNetworkGateway2.id))`,
+      { toolId: TOOL_ID }
+    ),
+  ]);
+  const used = new Set(conns.flatMap((c) => [c.g1, c.g2]).filter(Boolean));
+  const cur = prices.currency();
+  const out = [];
+  await mapLimit(gws.filter((g) => !used.has(String(g.id).toLowerCase()) && !g.p2s), PRICE_CONCURRENCY, async (g) => {
+    const er = /expressroute/i.test(g.gatewayType);
+    const filter = er
+      ? `armRegionName eq ${prices.lit(g.location)} and meterName eq ${prices.lit(`${g.sku} Gateway`)}`
+      : `serviceName eq 'VPN Gateway' and armRegionName eq ${prices.lit(g.location)} and meterName eq ${prices.lit(g.sku)}`;
+    const cost = g.sku ? await meterPrice(book, `vgw|${g.location}|${er}|${g.sku}`, filter) : null;
+    out.push(finding("idle-vnet-gateway", g, cost, cur, `${er ? "ExpressRoute" : "VPN"} gateway ${g.sku}, ${g.location}; no connections${er ? "" : " and no point-to-site setup"}; ${costText(cost, cur, g.sku)}`));
+  });
+  return out;
+}
+
+// Private endpoints whose target was deleted, or that the target's owner rejected or cut off.
+async function disconnectedPrivateEndpoints(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.network/privateendpoints'
+    | extend c = iff(array_length(properties.privateLinkServiceConnections) > 0, properties.privateLinkServiceConnections[0], properties.manualPrivateLinkServiceConnections[0])
+    | extend status = tostring(c.properties.privateLinkServiceConnectionState.status), target = tostring(c.properties.privateLinkServiceId)
+    | where status in~ ('Disconnected', 'Rejected')
+    | project id, name, resourceGroup, subscriptionId, location, status, target`,
+    { toolId: TOOL_ID }
+  );
+  const cur = prices.currency();
+  const cost = rows.length ? await meterPrice(book, "pe", "armRegionName eq 'Global' and meterName eq 'Standard Private Endpoint'") : null;
+  return rows.map((r) => finding("disconnected-private-endpoint", r, cost, cur, `${r.status} by ${nameOf(r.target) || "its target"}, ${r.location}; carries no traffic; ${costText(cost, cur)}`));
+}
+
+// Private DNS zones linked to no virtual network answer nobody. Priced at the first-25-zones rate (billed per zone a month).
+async function unlinkedPrivateDnsZones(book) {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.network/privatednszones' and toint(properties.numberOfVirtualNetworkLinks) == 0
+    | project id, name, resourceGroup, subscriptionId, location, records = toint(properties.numberOfRecordSets)`,
+    { toolId: TOOL_ID }
+  );
+  const cur = prices.currency();
+  const cost = rows.length
+    ? await book.get("pdns", async () => {
+        const it = (await prices.query("serviceName eq 'Azure DNS' and meterName eq 'Private Zone' and armRegionName eq 'Zone 1'")).find((i) => !i.tierMinimumUnits);
+        return it ? it.retailPrice : null;
+      })
+    : null;
+  return rows.map((r) => finding("unlinked-private-dns-zone", r, cost, cur, `${r.records || 0} record sets; linked to no virtual network, so nothing resolves it; ${costText(cost, cur)}`));
+}
+
+// Free leftovers: network security groups and route tables attached to nothing, availability sets with no VM.
+const UNUSED_KINDS = {
+  "microsoft.network/networksecuritygroups": ["unused-nsg", "attached to no subnet or network interface"],
+  "microsoft.network/routetables": ["unused-route-table", "attached to no subnet"],
+  "microsoft.compute/availabilitysets": ["empty-availability-set", "holds no VM"],
+};
+async function unusedNetworkBits() {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where (type == 'microsoft.network/networksecuritygroups' and coalesce(array_length(properties.subnets), 0) == 0 and coalesce(array_length(properties.networkInterfaces), 0) == 0)
+        or (type == 'microsoft.network/routetables' and coalesce(array_length(properties.subnets), 0) == 0)
+        or (type == 'microsoft.compute/availabilitysets' and coalesce(array_length(properties.virtualMachines), 0) == 0)
+    | project id, name, resourceGroup, subscriptionId, location, type`,
+    { toolId: TOOL_ID }
+  );
+  return rows.map((r) => {
+    const [kind, what] = UNUSED_KINDS[r.type];
+    return finding(kind, r, 0, null, `${what}; no charge, only clutter`);
+  });
+}
+
+// Elastic pools bill for their size whether or not they hold databases. Their price depends on the model (DTU or
+// vCore), tier and size, so it is not estimated.
+async function emptyElasticPools() {
+  const [pools, dbs] = await Promise.all([
+    resourceGraphQuery(
+      `Resources
+      | where type == 'microsoft.sql/servers/elasticpools'
+      | project id, name, resourceGroup, subscriptionId, location, sku = tostring(sku.name), capacity = toint(sku.capacity)`,
+      { toolId: TOOL_ID }
+    ),
+    resourceGraphQuery(
+      `Resources
+      | where type == 'microsoft.sql/servers/databases' and isnotempty(properties.elasticPoolId)
+      | summarize by pool = tolower(tostring(properties.elasticPoolId))`,
+      { toolId: TOOL_ID }
+    ),
+  ]);
+  const used = new Set(dbs.map((d) => d.pool));
+  return pools
+    .filter((p) => !used.has(String(p.id).toLowerCase()))
+    .map((p) => finding("empty-elastic-pool", p, null, null, `${p.sku}${p.capacity ? ` (${p.capacity})` : ""}, ${p.location}; holds no databases but is billed for its size (not estimated)`));
+}
+
+// Azure Advisor's own cost tips (resize or shut down underused VMs and the like) with its estimate of the monthly
+// saving, in the currency Advisor gives. Reservation and savings plan advice for a whole subscription is left out: it
+// is a purchase, not waste. run() drops tips about a resource another check already lists.
+const isOff = (v) => /^(off|no|false|0)$/i.test(String(v || "").trim());
+async function advisorCostTips() {
+  if (isOff(settings.get("ADVISOR_COST_TIPS"))) return [];
+  const rows = await resourceGraphQuery(
+    `AdvisorResources
+    | where type == 'microsoft.advisor/recommendations' and tostring(properties.category) == 'Cost'
+    | where tostring(properties.impactedField) !~ 'Microsoft.Subscriptions/subscriptions'
+    | project id, subscriptionId, target = tostring(properties.resourceMetadata.resourceId), value = tostring(properties.impactedValue),
+        problem = tostring(properties.shortDescription.problem), solution = tostring(properties.shortDescription.solution),
+        impact = tostring(properties.impact), ext = properties.extendedProperties`,
+    { toolId: TOOL_ID }
+  );
+  return rows.map(advisorFinding);
+}
+function advisorFinding(r) {
+  const ext = r.ext || {};
+  const monthly = Number(ext.savingsAmount) || Number(ext.annualSavingsAmount) / 12 || null;
+  const cur = ext.savingsCurrency || "USD";
+  const rg = /\/resourcegroups\/([^/]+)/i.exec(r.target || "");
+  return {
+    kind: "advisor-cost",
+    id: r.id,
+    target: r.target || null,
+    name: r.value || nameOf(r.target) || "Advisor tip",
+    resourceGroup: rg ? rg[1] : undefined,
+    subscriptionId: r.subscriptionId,
+    location: ext.location || ext.region || undefined,
+    monthlyCost: monthly,
+    currency: cur,
+    detail: `Azure Advisor, ${String(r.impact || "unknown").toLowerCase()} impact: ${r.solution || r.problem || "see Advisor"}${monthly ? `; Advisor's estimate: about ${Math.round(monthly).toLocaleString("en-US")} ${cur} a month` : ""}`,
+  };
+}
+
+// An Advisor tip about a resource another check already lists says the same thing twice.
+function dropAdvisorRepeats(findings) {
+  const listed = new Set(findings.filter((f) => f.kind !== "advisor-cost" && f.id).map((f) => String(f.id).toLowerCase()));
+  return findings.filter((f) => f.kind !== "advisor-cost" || !f.target || !listed.has(String(f.target).toLowerCase()));
 }
 
 // App Service plans with no apps still bill every instance. Free, shared and consumption plans cost nothing.
@@ -298,12 +593,21 @@ async function emptyAppServicePlans(book) {
 // A priced finding that is gone from this run counts as saved only when the resource itself is gone (deleted):
 // a disk attached again or a plan given an app still costs money. Each saving keeps its monthly list price and the
 // day it went; the page adds up a month's worth and what it has saved since. Kept per tenant, never pruned.
+// A stopped VM counts as saved once it is deallocated (or deleted).
 const SAVINGS_KEY = "savings/orphaned-resources.json";
 const CHECK_OF_KIND = {
   "unattached-disk": "Unattached disks",
   "unused-public-ip": "Unused public IPs",
   "orphaned-snapshot": "Orphaned snapshots",
+  "old-snapshot": "Old snapshots",
   "empty-app-service-plan": "Empty App Service plans",
+  "stopped-vm": "Stopped VMs",
+  "idle-nat-gateway": "Idle NAT gateways",
+  "empty-load-balancer": "Empty load balancers",
+  "idle-app-gateway": "Idle application gateways",
+  "idle-vnet-gateway": "Idle VPN and ExpressRoute gateways",
+  "disconnected-private-endpoint": "Disconnected private endpoints",
+  "unlinked-private-dns-zone": "Unlinked private DNS zones",
 };
 const PENDING_DAYS = 30; // a gone finding not confirmed in this time (its subscription no longer scanned) is dropped
 const ID_BATCH = 200;
@@ -352,7 +656,12 @@ async function existingIds(ids) {
   const out = new Set();
   for (let i = 0; i < ids.length; i += ID_BATCH) {
     const list = ids.slice(i, i + ID_BATCH).map((id) => `'${String(id).toLowerCase().replace(/'/g, "")}'`).join(",");
-    const rows = await resourceGraphQuery(`Resources | where tolower(id) in (${list}) | project id`, { toolId: TOOL_ID });
+    const rows = await resourceGraphQuery(
+      `Resources | where tolower(id) in (${list})
+      | where not(type == 'microsoft.compute/virtualmachines' and tostring(properties.extended.instanceView.powerState.code) =~ 'PowerState/deallocated')
+      | project id`,
+      { toolId: TOOL_ID }
+    );
     for (const r of rows) out.add(String(r.id).toLowerCase());
   }
   return out;
@@ -400,18 +709,32 @@ function registerRoutes(app, { readKeys, decorate }) {
 // findings; run() throws only when every check fails.
 async function run() {
   const book = priceBook();
-  const findings = await runChecks(TOOL_ID, {
-    "Unattached disks": () => unattachedDisks(book),
-    "Unused public IPs": () => unusedPublicIps(book),
-    "Orphaned NICs": orphanedNics,
-    "Empty resource groups": emptyResourceGroups,
-    "Orphaned snapshots": () => orphanedSnapshots(book),
-    "Empty App Service plans": () => emptyAppServicePlans(book),
-  });
+  const snaps = snapshotData();
+  const findings = dropAdvisorRepeats(
+    await runChecks(TOOL_ID, {
+      "Unattached disks": () => unattachedDisks(book),
+      "Unused public IPs": () => unusedPublicIps(book),
+      "Orphaned NICs": orphanedNics,
+      "Empty resource groups": emptyResourceGroups,
+      "Orphaned snapshots": () => orphanedSnapshots(book, snaps),
+      "Old snapshots": () => oldSnapshots(book, snaps),
+      "Empty App Service plans": () => emptyAppServicePlans(book),
+      "Stopped VMs": () => stoppedVms(book),
+      "Idle NAT gateways": () => idleNatGateways(book),
+      "Empty load balancers": () => emptyLoadBalancers(book),
+      "Idle application gateways": () => idleAppGateways(book),
+      "Idle VPN and ExpressRoute gateways": () => idleVnetGateways(book),
+      "Disconnected private endpoints": () => disconnectedPrivateEndpoints(book),
+      "Unlinked private DNS zones": () => unlinkedPrivateDnsZones(book),
+      "Unused NSGs, route tables and availability sets": unusedNetworkBits,
+      "Empty SQL elastic pools": emptyElasticPools,
+      "Azure Advisor cost tips": advisorCostTips,
+    })
+  );
   if (book.failures.length) {
     log.record({ tool: TOOL_ID, level: "warn", message: `${book.failures.length} price lookup(s) failed: ${book.failures[0]}` });
   }
-  const total = findings.reduce((s, f) => s + (f.monthlyCost || 0), 0);
+  const total = findings.filter((f) => !f.currency || f.currency === prices.currency()).reduce((s, f) => s + (f.monthlyCost || 0), 0);
   log.record({ tool: TOOL_ID, level: "info", message: `${findings.length} finding(s), about ${Math.round(total)} ${prices.currency()} a month at list price` });
   await recordSavings(findings).catch((err) => log.record({ tool: TOOL_ID, level: "warn", message: `savings not updated: ${err.message}` }));
   return findings;
@@ -423,5 +746,5 @@ module.exports = {
   schedule: "0 3 * * *", // nightly at 03:00
   run,
   registerRoutes,
-  _test: { diskTier, diskSku, appServiceSkuName, diskDescription, updateSavings },
+  _test: { diskTier, diskSku, appServiceSkuName, diskDescription, updateSavings, poolSize, dropAdvisorRepeats, advisorFinding },
 };

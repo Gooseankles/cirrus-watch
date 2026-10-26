@@ -57,6 +57,8 @@ const FIELDS = [
   { key: "POLICY_PROBE_DENIED_REGION", label: "Region that must be blocked", group: "Policy check", hint: "Enables the denied-region probe, e.g. brazilsouth" },
 
   { key: "PRICE_CURRENCY", label: "Currency for cost estimates", group: "Orphaned resources", hint: "Three-letter code, e.g. NOK, EUR, USD; Azure list prices for each region, tier and size. Blank = NOK" },
+  { key: "OLD_SNAPSHOT_DAYS", label: "Old snapshot age (days)", group: "Orphaned resources", hint: "Snapshots older than this are listed with what they cost; blank = 180, 0 = off" },
+  { key: "ADVISOR_COST_TIPS", label: "Azure Advisor cost tips", group: "Orphaned resources", hint: "on or off; blank = on. Advisor's own savings estimates for resizing or shutting down resources" },
   { key: "AZURE_REQUIRED_TAGS", label: "Required tags", group: "Tag compliance", hint: "Comma-separated tag names" },
   { key: "AZURE_COST_ANOMALY_THRESHOLD_PCT", label: "Cost jump threshold (%)", group: "Cost anomalies" },
   { key: "COST_HISTORY_MONTHS", label: "Cost history to pull on first run (months)", group: "Cost anomalies", hint: "Blank = 13; after that it keeps growing from storage" },

@@ -91,6 +91,19 @@ const KIND_CONTROLS = {
   "empty-resource-group": ASSETS,
   "orphaned-snapshot": ASSETS,
   "empty-app-service-plan": ASSETS,
+  "old-snapshot": ASSETS,
+  "stopped-vm": ASSETS,
+  "idle-nat-gateway": ASSETS,
+  "empty-load-balancer": ASSETS,
+  "idle-app-gateway": ASSETS,
+  "idle-vnet-gateway": ASSETS,
+  "disconnected-private-endpoint": ASSETS,
+  "unlinked-private-dns-zone": ASSETS,
+  "unused-nsg": ASSETS,
+  "unused-route-table": ASSETS,
+  "empty-availability-set": ASSETS,
+  "empty-elastic-pool": ASSETS,
+  "advisor-cost": ASSETS,
   "missing-tags": ASSETS,
   "stale-direct-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
   "stale-group-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
@@ -234,7 +247,7 @@ const PROBE_CONTROLS = {
 // The kinds each scan can report, so the Compliance page knows which scans look at a control (a scan that ran and
 // found nothing counts as "no findings" for every control its kinds map to).
 const TOOL_KINDS = {
-  "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group", "orphaned-snapshot", "empty-app-service-plan"],
+  "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group", "orphaned-snapshot", "empty-app-service-plan", "old-snapshot", "stopped-vm", "idle-nat-gateway", "empty-load-balancer", "idle-app-gateway", "idle-vnet-gateway", "disconnected-private-endpoint", "unlinked-private-dns-zone", "unused-nsg", "unused-route-table", "empty-availability-set", "empty-elastic-pool", "advisor-cost"],
   "tag-compliance": ["missing-tags"],
   "access-review": ["stale-direct-assignment", "stale-group-assignment"],
   "secret-expiry": ["app-credential-expiring"],

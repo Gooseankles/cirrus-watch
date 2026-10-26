@@ -290,6 +290,18 @@ each subscription it can see.
 
 `.env`, `data/` and `logs/` are ignored by git; never commit real secrets.
 
+## Keeping the stack up to date
+
+- **Dependabot** (`.github/dependabot.yml`) opens weekly pull requests for npm packages (minor and patch grouped),
+  the Node base image (not majors) and GitHub Actions. Each PR body has the release notes, and the image build with
+  the Trivy gate runs on it before it is merged.
+- **Stack report** (`.github/workflows/stack-report.yml`, Mondays, or Run workflow by hand) checks every part the
+  dashboard is built on, the version in use against the newest, with the release notes in between (breaking changes,
+  deprecations and security fixes marked at the top of each). It keeps one open issue labelled `stack-report` up to
+  date and closes it when everything is current. It also covers what Dependabot skips: a newer Node LTS major and the
+  Trivy scanner pinned by digest (it gives the new digest). Run it locally with
+  `GITHUB_TOKEN=$(gh auth token) node .github/scripts/stack-report.mjs` (writes `stack-report.md`).
+
 ## Adding a tool
 
 A scan tool is a file in `src/tools/` exporting `{ id, label, schedule, run() }`, where `run()` returns a list of

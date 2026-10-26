@@ -1,0 +1,50 @@
+name: Stack report
+
+# Every Monday: checks each part the dashboard is built on (npm packages, the
+# Node base image, GitHub Actions, the pinned Trivy scanner) for newer versions
+# and collects their release notes. The answer goes in one open issue labelled
+# stack-report, updated in place each week and closed when all is up to date.
+# Dependabot still opens the update pull requests; this is the overview, and it
+# also covers what Dependabot is told to skip (Node majors, the Trivy digest).
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the report
+        id: report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/stack-report.mjs
+
+      - name: Update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTDATED: ${{ steps.report.outputs.outdated }}
+        run: |
+          gh label create stack-report --color 0e8a16 --description "Weekly check for newer versions" --force > /dev/null
+          number=$(gh issue list --label stack-report --state open --json number --jq '.[0].number')
+          if [ "${OUTDATED:-0}" = "0" ]; then
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body "Everything is up to date now. Closing."
+              gh issue close "$number"
+            fi
+            echo "Up to date."
+          elif [ -n "$number" ]; then
+            gh issue edit "$number" --title "Stack updates: $OUTDATED to look at" --body-file stack-report.md
+            gh issue comment "$number" --body "Report updated $(date -u +%Y-%m-%d)."
+          else
+            gh issue create --title "Stack updates: $OUTDATED to look at" --label stack-report --body-file stack-report.md
+          fi

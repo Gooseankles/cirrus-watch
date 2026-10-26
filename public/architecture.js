@@ -348,7 +348,8 @@
     }
   }
   // Line colours for "colour by VM": easy to tell apart, readable on light and dark.
-  const VM_COLORS = ["#4c8df6", "#f08c00", "#12b886", "#d6336c", "#845ef7", "#15aabf", "#b07d2b", "#74b816", "#e8590c", "#5f3dc4"];
+  // No blue: that is the peering colour.
+  const VM_COLORS = ["#f08c00", "#12b886", "#d6336c", "#845ef7", "#b07d2b", "#74b816", "#ae3ec9", "#15aabf", "#e8590c", "#0b7285"];
   // Coloured by VM the result shows in the line: solid gets through, dashed some ports, dotted blocked or unknown.
   const FLOW_DASH = { allow: "", part: "9 4", deny: "2 4", unknown: "1 5" };
 
@@ -680,6 +681,7 @@
     const pair = (l) => (l.a < l.b ? `${l.a}|${l.b}` : `${l.b}|${l.a}`);
     const count = new Map(), seen = new Map();
     for (const l of m.links) count.set(pair(l), (count.get(pair(l)) || 0) + 1);
+    const traffic = m.links.some((l) => l.on);
     for (const l of m.links) {
       const a = at.get(l.a), b = at.get(l.b);
       if (!a || !b) continue;
@@ -693,15 +695,19 @@
         const nx = (-(e.y - s.y) / len) * off, ny = ((e.x - s.x) / len) * off;
         for (const q of [s, e]) (q.x += nx), (q.y += ny);
       }
-      const bend = Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3);
+      // Ends that face each other across a narrow gap (two VNets side by side) would make the curve loop back: keep it inside the gap.
+      const gap = s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
+      const bend = Math.min(Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3), Math.max(12, gap / 2));
       const c1 = s.h ? { x: s.x + (e.x > s.x ? bend : -bend), y: s.y } : { x: s.x, y: s.y + (e.y > s.y ? bend : -bend) };
       const c2 = e.h ? { x: e.x + (s.x > e.x ? bend : -bend), y: e.y } : { x: e.x, y: e.y + (s.y > e.y ? bend : -bend) };
       const [col0, dash0, w] = LINK_STYLE[l.kind](p);
+      // With traffic lines on, the network lines (peerings, VPN, endpoints) step back.
+      const op = traffic && !l.on ? 0.4 : 0.85;
       const col = l.col || col0;
       const dash = l.col ? FLOW_DASH[l.flow] : l.dash ? "7 4" : dash0;
       const g = l.on ? ` class="arch-ln" data-on="${esc(l.on.join(" "))}"` : "";
       out.push(`<g${g}>`);
-      out.push(`<path d="M${s.x},${s.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${e.x},${e.y}" fill="none" stroke="${col}" stroke-width="${w}" stroke-opacity="0.85"${dash ? ` stroke-dasharray="${dash}"` : ""}><title>${esc(l.title)}</title></path>`);
+      out.push(`<path d="M${s.x},${s.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${e.x},${e.y}" fill="none" stroke="${col}" stroke-width="${w}" stroke-opacity="${op}"${dash ? ` stroke-dasharray="${dash}"` : ""}><title>${esc(l.title)}</title></path>`);
       if (!l.arrow) {
         out.push(`<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/><circle cx="${e.x}" cy="${e.y}" r="3" fill="${col}"/></g>`);
         continue;

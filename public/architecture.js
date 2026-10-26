@@ -205,6 +205,8 @@
       dir: saved.dir === "out" ? "out" : "in",
       flowBlocked: !!saved.flowBlocked,
       flowColor: saved.flowColor === "state" ? "state" : "vm",
+      flowSame: !!saved.flowSame,
+      fwVms: saved.fwVms !== false,
       pick: new Set(Array.isArray(store.get("pick")) ? store.get("pick") : []),
       hide: new Set(Array.isArray(store.get("hide")) ? store.get("hide") : []),
       openRg: new Set(),
@@ -220,7 +222,7 @@
     store.set("scope", [...o.scope]);
     store.set("pick", [...o.pick]);
     store.set("hide", [...o.hide]);
-    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor });
+    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor, flowSame: o.flowSame, fwVms: o.fwVms });
   }
 
   /* --- traffic lines: can the picked tile talk to the others on these ports? --- */
@@ -299,9 +301,23 @@
   const FLOW_WORD = { allow: "open", part: "partly open", deny: "blocked", unknown: "unknown", none: "no address" };
   function flowLinks(m, f, o) {
     if (!f || !f.results) return;
-    const tile = new Map();
-    for (const l of drawnLeaves(m.root)) for (const r of l.many || [l.r]) tile.set(r.id, l.key);
+    const tile = new Map(), subnet = new Map();
+    for (const l of drawnLeaves(m.root)) for (const r of l.many || [l.r]) tile.set(r.id, l.key), subnet.set(r.id, r.subnet);
     const lines = new Map();
+    // Over the whole drawing, each tile gets one line to a firewall its traffic passes, with the number of pairs
+    // on it; the pairs one by one show when a VM is clicked.
+    const trunks = new Map();
+    const trunk = (t, fw, way, state, text) => {
+      const k = `${t}|${fw}`;
+      const x = trunks.get(k) || { t, fw, out: false, in: false, states: new Set(), n: 0, texts: [], ends: new Set() };
+      x[way] = true;
+      x.states.add(state);
+      x.n++;
+      for (const e of ends) x.ends.add(e);
+      if (x.texts.length < 12) x.texts.push(text);
+      trunks.set(k, x);
+    };
+    f.sameLeft = 0;
     const byVm = o.flowColor === "vm";
     let src = null, ends = [];
     const add = (a, b, state, fw, text) => {
@@ -319,6 +335,11 @@
       if (r.state === "none") continue;
       // Over the whole drawing, blocked pairs are left out unless asked for: most pairs are blocked on purpose.
       if (f.auto && !o.flowBlocked && r.state === "deny") continue;
+      // Two VMs in one subnet nearly always reach each other: left out unless asked for.
+      if (f.auto && !o.flowSame && subnet.get(r.from) && subnet.get(r.from) === subnet.get(r.to)) {
+        f.sameLeft++;
+        continue;
+      }
       const a = tile.get(r.from), b = tile.get(r.to);
       src = a;
       ends = [a, b];
@@ -327,14 +348,17 @@
       const text = `${name(r.from)} → ${name(r.to)}: ${FLOW_WORD[r.state]}, ${r.via}${bad.length && r.state !== "deny" ? `\n  ${bad.join("\n  ")}` : r.why ? `\n  ${r.why}` : ""}`;
       const mid = r.fw || r.hop;
       const fwTile = mid && tile.get(mid);
-      if (fwTile && fwTile !== a && fwTile !== b) {
+      if (fwTile && fwTile !== a && fwTile !== b && f.auto) {
+        trunk(a, fwTile, "out", r.state, text);
+        trunk(b, fwTile, "in", r.state, text);
+      } else if (fwTile && fwTile !== a && fwTile !== b) {
         add(a, fwTile, r.state, true, text);
         add(fwTile, b, r.state, true, text);
       } else add(a, b, r.state, !!mid, text);
     }
     const stateOf = (x) => (x.states.size === 1 ? [...x.states][0] : "part");
     // Each VM that sends gets its own colour, in a steady order so a colour stays with its VM between redraws.
-    const senders = [...new Set([...lines.values()].map((x) => x.src))].filter(Boolean).sort();
+    const senders = [...new Set([...[...lines.values()].map((x) => x.src), ...[...trunks.values()].filter((x) => x.out).map((x) => x.t)])].filter(Boolean).sort();
     const vmCol = new Map(senders.map((k, i) => [k, VM_COLORS[i % VM_COLORS.length]]));
     o.vmCol = byVm ? vmCol : null;
     for (const [k, x] of lines) {
@@ -346,6 +370,14 @@
       const on = new Set([...x.ends, x.a, x.b, ...(both ? back.ends : [])]);
       m.links.push({ a: x.a, b: x.b, kind: `flow-${stateOf(x)}`, flow: stateOf(x), col: byVm ? vmCol.get(x.src) : null, on: [...on], arrow: true, both, dash: !byVm && x.fw, title: [...x.texts, ...(both ? back.texts : [])].slice(0, 16).join("\n") });
     }
+    for (const x of trunks.values()) {
+      const st = stateOf(x);
+      // The arrow points the way the traffic goes: into the firewall from a sender, out of it to a receiver.
+      const [a, b] = x.out ? [x.t, x.fw] : [x.fw, x.t];
+      const head = `${x.n} pair${x.n > 1 ? "s" : ""} through the firewall${x.n > 1 ? " (click a VM to see them one by one)" : ""}`;
+      // Coloured by VM, a tile that only receives has a grey line: it has no colour of its own.
+      m.links.push({ a, b, kind: `flow-${st}`, flow: st, col: byVm ? vmCol.get(x.t) || "grey" : null, on: [...x.ends, x.t, x.fw], arrow: true, both: x.out && x.in, dash: !byVm, trunk: x.n, title: [head, ...x.texts].join("\n") });
+    }
   }
   // Line colours for "colour by VM": easy to tell apart, readable on light and dark.
   // No blue: that is the peering colour.
@@ -356,13 +388,13 @@
   /* --- the model: a tree of boxes and resources, plus the lines between them --- */
   const LW = 196, LH = 46, GAP = 14, PAD = 12;
   const box = (key, kind, label, sub, extra = {}) => ({ key, kind, label, sub, tags: [], children: [], ...extra });
-  const leaf = (r) => ({ key: r.id, leaf: true, r, label: r.name, sub: r.t.label });
+  const leaf = (r) => ({ key: r.id, leaf: true, r, label: r.name, sub: r.appliance ? "Firewall VM" : r.t.label });
 
   function model(inv, o) {
     const show = (r) => o.cats.has(r.t.cat);
     // A resource left out also takes its NICs along; one picked on its own counts as picked.
     const owner = (r) => (r.type === "microsoft.network/networkinterfaces" && r.link && inv.byId.get(r.link)) || r;
-    const hidden = (r) => o.hide.has(r.id) || o.hide.has(owner(r).id);
+    const hidden = (r) => o.hide.has(r.id) || o.hide.has(owner(r).id) || (!o.fwVms && owner(r).appliance);
     const picked = (r) => !hidden(r) && (o.scope.has(rgKey(r)) || o.pick.has(r.id) || o.pick.has(owner(r).id));
     const multi = inv.tenants.length > 1;
     const subLabel = (tenant, id) => inv.subName.get(`${tenant}|${id}`) || id;
@@ -603,6 +635,31 @@
   }
 
   /* --- drawing --- */
+  // Microsoft's Azure architecture icons (public/icons, terms in NOTICE.md there), fetched once. Until they come,
+  // or for a kind without one, the tile shows its short name.
+  let ICONS = null, iconsAsked = false, iconsUsed = new Set();
+  function loadIcons() {
+    if (iconsAsked) return;
+    iconsAsked = true;
+    fetch("/icons/azure-icons.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !j.icons) return;
+        ICONS = j;
+        rerender();
+      })
+      .catch(() => {
+        /* the short names stay */
+      });
+  }
+  // [icon number, draw.io path] for a tile's short name, or null.
+  const iconOf = (abbr) => {
+    const m = ICONS && ICONS.map[abbr];
+    return m && ICONS.icons[m[0]] ? m : null;
+  };
+  // The icons drawn, as symbols in the drawing itself, so the SVG and PNG downloads carry them too.
+  const iconDefs = () =>
+    iconsUsed.size ? `<defs>${[...iconsUsed].map((n) => `<symbol id="az-${n}" viewBox="${esc(ICONS.icons[n].vb)}">${ICONS.icons[n].body}</symbol>`).join("")}</defs>` : "";
   function palette() {
     const css = getComputedStyle(document.documentElement);
     const v = (k) => css.getPropertyValue(k).trim();
@@ -647,13 +704,19 @@
     const title = n.many ? `${n.label}: ${n.many.map((x) => x.name).join(", ")}` : `${r.name}\n${r.t.label}\nrg ${r.resourceGroup}${pub ? `\npublic IP ${r.publicIps.join(", ")}` : ""}`;
     out.push(`<g data-arch-node="${esc(n.key)}" class="arch-leaf"${n.context ? ' opacity="0.7"' : ""}><title>${esc(title)}</title>`);
     out.push(`<rect class="arch-leaf-bg" x="${n.ax}" y="${n.ay}" width="${LW}" height="${LH}" rx="6" fill="${p["--surface-2"]}" stroke="${p["--border-strong"]}"${n.context ? ' stroke-dasharray="3 3"' : ""}/>`);
-    out.push(`<rect x="${n.ax + 6}" y="${n.ay + 7}" width="32" height="32" rx="5" fill="${col}" fill-opacity="0.18" stroke="${col}" stroke-opacity="0.6"/>`);
+    const ic = iconOf(r.t.abbr);
+    out.push(`<rect x="${n.ax + 6}" y="${n.ay + 7}" width="32" height="32" rx="5" fill="${col}" fill-opacity="${ic ? 0.1 : 0.18}" stroke="${col}" stroke-opacity="0.6"/>`);
     const vc = arch.vmCol && arch.vmCol.get(n.key);
     if (vc) out.push(`<rect x="${n.ax + 1.5}" y="${n.ay + 6}" width="3.5" height="${LH - 12}" rx="1.75" fill="${vc}"><title>Its traffic lines have this colour</title></rect>`);
     const abbr = r.t.abbr;
-    out.push(`<text x="${n.ax + 22}" y="${n.ay + 27}" text-anchor="middle" font-size="${abbr.length > 3 ? 8.5 : 10}" font-weight="700" fill="${col}">${esc(abbr)}</text>`);
+    if (ic) {
+      iconsUsed.add(ic[0]);
+      out.push(`<use href="#az-${ic[0]}" xlink:href="#az-${ic[0]}" x="${n.ax + 10}" y="${n.ay + 11}" width="24" height="24"/>`);
+    } else out.push(`<text x="${n.ax + 22}" y="${n.ay + 27}" text-anchor="middle" font-size="${abbr.length > 3 ? 8.5 : 10}" font-weight="700" fill="${col}">${esc(abbr)}</text>`);
     out.push(`<text x="${n.ax + 46}" y="${n.ay + 20}" font-size="12" font-weight="600" fill="${p["--text"]}">${esc(trunc(n.label, pub && arch.publicIps ? 17 : 21))}</text>`);
-    out.push(`<text x="${n.ax + 46}" y="${n.ay + 35}" font-size="10.5" fill="${p["--muted"]}">${esc(trunc(n.sub, 25))}</text>`);
+    // A firewall VM says so where the type goes, in the firewall colour.
+    const fwVm = r.appliance && !n.many;
+    out.push(`<text x="${n.ax + 46}" y="${n.ay + 35}" font-size="10.5"${fwVm ? ' font-weight="600"' : ""} fill="${fwVm ? p["--warning"] : p["--muted"]}">${fwVm ? "<title>Forwards traffic for others (IP forwarding, or a route's next hop): it has no traffic lines of its own</title>" : ""}${esc(trunc(n.sub, 25))}</text>`);
     if (pub && arch.publicIps) {
       out.push(`<g><title>Public IP${r.publicIps && r.publicIps.length ? ": " + esc(r.publicIps.join(", ")) : ""}</title><rect x="${n.ax + LW - 46}" y="${n.ay + 6}" width="40" height="15" rx="7.5" fill="${p["--critical"]}" fill-opacity="0.18" stroke="${p["--critical-text"]}" stroke-opacity="0.7"/><text x="${n.ax + LW - 26}" y="${n.ay + 17}" text-anchor="middle" font-size="9" font-weight="600" fill="${p["--critical-text"]}">public</text></g>`);
     }
@@ -677,24 +740,33 @@
     "flow-unknown": (p) => [p["--muted"], "", 2],
   };
   function drawLinks(m, at, p, out) {
-    // Lines between the same two tiles (one per sender) are spread a little so each stays visible.
-    const pair = (l) => (l.a < l.b ? `${l.a}|${l.b}` : `${l.b}|${l.a}`);
-    const count = new Map(), seen = new Map();
-    for (const l of m.links) count.set(pair(l), (count.get(pair(l)) || 0) + 1);
-    const traffic = m.links.some((l) => l.on);
+    // Lines that meet one side of a tile are spread along it, in the order of where they go, so they do not all
+    // start from one point and cross less. Lines between the same two tiles keep the same order at both ends.
+    const segs = [], sides = new Map();
     for (const l of m.links) {
       const a = at.get(l.a), b = at.get(l.b);
-      if (!a || !b) continue;
-      const s = anchor(a, b), e = anchor(b, a);
-      const k = pair(l), n = count.get(k), i = seen.get(k) || 0;
-      seen.set(k, i + 1);
-      if (n > 1) {
-        // The same side for both directions: measured from the lower key, not from this line's start.
-        const flip = l.a < l.b ? 1 : -1, len = Math.hypot(e.x - s.x, e.y - s.y) || 1;
-        const off = (i - (n - 1) / 2) * Math.min(6, 30 / n) * flip;
-        const nx = (-(e.y - s.y) / len) * off, ny = ((e.x - s.x) / len) * off;
-        for (const q of [s, e]) (q.x += nx), (q.y += ny);
+      if (a && b) segs.push({ l, a, b, s: anchor(a, b), e: anchor(b, a) });
+    }
+    segs.forEach((g, i) => {
+      for (const [n, q, other] of [[g.a, g.s, g.b], [g.b, g.e, g.a]]) {
+        const k = `${n.key}|${q.h ? (q.x <= n.ax ? "L" : "R") : q.y <= n.ay ? "T" : "B"}`;
+        if (!sides.has(k)) sides.set(k, []);
+        sides.get(k).push({ n, q, i, along: q.h ? other.ay + other.h / 2 : other.ax + other.w / 2 });
       }
+    });
+    for (const list of sides.values()) {
+      if (list.length < 2) continue;
+      list.sort((u, v) => u.along - v.along || u.i - v.i);
+      const { n, q } = list[0];
+      const step = Math.min(12, ((q.h ? n.h : n.w) * 0.7) / (list.length - 1));
+      list.forEach((u, j) => {
+        const off = (j - (list.length - 1) / 2) * step;
+        if (u.q.h) u.q.y += off;
+        else u.q.x += off;
+      });
+    }
+    const traffic = m.links.some((l) => l.on);
+    for (const { l, s, e } of segs) {
       // Ends that face each other across a narrow gap (two VNets side by side) would make the curve loop back: keep it inside the gap.
       const gap = s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
       const bend = Math.min(Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3), Math.max(12, gap / 2));
@@ -703,7 +775,7 @@
       const [col0, dash0, w] = LINK_STYLE[l.kind](p);
       // With traffic lines on, the network lines (peerings, VPN, endpoints) step back.
       const op = traffic && !l.on ? 0.4 : 0.85;
-      const col = l.col || col0;
+      const col = l.col === "grey" ? p["--text-2"] : l.col || col0;
       const dash = l.col ? FLOW_DASH[l.flow] : l.dash ? "7 4" : dash0;
       const g = l.on ? ` class="arch-ln" data-on="${esc(l.on.join(" "))}"` : "";
       out.push(`<g${g}>`);
@@ -722,6 +794,16 @@
       };
       out.push(l.both ? head(s, c1) : `<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/>`);
       out.push(head(e, c2));
+      // Halfway: the number of pairs on a line to a firewall, or an arrow on a long one-way line.
+      const mx = (s.x + 3 * c1.x + 3 * c2.x + e.x) / 8, my = (s.y + 3 * c1.y + 3 * c2.y + e.y) / 8;
+      if (l.trunk > 1) {
+        const r = l.trunk > 9 ? 9 : 7.5;
+        out.push(`<g><title>${esc(l.title)}</title><circle cx="${f(mx)}" cy="${f(my)}" r="${r}" fill="${p["--surface"]}" stroke="${col}" stroke-width="1.5"/><text x="${f(mx)}" y="${f(my + 3.3)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${p["--text"]}">${l.trunk}</text></g>`);
+      } else if (!l.both && Math.hypot(e.x - s.x, e.y - s.y) > 90) {
+        const dx = e.x + c2.x - c1.x - s.x, dy = e.y + c2.y - c1.y - s.y, len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        out.push(`<path d="M${f(mx - 3 * ux - 4 * uy)},${f(my - 3 * uy + 4 * ux)} L${f(mx + 3 * ux)},${f(my + 3 * uy)} L${f(mx - 3 * ux + 4 * uy)},${f(my - 3 * uy - 4 * ux)}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="${op}"/>`);
+      }
       out.push("</g>");
     }
   }
@@ -732,9 +814,10 @@
     place(m.root, 0, 0, at);
     const p = palette();
     const out = [];
+    iconsUsed = new Set();
     drawBox(m.root, p, out);
     drawLinks(m, at, p, out);
-    return { svg: out.join(""), w: m.root.w, h: m.root.h, at, p };
+    return { svg: iconDefs() + out.join(""), w: m.root.w, h: m.root.h, at, p };
   }
 
   /* --- the page --- */
@@ -816,6 +899,7 @@
       <div class="arch-opts">
         ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}
+        ${o.hasFwVms ? chk("fwVms", "Firewall VMs", "VMs that forward traffic for others (Palo Alto, Fortinet...). Left out, traffic through them is drawn straight, dashed") : ""}
         <select class="select" data-arch-grouped title="One tile per resource, or one per type in each box">
           <option value="auto"${o.grouped === "auto" ? " selected" : ""}>Tiles: automatic</option>
           <option value="each"${o.grouped === "each" ? " selected" : ""}>One per resource</option>
@@ -829,7 +913,7 @@
       </select>
       ${o.traffic === "custom" ? `<input class="input" data-arch-ports placeholder="443, tcp 8080-8090, udp 53" value="${esc(o.ports)}" title="Ports, comma separated; tcp is assumed without a protocol"/>` : ""}
       ${o.traffic ? `<div class="seg" title="What the line colour shows"><button type="button" data-arch-fcol="vm" class="${o.flowColor === "vm" ? "active" : ""}" title="Each VM's lines in its own colour; solid gets through, dashed some ports, dotted blocked">Colour by VM</button><button type="button" data-arch-fcol="state" class="${o.flowColor === "state" ? "active" : ""}" title="Green gets through, yellow some ports, red blocked">By result</button></div>` : ""}
-      ${o.traffic && !o.sel ? `<label class="arch-opt" title="Pairs where nothing gets through (most are on purpose)"><input type="checkbox" data-arch-opt="flowBlocked"${o.flowBlocked ? " checked" : ""}/> Show blocked</label><span class="arch-hint">Point at a VM to light up its lines; click it to see only its traffic</span>` : ""}
+      ${o.traffic && !o.sel ? `<label class="arch-opt" title="Pairs where nothing gets through (most are on purpose)"><input type="checkbox" data-arch-opt="flowBlocked"${o.flowBlocked ? " checked" : ""}/> Show blocked</label><label class="arch-opt" title="Pairs of VMs in the same subnet (they nearly always reach each other)"><input type="checkbox" data-arch-opt="flowSame"${o.flowSame ? " checked" : ""}/> Same subnet</label><span class="arch-hint">Point at a VM to light up its lines; click it to see only its traffic</span>` : ""}
       ${o.traffic && o.sel ? `<div class="seg"><button type="button" data-arch-dir="in" class="${o.dir === "in" ? "active" : ""}" title="Can the other drawn VMs reach the tile you click?">Into the picked tile</button><button type="button" data-arch-dir="out" class="${o.dir === "out" ? "active" : ""}" title="Can the tile you click reach the other drawn VMs?">Out of it</button></div>` : ""}
     </div>
     <div class="arch-cats">${CATS.map(([c, label]) => `<button type="button" class="chip${o.cats.has(c) ? " active" : ""}" data-arch-cat="${c}"><span class="arch-dot" style="background:var(${CATS.find((x) => x[0] === c)[2]})"></span>${esc(label)}</button>`).join("")}</div>`;
@@ -842,7 +926,9 @@
     if (!inv.updatedAt) return `<div class="empty-state big"><h3>Nothing saved yet</h3><p>Each scan saves what it found. Run it once${canRun() ? " (Run now above)" : ""} and the drawing shows here.</p></div>`;
     const o = opts(t, inv);
     const last = o.traffic && t.archFlow && t.archFlow.results;
-    o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter((id) => id && !o.hide.has(id)) : []);
+    o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter((id) => id && !o.hide.has(id) && (o.fwVms || !(inv.byId.get(id) || {}).appliance)) : []);
+    o.hasFwVms = inv.resources.some((r) => r.appliance);
+    loadIcons();
     const m = model(inv, o);
     o.drawn = new Set(drawnLeaves(m.root).flatMap((l) => (l.many || [l.r]).map((r) => r.id)));
     const flow = trafficFor(t, m, o);
@@ -858,7 +944,7 @@
       o.view = view;
       const find = t.filters.q;
       canvas = `<div class="arch-canvas" id="arch-canvas">
-        <svg id="arch-svg" xmlns="http://www.w3.org/2000/svg" font-family="${esc(d.p["--font"])}"><g id="arch-vp" transform="translate(${view.x},${view.y}) scale(${view.k})">${d.svg}</g></svg>
+        <svg id="arch-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" font-family="${esc(d.p["--font"])}"><g id="arch-vp" transform="translate(${view.x},${view.y}) scale(${view.k})">${d.svg}</g></svg>
         <div class="arch-zoom">
           <button type="button" class="btn" data-arch-act="in" title="Zoom in">${icon("plus")}</button>
           <button type="button" class="btn" data-arch-act="out" title="Zoom out">${icon("minus")}</button>
@@ -875,6 +961,9 @@
         <span><i class="ln peer"></i>peering</span><span><i class="ln bad"></i>peering not connected</span><span><i class="ln vpn"></i>VPN / ExpressRoute</span><span><i class="ln pe"></i>private endpoint</span>
         ${o.traffic && o.flowColor === "vm" ? `<span><i class="ln vmc"></i>traffic, in the colour of the VM it comes from (stripe on its tile)</span><span><i class="ln vmc part"></i>some ports open</span><span><i class="ln vmc no"></i>blocked or unknown</span>` : ""}
         ${o.traffic && o.flowColor !== "vm" ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports open</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>` : ""}
+        ${o.traffic && m.links.some((l) => l.trunk > 1) ? `<span><i class="arch-count">3</i>pairs on one line through the firewall (click a VM to see each)</span>` : ""}
+        ${o.traffic && o.flowColor === "vm" && m.links.some((l) => l.col === "grey") ? `<span><i class="ln grey"></i>into a tile that sends nothing itself</span>` : ""}
+        ${o.hasFwVms && o.fwVms ? `<span><b class="arch-fwvm">Firewall VM</b>: forwards traffic for others, no lines of its own</span>` : ""}
         ${o.traffic && flow && flow.loading ? "<span>Checking traffic…</span>" : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
         <span>Drag to move, wheel to zoom, click a tile for details</span>
@@ -956,7 +1045,7 @@
       const n = (s) => f.results.filter((r) => r.state === s).length;
       const parts = [["allow", "open"], ["part", "partly open"], ["deny", "blocked"], ["unknown", "unknown"]].filter(([s]) => n(s)).map(([s, w]) => `<span class="flow-state ${s}">${n(s)} ${w}</span>`).join(" ");
       const notes = [f.capped && "Only the first 6,000 pairs were checked: pick fewer resource groups, or click a VM", f.missing, f.note].filter(Boolean).map((x) => `<p class="arch-hint">${esc(x)}</p>`).join("");
-      return `<div class="arch-detail arch-flow"><div class="arch-detail-head"><b>Traffic between the drawn VMs</b><span class="muted">${esc((f.checks || []).join(", "))}</span></div>${notes}<p>${f.results.length} pairs checked: ${parts || "none"}${!o.flowBlocked && n("deny") ? " (blocked ones are not drawn; tick Show blocked)" : ""}.</p><p class="arch-hint">Hover a line for its ports and rules; click a VM for the full table of its traffic.</p></div>`;
+      return `<div class="arch-detail arch-flow"><div class="arch-detail-head"><b>Traffic between the drawn VMs</b><span class="muted">${esc((f.checks || []).join(", "))}</span></div>${notes}<p>${f.results.length} pairs checked: ${parts || "none"}${!o.flowBlocked && n("deny") ? " (blocked ones are not drawn; tick Show blocked)" : ""}${f.sameLeft ? `; ${f.sameLeft} in the same subnet are not drawn (tick Same subnet)` : ""}.</p><p class="arch-hint">Hover a line for its ports and rules; click a VM for the full table of its traffic.</p></div>`;
     }
     if (f.quiet) return `<div class="arch-detail arch-flow"><span class="muted">${esc(f.quiet)}</span></div>`;
     if (f.loading) return `<div class="arch-detail arch-flow"><span class="muted">Checking traffic…</span></div>`;
@@ -1009,7 +1098,7 @@
   }
   function svgFile(d) {
     const m = 24;
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${d.w + 2 * m}" height="${d.h + 2 * m}" viewBox="${-m} ${-m} ${d.w + 2 * m} ${d.h + 2 * m}" font-family="${esc(d.p["--font"])}"><rect x="${-m}" y="${-m}" width="${d.w + 2 * m}" height="${d.h + 2 * m}" fill="${d.p["--bg"]}"/>${d.svg}</svg>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${d.w + 2 * m}" height="${d.h + 2 * m}" viewBox="${-m} ${-m} ${d.w + 2 * m} ${d.h + 2 * m}" font-family="${esc(d.p["--font"])}"><rect x="${-m}" y="${-m}" width="${d.w + 2 * m}" height="${d.h + 2 * m}" fill="${d.p["--bg"]}"/>${d.svg}</svg>`;
   }
   const fileName = (ext) => `architecture-${new Date().toISOString().slice(0, 10)}.${ext}`;
   function downloadPng(d) {
@@ -1046,7 +1135,9 @@
         if (c.leaf) {
           const col = catCol[c.r.t.cat] || "#6b7380";
           const label = `<b>${esc(c.label)}</b><br><font color="#666666" style="font-size:10px">${esc(c.sub)}</font>`;
-          cells.push(`<mxCell id="${id}" value="${esc(label)}" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=${col};strokeWidth=1.5;align=left;spacingLeft=10;fontSize=11;${c.context ? "dashed=1;" : ""}" vertex="1" parent="${parent}">${geo}</mxCell>`);
+          const ic = iconOf(c.r.t.abbr);
+          cells.push(`<mxCell id="${id}" value="${esc(label)}" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=${col};strokeWidth=1.5;align=left;spacingLeft=${ic ? 44 : 10};fontSize=11;${c.context ? "dashed=1;" : ""}" vertex="1" parent="${parent}">${geo}</mxCell>`);
+          if (ic) cells.push(`<mxCell id="${id}i" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/${ic[1]};" vertex="1" parent="${id}"><mxGeometry x="9" y="${(c.h - 28) / 2}" width="28" height="28" as="geometry"/></mxCell>`);
         } else {
           const [fill, stroke] = boxCol[c.kind] || ["#ffffff", "#999999"];
           const tags = c.tags.map(([t]) => t).join(" · ");

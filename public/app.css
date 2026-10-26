@@ -825,6 +825,9 @@ tr.pa-hit td { background: var(--accent-soft); }
 #arch-svg.arch-hl .arch-ln:not(.on) { opacity: 0.1; }
 #arch-svg.arch-hl .arch-ln.on path { stroke-width: 3; stroke-opacity: 1; }
 .arch-legend .ln.fwl { border-top: 2px dashed var(--text-2); }
+.arch-legend .ln.grey { border-top: 2px solid var(--text-2); }
+.arch-legend .arch-count { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--text-2); font-size: 9px; font-style: normal; font-weight: 700; margin-right: 5px; vertical-align: -3px; }
+.arch-legend .arch-fwvm { color: var(--warning); }
 .arch-traffic { gap: 8px; }
 .arch-traffic .input { width: 220px; max-width: 100%; }
 .arch-flow { margin-top: 10px; }

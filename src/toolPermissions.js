@@ -19,6 +19,7 @@ const NEEDS = {
   "backup-coverage": { azure: READER },
   resilience: { azure: READER },
   "resource-settings": { azure: READER },
+  "exposure-paths": { azure: READER },
   "diagnostic-settings": { azure: READER },
   quotas: { azure: READER },
   ipam: { azure: READER },

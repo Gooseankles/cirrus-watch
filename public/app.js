@@ -125,6 +125,7 @@ const TOOLS = [
   { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
   { id: "resilience", group: "resources", label: "Resilience", icon: "gauge", schedule: "Daily at 03:15", sub: "What one failure would take down: single VMs, AKS, App Service, gateways and databases not spread over zones or instances, storage in one datacenter, no Service Health alert. Each finding links to its PSRule for Azure rule." },
   { id: "resource-settings", group: "resources", label: "Resource settings", icon: "lock", schedule: "Daily at 03:45", sub: "Risky settings on common services: access keys and admin users still on, plain HTTP and FTP, open storage firewalls, AKS without Entra sign-in, remote debugging. Each finding links to its PSRule for Azure rule." },
+  { id: "exposure-paths", group: "resources", label: "Exposure paths", icon: "network", schedule: "Daily at 04:30", sub: "Attack paths that only show when resources are looked at together: an internet-facing VM or web app whose identity can take over a subscription or read secrets, whose network reaches a database or key vault with no NSG or firewall in between, or from which an attacker can sign in to the next machine and the next. Also a subnet-to-subnet map of each VNet." },
   { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere: no diagnostic setting, a setting that sends to a deleted workspace, storage account or event hub, or one that sends metrics but no logs. Also subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "azure-monitor", group: "governance", label: "Azure Monitor", icon: "activity", schedule: "Daily at 04:55", sub: "Whether Azure Monitor watches everything and works: VMs and Arc servers with no agent, the retired legacy agent, no data collection rule or no heartbeat, alert rules that are off, alert nobody or watch a deleted resource, broken action groups and workspaces at their daily cap. Switch it off per tenant in Settings (Azure Monitor) for customers who do not use it." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
@@ -211,6 +212,14 @@ const KINDS = {
   "cfg-servicebus-keys": ["Service Bus keys on", "warn"],
   "cfg-eventhub-keys": ["Event Hubs keys on", "warn"],
   "cfg-appconfig-keys": ["App Configuration keys on", "warn"],
+  "path-identity-takeover": ["Internet entry with takeover rights", "crit"],
+  "path-identity-data": ["Internet entry can read sensitive data", "warn"],
+  "path-lateral-admin": ["Open admin port next to sensitive data", "crit"],
+  "path-lateral-data": ["Internet entry reaches sensitive data", "warn"],
+  "path-pivot-takeover": ["Hop to a machine with takeover rights", "crit"],
+  "path-pivot-data": ["Hop to sensitive data", "warn"],
+  "seg-flat-vnet": ["Flat VNet", "warn"],
+  "seg-vnet-map": ["Subnet map", "info"],
   "missing-tags": ["Missing tags", "warn"],
   "cost-jump": ["Cost jump", "crit"],
   "scan-error": ["Scan error", "warn"],
@@ -1584,7 +1593,7 @@ function genericRow(f, ranAt, hasSubs, hasExpiry) {
   const row = [kindBadge(f.kind), nameCell(f, ranAt, sec)];
   if (hasSubs) row.push(subCell(f));
   if (hasExpiry) row.push(expiryCell(f));
-  row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
+  row.push(`${pathChain(f)}<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
   if (canRun()) row.push(acceptButton(f));
   return row;
 }
@@ -2021,12 +2030,74 @@ function lcStats(all, t) {
     .join("");
 }
 
+/* Exposure paths: routes from the internet to what matters, and a subnet-to-subnet map of each VNet. */
+function pathChain(f) {
+  if (!Array.isArray(f.path) || !f.path.length) return "";
+  const steps = f.path.map((s) => `<span class="path-step ps-${esc(s.t)}" title="${esc(s.note || "")}">${s.note ? `<span class="ps-label">${esc(s.label)}</span><span class="ps-note">${esc(s.note)}</span>` : `<span class="ps-label">${esc(s.label)}</span>`}</span>`);
+  // The arrow stays with the step after it, so a wrapped chain never ends a line on an arrow.
+  return `<div class="path-chain">${steps.map((h, i) => (i ? `<span class="path-link"><span class="path-arrow" aria-hidden="true">→</span>${h}</span>` : h)).join("")}</div>`;
+}
+const epView = (t) => (t.filters.view === "maps" ? "maps" : "paths");
+function epExtra(all, t) {
+  const v = epView(t);
+  const paths = all.filter((f) => f.kind.startsWith("path-")).length;
+  const maps = all.filter((f) => f.kind.startsWith("seg-")).length;
+  return `<div class="seg"><button type="button" data-view="paths" class="${v === "paths" ? "active" : ""}">Attack paths <span class="n">${fmt.int(paths)}</span></button><button type="button" data-view="maps" class="${v === "maps" ? "active" : ""}">Subnet maps <span class="n">${fmt.int(maps)}</span></button></div>`;
+}
+function epStats(all, t) {
+  const paths = all.filter((f) => f.kind.startsWith("path-"));
+  const crit = paths.filter((f) => kindSev(f.kind) === "crit").length;
+  const entries = new Set(paths.map((f) => String(f.id).split("#")[0])).size;
+  const targets = new Set(paths.flatMap((f) => f.targets || [])).size;
+  const flat = all.filter((f) => f.kind === "seg-flat-vnet").length;
+  return (
+    statTile({ label: "Attack paths", value: fmt.int(paths.length) }) +
+    statTile({ label: "Critical", value: fmt.int(crit), deltaCls: crit ? "bad" : "good", delta: crit ? "fix these first" : "none" }) +
+    statTile({ label: "Entry points on a path", value: fmt.int(entries), sub: "reachable from the internet" }) +
+    statTile({ label: "Sensitive resources reached", value: fmt.int(targets) }) +
+    statTile({ label: "Flat VNets", value: fmt.int(flat), deltaCls: flat ? "bad" : "good", delta: flat ? "most subnets reach each other" : "segmented" })
+  );
+}
+function epMap(f, t) {
+  const m = f.matrix;
+  const head = m.subnets.map((s) => `<th class="sm-col" title="${esc(`${s.name} ${s.prefix}`)}"><span>${esc(s.name)}</span></th>`).join("");
+  const rows = m.subnets.map((s, i) => {
+    const tags = `${s.internet ? '<span class="sm-tag sm-net" title="Reachable from the internet">internet</span>' : ""}${s.data ? '<span class="sm-tag sm-data" title="Holds sensitive data">data</span>' : ""}`;
+    const cells = m.cells[i].map((c, j) => {
+      if (!c) return '<td class="sm-cell sm-self"></td>';
+      const title = `${s.name} → ${m.subnets[j].name}: ${c.n}`;
+      const text = c.v === "admin" ? "admin" : c.v === "data" ? "data" : "";
+      return `<td class="sm-cell sm-${c.v || "closed"}" title="${esc(title)}">${text}</td>`;
+    });
+    return `<tr><th class="sm-row"><span class="sm-name">${esc(s.name)}</span><span class="sm-sub">${esc(s.prefix)}${s.nsg ? ` · ${esc(s.nsg)}` : ' · <b class="sm-nonsg">no NSG</b>'}</span>${tags}</th>${cells.join("")}</tr>`;
+  });
+  return `<div class="card sm-card"><div class="card-head"><h3>${esc(f.name)}</h3><span class="muted">${kindBadge(f.kind)} ${f.resourceGroup ? `rg ${esc(f.resourceGroup)}` : ""}</span></div>
+    <p class="sm-detail">${esc(f.detail)}${controlTags(f)}</p>
+    <div class="sm-wrap"><table class="sm-table"><thead><tr><th class="sm-corner">from ↓ · to →</th>${head}</tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
+}
+const SM_LEGEND = '<div class="sm-legend"><span><i class="sm-cell sm-admin"></i>admin ports open (SSH, RDP, WinRM)</span><span><i class="sm-cell sm-data"></i>only data ports open</span><span><i class="sm-cell sm-closed"></i>blocked</span><span class="muted">From the NSG rules and routes; hover a cell for the rule that decides it.</span></div>';
+function epBody(shown, t) {
+  if (epView(t) === "maps") {
+    const maps = shown.filter((f) => f.matrix).sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "seg-flat-vnet" ? -1 : 1));
+    return maps.length ? SM_LEGEND + maps.map((f) => epMap(f, t)).join("") : '<p class="muted">No VNet with two or more subnets.</p>';
+  }
+  return areaBody(shown, t);
+}
+const EP_VIEW = {
+  stats: epStats,
+  extra: epExtra,
+  scope: (f, t) => (epView(t) === "maps" ? f.kind.startsWith("seg-") : f.kind.startsWith("path-")),
+  showKinds: (t) => epView(t) === "paths",
+  body: epBody,
+};
+
 const VIEWS = {
   "orphaned-resources": { stats: orStats, extra: orExtra, page: orPage, showKinds: (t) => orView(t) === "findings", body: orBody },
   "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   resilience: AREA_VIEW,
   "resource-settings": AREA_VIEW,
+  "exposure-paths": EP_VIEW,
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },
   "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => pcView(t) === "health", page: pcEmptyProbes, body: (shown, t) => (pcView(t) === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },
 };

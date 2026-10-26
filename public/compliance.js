@@ -277,6 +277,13 @@ const KIND_CONTROLS = {
   "no-budget": ["nis2:a"],
   "budget-no-alerts": ["nis2:a"],
   "no-delete-lock": RECOVERY,
+  "path-identity-takeover": ADMINS,
+  "path-identity-data": SECRET_READERS,
+  "path-lateral-admin": EXPOSED,
+  "path-lateral-data": DATA_OPEN,
+  "path-pivot-takeover": ADMINS,
+  "path-pivot-data": DATA_OPEN,
+  "seg-flat-vnet": ["cis:12.2", "nis2:i", "nsm:2.2", "nsm:2.4"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -305,6 +312,7 @@ const TOOL_KINDS = {
   "end-of-support": ["aks-unsupported", "aks-oldest-supported", "runtime-end-of-support", "runtime-support-ending", "os-end-of-support", "os-support-ending", "tls-old-allowed"],
   "service-retirements": ["retirement-past", "retirement-soon", "retirement-planned"],
   resilience: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("rel-")),
+  "exposure-paths": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("path-") || k.startsWith("seg-")),
   "resource-settings": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("cfg-")),
   "backup-coverage": ["vm-no-backup", "backup-stopped", "backup-failing", "backup-stale", "vault-soft-delete-off", "vault-lrs"],
   "diagnostic-settings": ["no-diagnostic-setting", "activity-log-not-exported", "diagnostic-destination-missing", "diagnostic-no-logs"],

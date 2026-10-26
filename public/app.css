@@ -679,3 +679,42 @@ tr.pa-hit td { background: var(--accent-soft); }
 @media (max-width: 900px) { .pa-cols { grid-template-columns: minmax(0, 1fr); } }
 .rule-link { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 0.75rem; white-space: nowrap; }
 .rule-link svg { width: 12px; height: 12px; }
+
+/* Exposure paths: the route as a chain of steps, and the subnet map */
+.path-chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin-bottom: 6px; }
+.path-step { display: inline-flex; flex-direction: column; justify-content: center; max-width: 200px; padding: 3px 8px; border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: 6px; background: var(--surface-2); font-size: 0.78rem; line-height: 1.25; }
+.path-step .ps-label { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.path-step .ps-note { color: var(--muted); font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.path-step.ps-internet { border-left-color: var(--critical); }
+.path-step.ps-entry { border-left-color: var(--warning); }
+.path-step.ps-resource { border-left-color: var(--accent); }
+.path-step.ps-network { border-left-color: var(--muted); border-style: dashed; border-left-style: solid; }
+.path-step.ps-identity { border-left-color: #a77bea; }
+.path-step.ps-target { border-left-color: var(--critical); background: rgba(208, 59, 59, 0.10); }
+.path-link { display: inline-flex; align-items: stretch; gap: 4px; }
+.path-arrow { align-self: center; color: var(--muted); font-size: 0.8rem; }
+
+.sm-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 4px 0 12px; font-size: 0.8rem; color: var(--text-2); }
+.sm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sm-legend i.sm-cell { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+.sm-card { margin-bottom: 14px; }
+.sm-card h3 { margin: 0; font-size: 1rem; }
+.sm-detail { margin: 0 0 10px; color: var(--text-2); font-size: 0.85rem; }
+.sm-wrap { overflow-x: auto; }
+.sm-table { border-collapse: separate; border-spacing: 3px; font-size: 0.78rem; }
+.sm-table th { font-weight: 500; color: var(--text-2); }
+.sm-corner { text-align: left; color: var(--muted); font-weight: 400; white-space: nowrap; }
+.sm-col { vertical-align: bottom; height: 110px; width: 44px; padding: 0 0 4px; }
+.sm-col span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; max-height: 106px; overflow: hidden; text-overflow: ellipsis; }
+.sm-row { text-align: left; padding-right: 10px; white-space: nowrap; }
+.sm-name { display: block; color: var(--text); }
+.sm-sub { display: block; color: var(--muted); font-size: 0.72rem; font-weight: 400; }
+.sm-nonsg { color: var(--critical-text); font-weight: 500; }
+.sm-tag { display: inline-block; margin: 2px 4px 0 0; padding: 0 5px; border-radius: 4px; font-size: 0.68rem; font-weight: 500; }
+.sm-net { background: rgba(250, 178, 25, 0.16); color: var(--warning); }
+.sm-data { background: rgba(208, 59, 59, 0.16); color: var(--critical-text); }
+.sm-cell { width: 44px; height: 30px; text-align: center; border-radius: 4px; font-size: 0.7rem; }
+.sm-admin { background: rgba(208, 59, 59, 0.55); color: #fff; }
+.sm-data.sm-cell { background: rgba(250, 178, 25, 0.35); color: var(--text); }
+.sm-closed { background: rgba(12, 163, 12, 0.18); }
+.sm-self { background: var(--surface-3); }

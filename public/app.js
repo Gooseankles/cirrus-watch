@@ -132,7 +132,7 @@ const TOOLS = [
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
   { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
   { id: "firewall-policies", group: "resources", label: "Firewall policies", icon: "wall", schedule: "Daily at 04:50", sub: "Every Azure Firewall policy with its rules laid out in the order the firewall checks them, and what is wrong in them: duplicate rules, rules that never apply because an earlier rule already allows or blocks the traffic, rules covered by a wider one, any-to-any and all-port allows, admin ports forwarded from the internet, missing IP groups, threat intelligence or IDPS off. Classic firewall rules are read too. The Reach map shows every rule that lets traffic in to or out from a picked VM or IP address." },
-  { id: "architecture", group: "resources", info: true, label: "Architecture", icon: "grid", schedule: "Daily at 04:40", sub: "A drawing of the environment. Pick resource groups or whole subscriptions; the virtual networks and subnets their resources sit in are found and drawn by themselves, with peerings, VPN and ExpressRoute sites, private endpoints and public IPs. Download it as SVG, PNG or a draw.io file to edit. For information: no findings." },
+  { id: "architecture", group: "resources", info: true, drawing: true, label: "Architecture", icon: "grid", schedule: "Daily at 04:40", sub: "A drawing of the environment. Pick resource groups or whole subscriptions; the virtual networks and subnets their resources sit in are found and drawn by themselves, with peerings, VPN and ExpressRoute sites, private endpoints and public IPs. Download it as SVG, PNG or a draw.io file to edit. For information: no findings." },
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
   { id: "privileged-roles", group: "identity", label: "Privileged roles", icon: "crown", schedule: "Daily at 05:00", sub: "Who holds the powerful Entra roles: too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is in use, and admins with no MFA registered." },
   { id: "pim", group: "identity", label: "PIM", icon: "crown", schedule: "Daily at 05:10", sub: "A PIM review for Entra and Azure roles. PIM access lists everyone who can activate a role, directly or through a group (a group that is eligible for a role, or PIM for Groups membership of a group that holds one); Groups lists those groups. Findings: activation without MFA, a reason or approval, activation that lasts too long, roles that may be given permanently, guests and disabled accounts with PIM access, access that never ends, runs out soon or is never used, groups that are not role-assignable or have permanent members, and permanent Owners next to people who must activate. Needs Microsoft Entra ID P2." },
@@ -1267,7 +1267,7 @@ function scanSkeleton(tool) {
       <div class="inline-list" id="scan-kinds"></div>
       <div id="scan-body"></div>
     </div>
-    <div class="card">
+    <div class="card" id="scan-hist-card">
       <div class="card-head"><h2>${icon("trend")} History</h2><span class="meta" id="scan-hist-meta"></span></div>
       <div class="hist-grid">
         <div><div class="chart hist-chart" id="scan-chart"></div><div class="chart-foot" id="scan-chart-note"></div></div>
@@ -2200,6 +2200,10 @@ function renderHistory(id) {
   const h = t.history;
   const chartEl = $("#scan-chart");
   if (!chartEl) return;
+  // A drawing has no findings to count over time.
+  const card = $("#scan-hist-card");
+  if (card) card.classList.toggle("hidden", !!TOOL_BY_ID[id].drawing);
+  if (TOOL_BY_ID[id].drawing) return;
   $("#scan-hist-meta").textContent = h.length ? `${fmt.int(h.length)} run${h.length === 1 ? "" : "s"} kept · since ${fmt.date(h[0].ranAt)}` : "";
   if (!h.length) {
     Charts.columns(chartEl, { data: [], emptyText: t.loaded ? "No runs yet" : "Loading…" });
@@ -2380,7 +2384,8 @@ function renderRunState(id) {
     if (t.runError) setStatus(st, `Run failed: ${t.runError}`, "error");
     else if (t.runFinished && Date.now() - t.runFinished < 60000) {
       const last = t.history[t.history.length - 1] || {};
-      setStatus(st, `Run finished: ${fmt.int(t.data.findings.length)} findings (+${fmt.int(last.added || 0)} new, −${fmt.int(last.resolved || 0)} resolved).`, "ok");
+      if (TOOL_BY_ID[id].drawing) setStatus(st, "Run finished: the drawing is up to date.", "ok");
+      else setStatus(st, `Run finished: ${fmt.int(t.data.findings.length)} findings (+${fmt.int(last.added || 0)} new, −${fmt.int(last.resolved || 0)} resolved).`, "ok");
     } else setStatus(st, "");
   }
   renderPermsHint(id);

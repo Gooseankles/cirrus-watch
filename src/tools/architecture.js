@@ -75,7 +75,7 @@ async function read() {
     soft(`Resources | where type =~ 'microsoft.network/routetables' | project id = tolower(id), name, routes = properties.routes`),
     soft(`Resources | where type =~ 'microsoft.network/networkinterfaces'
       | project id = tolower(id), vm = tolower(tostring(properties.virtualMachine.id)), pe = tolower(tostring(properties.privateEndpoint.id)),
-          nsg = tolower(tostring(properties.networkSecurityGroup.id)), primary = tobool(properties.primary),
+          nsg = tolower(tostring(properties.networkSecurityGroup.id)), primary = tobool(properties.primary), fwd = tobool(properties.enableIPForwarding),
           nicIp = tostring(properties.ipConfigurations[0].properties.privateIPAddress), nicSubnet = tolower(tostring(properties.ipConfigurations[0].properties.subnet.id)),
           asgs = properties.ipConfigurations[0].properties.applicationSecurityGroups`),
     soft(`Resources | where type =~ 'microsoft.network/azurefirewalls'
@@ -108,6 +108,12 @@ function build(d) {
   for (const nic of res.filter((r) => r.type === "microsoft.network/networkinterfaces" && r.link && r.subnet)) {
     const vm = byId.get(nic.link);
     if (vm && !vm.subnet) vm.subnet = nic.subnet;
+  }
+  // A firewall VM (Palo Alto, Fortinet...): IP forwarding on one of its NICs, or a route sends traffic to it.
+  const hops = new Set(list(d.routeTables).flatMap((t) => list(t.routes).map((r) => (r.properties || {}).nextHopIpAddress)).filter(Boolean));
+  for (const n of d.nics || []) {
+    const vm = n.vm && byId.get(n.vm);
+    if (vm && (n.fwd || hops.has(n.nicIp))) vm.appliance = true;
   }
   // A public IP marks what holds it (through a NIC, the VM).
   for (const pip of res.filter((r) => r.type === "microsoft.network/publicipaddresses" && r.link)) {

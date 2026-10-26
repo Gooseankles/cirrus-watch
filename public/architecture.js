@@ -204,6 +204,9 @@
       ports: typeof saved.ports === "string" ? saved.ports : "",
       dir: saved.dir === "out" ? "out" : "in",
       flowBlocked: !!saved.flowBlocked,
+      pick: new Set(Array.isArray(store.get("pick")) ? store.get("pick") : []),
+      hide: new Set(Array.isArray(store.get("hide")) ? store.get("hide") : []),
+      openRg: new Set(),
       find: "",
       open: new Set(),
       view: null,
@@ -214,6 +217,8 @@
   }
   function saveOpts(o) {
     store.set("scope", [...o.scope]);
+    store.set("pick", [...o.pick]);
+    store.set("hide", [...o.hide]);
     store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked });
   }
 
@@ -232,7 +237,8 @@
   ];
   // A NIC is drawn too, but its VM or private endpoint stands for it.
   const TALKS = new Set(["microsoft.compute/virtualmachines", "microsoft.network/privateendpoints"]);
-  const talks = (r) => TALKS.has(r.type);
+  // A firewall VM (IP forwarding, or a route's next hop) carries traffic for others: it gets no lines of its own.
+  const talks = (r) => TALKS.has(r.type) && !r.appliance;
   function drawnLeaves(n, out = []) {
     for (const c of n.children || []) c.leaf ? out.push(c) : drawnLeaves(c, out);
     return out;
@@ -337,7 +343,10 @@
 
   function model(inv, o) {
     const show = (r) => o.cats.has(r.t.cat);
-    const picked = (r) => o.scope.has(rgKey(r));
+    // A resource left out also takes its NICs along; one picked on its own counts as picked.
+    const owner = (r) => (r.type === "microsoft.network/networkinterfaces" && r.link && inv.byId.get(r.link)) || r;
+    const hidden = (r) => o.hide.has(r.id) || o.hide.has(owner(r).id);
+    const picked = (r) => !hidden(r) && (o.scope.has(rgKey(r)) || o.pick.has(r.id) || o.pick.has(owner(r).id));
     const multi = inv.tenants.length > 1;
     const subLabel = (tenant, id) => inv.subName.get(`${tenant}|${id}`) || id;
     const groupLabel = (key) => {
@@ -352,7 +361,7 @@
     };
     // Firewalls the traffic lines pass through are drawn even when their group or kind is not picked.
     const through = o.through || new Set();
-    const resources = inv.resources.filter((r) => (show(r) && picked(r)) || through.has(r.id));
+    const resources = inv.resources.filter((r) => (show(r) && picked(r)) || (through.has(r.id) && !hidden(r)));
     let leaves = 0;
 
     if (o.layout === "groups") {
@@ -404,7 +413,7 @@
       const placed = [];
       const inSubnet = (r) => r.subnet && inv.subnetById.get(r.subnet);
       // A VNet picked through its own resource group comes whole, with what sits in it from elsewhere.
-      const extra = inv.resources.filter((r) => show(r) && !picked(r) && inSubnet(r) && whole.has(inv.subnetById.get(r.subnet).v.id));
+      const extra = inv.resources.filter((r) => show(r) && !picked(r) && !hidden(r) && inSubnet(r) && whole.has(inv.subnetById.get(r.subnet).v.id));
       for (const r of [...resources, ...extra]) {
         if (r.type === "microsoft.network/virtualnetworks") continue; // drawn as its box
         if (o.onprem && isSite(r)) continue; // drawn in the on-premises box
@@ -729,7 +738,7 @@
         const groups = s.groups
           .map(
             (g) =>
-              `<label class="arch-rg${g.count || g.vnets ? "" : " empty"}${hit(g) ? "" : " hidden"}" data-arch-name="${esc(g.name)}"><input type="checkbox" data-arch-rg="${esc(g.key)}"${o.scope.has(g.key) ? " checked" : ""}/><span class="arch-rg-name">${esc(g.displayName)}</span>${g.vnets ? '<span class="arch-net" title="Holds a virtual network">VNet</span>' : ""}<span class="n">${fmt.int(g.count)}</span></label>`
+              `<div class="arch-rgrow${o.openRg.has(g.key) ? " open" : ""}${hit(g) ? "" : " hidden"}">${g.count ? `<button type="button" class="arch-rgopen" data-arch-rgopen="${esc(g.key)}" title="Pick single resources">${icon("chevron")}</button>` : '<span class="arch-rgopen"></span>'}<label class="arch-rg${g.count || g.vnets ? "" : " empty"}" data-arch-name="${esc(g.name)}"><input type="checkbox" data-arch-rg="${esc(g.key)}"${o.scope.has(g.key) ? " checked" : ""}/><span class="arch-rg-name">${esc(g.displayName)}</span>${g.vnets ? '<span class="arch-net" title="Holds a virtual network">VNet</span>' : ""}<span class="n">${resCount(inv, o, g)}</span></label></div>${o.openRg.has(g.key) ? resRows(inv, o, g) : ""}`
           )
           .join("");
         return `<div class="arch-sub${open ? " open" : ""}${any ? "" : " hidden"}" data-arch-subrow="${esc(s.key)}">
@@ -744,6 +753,19 @@
       <p class="arch-hint">Pick resource groups. The networks their resources sit in are drawn by themselves.</p>
       <div class="arch-subs">${rows || '<div class="muted small">No resource groups found.</div>'}</div>
     </aside>`;
+  }
+  // Resources of a group to tick one by one (supporting ones like disks stay with what they belong to).
+  const groupRes = (inv, g) => inv.resources.filter((r) => rgKey(r) === g.key && r.t.cat !== "support" && r.type !== "microsoft.network/networkinterfaces" && r.type !== "microsoft.network/publicipaddresses");
+  function resCount(inv, o, g) {
+    const own = (o.pick.size || o.hide.size) && groupRes(inv, g);
+    const out = own ? own.filter((r) => o.hide.has(r.id)).length : 0;
+    const extra = own ? own.filter((r) => o.pick.has(r.id)).length : 0;
+    return o.scope.has(g.key) && out ? `${fmt.int(g.count - out)}/${fmt.int(g.count)}` : !o.scope.has(g.key) && extra ? `${fmt.int(extra)}/${fmt.int(g.count)}` : fmt.int(g.count);
+  }
+  function resRows(inv, o, g) {
+    const rs = groupRes(inv, g).sort((a, b) => a.t.label.localeCompare(b.t.label) || a.name.localeCompare(b.name));
+    const on = (r) => !o.hide.has(r.id) && (o.scope.has(g.key) || o.pick.has(r.id) || (o.drawn && o.drawn.has(r.id)));
+    return `<div class="arch-res">${rs.map((r) => `<label class="arch-rg" title="${esc(r.t.label)}"><input type="checkbox" data-arch-res="${esc(r.id)}" data-arch-resrg="${esc(g.key)}"${on(r) ? " checked" : ""}/><span class="arch-rg-name">${esc(r.name)}</span><span class="n">${esc(r.appliance ? "firewall VM" : r.t.label)}</span></label>`).join("")}</div>`;
   }
   function toolbar(o, m) {
     const chk = (k, label, title) => `<label class="arch-opt" title="${esc(title)}"><input type="checkbox" data-arch-opt="${k}"${o[k] ? " checked" : ""}/> ${esc(label)}</label>`;
@@ -778,13 +800,14 @@
     if (!inv.updatedAt) return `<div class="empty-state big"><h3>Nothing saved yet</h3><p>Each scan saves what it found. Run it once${canRun() ? " (Run now above)" : ""} and the drawing shows here.</p></div>`;
     const o = opts(t, inv);
     const last = o.traffic && t.archFlow && t.archFlow.results;
-    o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter(Boolean) : []);
+    o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter((id) => id && !o.hide.has(id)) : []);
     const m = model(inv, o);
+    o.drawn = new Set(drawnLeaves(m.root).flatMap((l) => (l.many || [l.r]).map((r) => r.id)));
     const flow = trafficFor(t, m, o);
     flowLinks(m, flow, o);
     t.archModel = m;
     let canvas;
-    if (!o.scope.size) canvas = `<div class="empty-state big"><h3>Pick what to draw</h3><p>Tick resource groups or whole subscriptions on the left.</p></div>`;
+    if (!o.scope.size && !o.pick.size) canvas = `<div class="empty-state big"><h3>Pick what to draw</h3><p>Tick resource groups or whole subscriptions on the left.</p></div>`;
     else if (!m.leaves && !m.root.children.length) canvas = `<div class="empty-state">Nothing to draw: the picked resource groups have nothing of the kinds switched on above.</div>`;
     else {
       const d = render(m, o);
@@ -1017,7 +1040,20 @@
     const o = t.archOpts;
     const inv = t.arch && t.arch.data;
     if (!o || !inv) return;
+    if (el.dataset.archRes) {
+      const id = el.dataset.archRes;
+      if (el.checked) {
+        o.hide.delete(id);
+        if (!o.scope.has(el.dataset.archResrg)) o.pick.add(id);
+      } else {
+        o.pick.delete(id);
+        o.hide.add(id);
+      }
+      return changed(t);
+    }
     if (el.dataset.archRg) {
+      // A whole group ticked or unticked starts over: its single picks and left-outs go.
+      for (const r of inv.resources) if (rgKey(r) === el.dataset.archRg) (o.pick.delete(r.id), o.hide.delete(r.id));
       if (el.checked) o.scope.add(el.dataset.archRg);
       else o.scope.delete(el.dataset.archRg);
     } else if (el.dataset.archSub) {
@@ -1045,9 +1081,10 @@
       // Filter in place: no redraw while typing.
       for (const sub of document.querySelectorAll(".arch-sub")) {
         let any = false;
-        for (const rg of sub.querySelectorAll(".arch-rg")) {
-          const hit = !o.find || rg.dataset.archName.includes(o.find);
-          rg.classList.toggle("hidden", !hit);
+        for (const row of sub.querySelectorAll(".arch-rgrow")) {
+          const hit = !o.find || row.querySelector("[data-arch-name]").dataset.archName.includes(o.find);
+          row.classList.toggle("hidden", !hit);
+          if (row.nextElementSibling && row.nextElementSibling.classList.contains("arch-res")) row.nextElementSibling.classList.toggle("hidden", !hit);
           any = any || hit;
         }
         sub.classList.toggle("hidden", !any);
@@ -1062,12 +1099,18 @@
     }
   }, true);
   document.addEventListener("click", (e) => {
-    const el = e.target.closest("[data-arch-act],[data-arch-layout],[data-arch-cat],[data-arch-open],[data-arch-dir]");
+    const el = e.target.closest("[data-arch-act],[data-arch-layout],[data-arch-cat],[data-arch-open],[data-arch-rgopen],[data-arch-dir]");
     if (!el || !el.closest("#page-scan")) return;
     const t = toolState(ID);
     const o = t.archOpts;
     const inv = t.arch && t.arch.data;
     if (!o || !inv) return;
+    if (el.dataset.archRgopen) {
+      const k = el.dataset.archRgopen;
+      if (o.openRg.has(k)) o.openRg.delete(k);
+      else o.openRg.add(k);
+      return rerender();
+    }
     if (el.dataset.archOpen) {
       const k = el.dataset.archOpen;
       if (o.open.has(k)) o.open.delete(k);

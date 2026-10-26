@@ -203,6 +203,7 @@
       traffic: TRAFFIC.some(([k]) => k === saved.traffic) ? saved.traffic : "",
       ports: typeof saved.ports === "string" ? saved.ports : "",
       dir: saved.dir === "out" ? "out" : "in",
+      flowBlocked: !!saved.flowBlocked,
       find: "",
       open: new Set(),
       view: null,
@@ -213,12 +214,13 @@
   }
   function saveOpts(o) {
     store.set("scope", [...o.scope]);
-    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir });
+    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked });
   }
 
   /* --- traffic lines: can the picked tile talk to the others on these ports? --- */
   const TRAFFIC = [
     ["", "Traffic: off"],
+    ["all", "Traffic: all ports"],
     ["ad", "Traffic: domain controller (AD)"],
     ["rdp", "Traffic: RDP"],
     ["ssh", "Traffic: SSH"],
@@ -236,26 +238,47 @@
     return out;
   }
   // The answer for the picked tile, or null while it is asked for (the page draws again when it comes).
+  // The answer for the drawing, or null while it is asked for (the page draws again when it comes). With a VM
+  // picked: its traffic in or out; with none: every drawn VM to every other one (and to the private endpoints).
   function trafficFor(t, m, o) {
-    if (!o.traffic || !o.sel || (o.traffic === "custom" && !o.ports.trim())) return null;
+    if (!o.traffic || (o.traffic === "custom" && !o.ports.trim())) return null;
     const leaves = drawnLeaves(m.root);
-    const sel = leaves.find((l) => l.key === o.sel);
-    if (!sel) return null;
-    const mine = (sel.many || [sel.r]).filter(talks);
-    if (!mine.length) return { quiet: "Traffic lines start from a VM or a private endpoint: click one of those." };
-    const tenant = mine[0].tenant;
-    const others = leaves.filter((l) => l !== sel).flatMap((l) => l.many || [l.r]).filter((r) => talks(r) && r.tenant === tenant);
-    if (!others.length) return { quiet: "No other VMs or private endpoints are drawn to check against." };
+    const all = leaves.flatMap((l) => l.many || [l.r]).filter(talks);
+    const sel = o.sel && leaves.find((l) => l.key === o.sel);
+    const mine = sel ? (sel.many || [sel.r]).filter(talks) : [];
+    const ports = o.traffic === "custom" ? { ports: o.ports } : { preset: o.traffic };
     const ids = (rs) => rs.map((r) => r.id);
-    const body = { tenant, ...(o.traffic === "custom" ? { ports: o.ports } : { preset: o.traffic }), from: ids(o.dir === "in" ? others : mine), to: ids(o.dir === "in" ? mine : others) };
-    const key = JSON.stringify([t.data.ranAt, body]);
+    const bodies = [];
+    if (mine.length) {
+      const tenant = mine[0].tenant;
+      const others = leaves.filter((l) => l !== sel).flatMap((l) => l.many || [l.r]).filter((r) => talks(r) && r.tenant === tenant);
+      if (!others.length) return { quiet: "No other VMs or private endpoints are drawn to check against." };
+      bodies.push({ tenant, ...ports, from: ids(o.dir === "in" ? others : mine), to: ids(o.dir === "in" ? mine : others) });
+    } else {
+      // A private endpoint only answers, so the lines start from VMs.
+      for (const tenant of new Set(all.map((r) => r.tenant))) {
+        const here = all.filter((r) => r.tenant === tenant);
+        const vms = here.filter((r) => r.type === "microsoft.compute/virtualmachines");
+        if (vms.length && here.length > 1) bodies.push({ tenant, ...ports, brief: true, from: ids(vms), to: ids(here) });
+      }
+      if (!bodies.length) return { auto: true, quiet: "No VMs are drawn: pick resource groups with VMs in them." };
+    }
+    const key = JSON.stringify([t.data.ranAt, bodies]);
     const c = t.archFlow;
     if (c && c.key === key) return c;
-    if (!t.archFlowAsk || t.archFlowAsk !== key) {
+    if (t.archFlowAsk !== key) {
       t.archFlowAsk = key;
-      t.archFlow = { key, loading: true };
-      postJson("/api/architecture/flows", body)
-        .then((r) => ({ key, ...r }))
+      t.archFlow = { key, loading: true, auto: !mine.length };
+      Promise.all(bodies.map((b) => postJson("/api/architecture/flows", b)))
+        .then((rs) => ({
+          key,
+          auto: !mine.length,
+          checks: rs[0].checks,
+          results: rs.flatMap((r) => r.results),
+          capped: rs.some((r) => r.capped),
+          note: rs.map((r) => r.note).find(Boolean),
+          missing: rs.map((r) => r.missing).find(Boolean),
+        }))
         .catch((err) => ({ key, error: err.message }))
         .then((r) => {
           if (t.archFlowAsk !== key) return;
@@ -267,7 +290,7 @@
     return t.archFlow;
   }
   const FLOW_WORD = { allow: "open", part: "partly open", deny: "blocked", unknown: "unknown", none: "no address" };
-  function flowLinks(m, f) {
+  function flowLinks(m, f, o) {
     if (!f || !f.results) return;
     const tile = new Map();
     for (const l of drawnLeaves(m.root)) for (const r of l.many || [l.r]) tile.set(r.id, l.key);
@@ -283,19 +306,26 @@
     };
     for (const r of f.results) {
       if (r.state === "none") continue;
+      // Over the whole drawing, blocked pairs are left out unless asked for: most pairs are blocked on purpose.
+      if (f.auto && !o.flowBlocked && r.state === "deny") continue;
       const a = tile.get(r.from), b = tile.get(r.to);
       const name = (id) => id.split("/").pop();
-      const bad = (r.checks || []).filter((c) => c.ok !== "all").map((c) => `${c.label}${c.by ? ` (${c.by})` : ""}`);
-      const text = `${name(r.from)} → ${name(r.to)}: ${FLOW_WORD[r.state]}, ${r.via}${bad.length && r.state !== "deny" ? `\n  blocked: ${bad.join(", ")}` : r.why ? `\n  ${r.why}` : ""}`;
+      const bad = (r.checks || []).filter((c) => c.ok !== "all").map((c) => `${c.label}${c.open ? ` (open: ${c.open})` : c.by ? ` (${c.by})` : ""}`);
+      const text = `${name(r.from)} → ${name(r.to)}: ${FLOW_WORD[r.state]}, ${r.via}${bad.length && r.state !== "deny" ? `\n  ${bad.join("\n  ")}` : r.why ? `\n  ${r.why}` : ""}`;
       const fwTile = r.fw && tile.get(r.fw);
       if (fwTile) {
         add(a, fwTile, r.state, true, text);
         add(fwTile, b, r.state, true, text);
       } else add(a, b, r.state, !!r.fw, text);
     }
-    for (const x of lines.values()) {
-      const st = x.states.size === 1 ? [...x.states][0] : "part";
-      m.links.push({ a: x.a, b: x.b, kind: `flow-${st}`, arrow: true, dash: x.fw, title: x.texts.join("\n") });
+    const stateOf = (x) => (x.states.size === 1 ? [...x.states][0] : "part");
+    for (const [k, x] of lines) {
+      if (x.gone) continue;
+      // Both ways alike: one line with an arrow at each end.
+      const back = lines.get(`${x.b}|${x.a}`);
+      const both = back && !back.gone && stateOf(back) === stateOf(x) && back.fw === x.fw;
+      if (both) back.gone = true;
+      m.links.push({ a: x.a, b: x.b, kind: `flow-${stateOf(x)}`, arrow: true, both, dash: x.fw, title: [...x.texts, ...(both ? back.texts : [])].slice(0, 16).join("\n") });
     }
   }
 
@@ -630,12 +660,16 @@
         out.push(`<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/><circle cx="${e.x}" cy="${e.y}" r="3" fill="${col}"/>`);
         continue;
       }
-      // An arrowhead where the traffic arrives.
-      const ang = Math.atan2(e.y - c2.y, e.x - c2.x), L = 10, W = 5;
-      const bx = e.x - L * Math.cos(ang), by = e.y - L * Math.sin(ang);
-      const px = -Math.sin(ang) * W, py = Math.cos(ang) * W;
+      // An arrowhead where the traffic arrives (at both ends when it goes both ways).
       const f = (v) => v.toFixed(1);
-      out.push(`<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/><path d="M${f(e.x)},${f(e.y)} L${f(bx + px)},${f(by + py)} L${f(bx - px)},${f(by - py)} Z" fill="${col}"><title>${esc(l.title)}</title></path>`);
+      const head = (tip, from) => {
+        const ang = Math.atan2(tip.y - from.y, tip.x - from.x), L = 10, W = 5;
+        const bx = tip.x - L * Math.cos(ang), by = tip.y - L * Math.sin(ang);
+        const px = -Math.sin(ang) * W, py = Math.cos(ang) * W;
+        return `<path d="M${f(tip.x)},${f(tip.y)} L${f(bx + px)},${f(by + py)} L${f(bx - px)},${f(by - py)} Z" fill="${col}"><title>${esc(l.title)}</title></path>`;
+      };
+      out.push(l.both ? head(s, c1) : `<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/>`);
+      out.push(head(e, c2));
     }
   }
   function render(m, o) {
@@ -728,7 +762,8 @@
         ${TRAFFIC.map(([k, label]) => `<option value="${k}"${o.traffic === k ? " selected" : ""}>${esc(label)}</option>`).join("")}
       </select>
       ${o.traffic === "custom" ? `<input class="input" data-arch-ports placeholder="443, tcp 8080-8090, udp 53" value="${esc(o.ports)}" title="Ports, comma separated; tcp is assumed without a protocol"/>` : ""}
-      ${o.traffic ? `<div class="seg"><button type="button" data-arch-dir="in" class="${o.dir === "in" ? "active" : ""}" title="Can the other drawn VMs reach the tile you click?">Into the picked tile</button><button type="button" data-arch-dir="out" class="${o.dir === "out" ? "active" : ""}" title="Can the tile you click reach the other drawn VMs?">Out of it</button></div>` : ""}
+      ${o.traffic && !o.sel ? `<label class="arch-opt" title="Pairs where nothing gets through (most are on purpose)"><input type="checkbox" data-arch-opt="flowBlocked"${o.flowBlocked ? " checked" : ""}/> Show blocked</label><span class="arch-hint">Click a VM to see only its traffic</span>` : ""}
+      ${o.traffic && o.sel ? `<div class="seg"><button type="button" data-arch-dir="in" class="${o.dir === "in" ? "active" : ""}" title="Can the other drawn VMs reach the tile you click?">Into the picked tile</button><button type="button" data-arch-dir="out" class="${o.dir === "out" ? "active" : ""}" title="Can the tile you click reach the other drawn VMs?">Out of it</button></div>` : ""}
     </div>
     <div class="arch-cats">${CATS.map(([c, label]) => `<button type="button" class="chip${o.cats.has(c) ? " active" : ""}" data-arch-cat="${c}"><span class="arch-dot" style="background:var(${CATS.find((x) => x[0] === c)[2]})"></span>${esc(label)}</button>`).join("")}</div>`;
   }
@@ -741,7 +776,7 @@
     const o = opts(t, inv);
     const m = model(inv, o);
     const flow = trafficFor(t, m, o);
-    flowLinks(m, flow);
+    flowLinks(m, flow, o);
     t.archModel = m;
     let canvas;
     if (!o.scope.size) canvas = `<div class="empty-state big"><h3>Pick what to draw</h3><p>Tick resource groups or whole subscriptions on the left.</p></div>`;
@@ -768,7 +803,7 @@
       <div class="arch-legend">
         ${m.grouped ? "<span>One tile per type (many resources). Switch Tiles to One per resource to see each.</span>" : ""}
         <span><i class="ln peer"></i>peering</span><span><i class="ln bad"></i>peering not connected</span><span><i class="ln vpn"></i>VPN / ExpressRoute</span><span><i class="ln pe"></i>private endpoint</span>
-        ${o.traffic ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports blocked</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>${!o.sel ? "<span><b>Click a VM to see its traffic lines</b></span>" : flow && flow.loading ? "<span>Checking traffic…</span>" : ""}` : ""}
+        ${o.traffic ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports open</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>${flow && flow.loading ? "<span>Checking traffic…</span>" : ""}` : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
         <span>Drag to move, wheel to zoom, click a tile for details</span>
       </div>
@@ -844,7 +879,13 @@
   }
 
   function trafficTable(inv, o, f) {
-    if (!o.traffic || !o.sel || !f) return "";
+    if (!o.traffic || !f) return "";
+    if (f.auto && f.results) {
+      const n = (s) => f.results.filter((r) => r.state === s).length;
+      const parts = [["allow", "open"], ["part", "partly open"], ["deny", "blocked"], ["unknown", "unknown"]].filter(([s]) => n(s)).map(([s, w]) => `<span class="flow-state ${s}">${n(s)} ${w}</span>`).join(" ");
+      const notes = [f.capped && "Only the first 6,000 pairs were checked: pick fewer resource groups, or click a VM", f.missing, f.note].filter(Boolean).map((x) => `<p class="arch-hint">${esc(x)}</p>`).join("");
+      return `<div class="arch-detail arch-flow"><div class="arch-detail-head"><b>Traffic between the drawn VMs</b><span class="muted">${esc((f.checks || []).join(", "))}</span></div>${notes}<p>${f.results.length} pairs checked: ${parts || "none"}${!o.flowBlocked && n("deny") ? " (blocked ones are not drawn; tick Show blocked)" : ""}.</p><p class="arch-hint">Hover a line for its ports and rules; click a VM for the full table of its traffic.</p></div>`;
+    }
     if (f.quiet) return `<div class="arch-detail arch-flow"><span class="muted">${esc(f.quiet)}</span></div>`;
     if (f.loading) return `<div class="arch-detail arch-flow"><span class="muted">Checking traffic…</span></div>`;
     if (f.error) return `<div class="arch-detail arch-flow"><span style="color:var(--critical-text)">${esc(f.error)}</span></div>`;
@@ -867,7 +908,9 @@
         if (!why.has(k)) why.set(k, []);
         why.get(k).push(`${c.label}${c.ok === "part" ? " (partly)" : ""}`);
       }
-      if (bad.length) parts.push([...why].map(([by, labels]) => `<div><b>${bad.length === r.checks.length && why.size === 1 ? "all blocked" : esc(labels.join(", "))}</b>${by ? ` <span class="muted">${esc(by)}</span>` : ""}</div>`).join(""));
+      if (bad.length) parts.push([...why].map(([by, labels]) => `<div><b>${bad.length === r.checks.length && why.size === 1 && bad.every((c) => c.ok === "none") ? "all blocked" : esc(labels.join(", "))}</b>${by ? ` <span class="muted">${esc(by)}</span>` : ""}</div>`).join(""));
+      const opens = bad.filter((c) => c.open);
+      if (opens.length) parts.push(opens.map((c) => `<div class="muted">${esc(c.label)} open: ${esc(c.open)}</div>`).join(""));
       if (good.length && bad.length) parts.push(`<div class="muted" title="${esc(good.map((c) => c.label).join(", "))}">${good.length} of ${r.checks.length} open</div>`);
       else if (good.length) parts.push(`<div class="muted">all ${good.length} open</div>`);
       if (fwRules.length) parts.push(`<div class="muted">firewall rule${fwRules.length > 1 ? "s" : ""}: ${esc(fwRules.join(", "))}</div>`);
@@ -947,7 +990,7 @@
     for (const l of m.links) {
       if (!ids.has(l.a) || !ids.has(l.b)) continue;
       const dash = l.arrow ? (l.dash ? "dashed=1;" : "") : l.kind === "peer" ? "" : "dashed=1;";
-      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? "endArrow=block;endFill=1;noLabel=1;" : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" ? 1 : 2};strokeColor=${edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? `endArrow=block;endFill=1;${l.both ? "startArrow=block;startFill=1;" : ""}noLabel=1;` : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" ? 1 : 2};strokeColor=${edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
     }
     return `<mxfile host="azure-ops-dashboard"><diagram name="Architecture" id="arch"><mxGraphModel dx="${Math.round(d.w)}" dy="${Math.round(d.h)}" grid="0" gridSize="10" guides="1" page="0" math="0" shadow="0"><root>${cells.join("")}</root></mxGraphModel></diagram></mxfile>`;
   }

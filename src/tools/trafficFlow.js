@@ -245,7 +245,9 @@ function evaluate(x, fw, srcNic, dstNic, checks) {
       if (!spans.length) break;
     }
     const got = size(spans), want = c.hi - c.lo + 1;
-    return { label: c.label, ok: got === want ? "all" : got ? "part" : "none", ...(by && { by }), ...(rule && { rule }) };
+    // What is left open of a range, in short ("53, 88, 49152-65535").
+    const open = got && got < want ? [...spans].sort((x, y) => x[0] - y[0]).slice(0, 12).map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(", ") + (spans.length > 12 ? ` and ${spans.length - 12} more` : "") : null;
+    return { label: c.label, ok: got === want ? "all" : got ? "part" : "none", ...(by && { by }), ...(rule && { rule }), ...(open && c.hi > c.lo && { open }) };
   });
   if (names) steps.push("Some firewall rules use names (FQDNs); those are not matched here");
   const n = out.filter((c) => c.ok === "all").length;
@@ -255,6 +257,7 @@ function evaluate(x, fw, srcNic, dstNic, checks) {
 
 /* ---------- port sets the page offers ---------- */
 const PRESETS = {
+  all: { label: "All ports", checks: [["All", "TCP", 0, 65535], ["All", "UDP", 0, 65535]] },
   ad: { label: "Domain controller (AD)", checks: [["DNS", "TCP", 53], ["DNS", "UDP", 53], ["Kerberos", "TCP", 88], ["Kerberos", "UDP", 88], ["NTP", "UDP", 123], ["RPC", "TCP", 135], ["LDAP", "TCP", 389], ["LDAP", "UDP", 389], ["SMB", "TCP", 445], ["Kerberos password", "TCP", 464], ["LDAPS", "TCP", 636], ["Global catalog", "TCP", 3268, 3269], ["RPC dynamic", "TCP", 49152, 65535]] },
   rdp: { label: "RDP", checks: [["RDP", "TCP", 3389]] },
   ssh: { label: "SSH", checks: [["SSH", "TCP", 22]] },

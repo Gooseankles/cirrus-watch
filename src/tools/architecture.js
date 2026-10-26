@@ -15,7 +15,8 @@ const TOOL_ID = "architecture";
 const INVENTORY_KEY = "architecture/inventory.json";
 const NETWORK_KEY = "architecture/network.json"; // NSGs, routes and addresses for the traffic lines
 const FIREWALL_KEY = "firewall/inventory.json"; // saved by the Firewall policies scan
-const MAX_PAIRS = 400;
+const MAX_IDS = 2000;
+const MAX_PAIRS = 6000; // the whole drawing at once: about 75 VMs
 const MAX_RESOURCES = 20000;
 
 // The subnet a resource sits in, by type, and what it points at (a NIC's VM,
@@ -237,22 +238,38 @@ async function trafficLines(keys, body) {
   if (!keys.includes(tenant)) return { status: 404, error: "Unknown tenant" };
   const checks = body.preset && flows.PRESETS[body.preset] ? flows.checksOf(body.preset) : flows.customChecks(body.ports);
   if (!checks) return { status: 400, error: "Ports look like: 443, tcp 8080-8090, udp 53" };
-  const ids = (v) => (Array.isArray(v) ? v : []).map(lc).filter(Boolean).slice(0, MAX_PAIRS);
+  const ids = (v) => (Array.isArray(v) ? v : []).map(lc).filter(Boolean).slice(0, MAX_IDS);
+  // Brief: for the lines over the whole drawing, without the path steps and the open checks.
+  const brief = !!body.brief;
+  let capped = false;
   const from = ids(body.from), to = ids(body.to);
   const saved = await savedNetwork(tenant);
   if (!saved.net) return { checks: checks.map((c) => c.label), results: [], missing: "Run the Architecture scan again: the saved drawing is older than the traffic lines" };
   const results = [];
   for (const a of from) {
     for (const b of to) {
-      if (a === b || results.length >= MAX_PAIRS) continue;
+      if (a === b) continue;
+      if (results.length >= MAX_PAIRS) {
+        capped = true;
+        break;
+      }
       const na = saved.net.nics.get(a), nb = saved.net.nics.get(b);
-      if (!na || !nb) results.push({ from: a, to: b, state: "none", why: "No private address known for one side" });
-      else results.push({ from: a, to: b, ...flows.evaluate(saved.net, saved.fw, na, nb, checks) });
+      if (!na || !nb) {
+        if (!brief) results.push({ from: a, to: b, state: "none", why: "No private address known for one side" });
+        continue;
+      }
+      const r = flows.evaluate(saved.net, saved.fw, na, nb, checks);
+      if (brief) {
+        delete r.steps;
+        if (r.checks) r.checks = r.checks.filter((c) => c.ok !== "all").map(({ rule, ...c }) => c);
+      }
+      results.push({ from: a, to: b, ...r });
     }
   }
   return {
     checks: checks.map((c) => c.label),
     results,
+    ...(capped && { capped: MAX_PAIRS }),
     ...(!saved.fw && { note: "Firewall rules are not saved: run the Firewall policies scan to follow traffic through a firewall" }),
     ...(!saved.complete && { missing: "NSGs or routes could not be read in the last scan" }),
   };

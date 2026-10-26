@@ -496,7 +496,10 @@ function analyse(d, opts = {}) {
   };
   const entryText = (e) => `${e.type} ${e.name} is reachable from the internet (${e.ways.slice(0, 3).map((w) => `${w.via}: ${portsText(w.ranges)}`).join("; ")}${e.ways.length > 3 ? `; +${e.ways.length - 3} more` : ""})`;
   const list = (names) => `${names.slice(0, MAX_LISTED).join(", ")}${names.length > MAX_LISTED ? ` and ${names.length - MAX_LISTED} more` : ""}`;
-  const base = (e, kind) => ({ kind, id: `${e.id}#${kind}`, name: e.name, resourceGroup: e.resourceGroup, subscriptionId: e.subscriptionId, entry: e.type });
+  const base = (e, kind) => ({
+    kind, id: `${e.id}#${kind}`, name: e.name, resourceGroup: e.resourceGroup, subscriptionId: e.subscriptionId, entry: e.type,
+    open: e.ways.map((w) => ({ via: w.via, ports: portsText(w.ranges), note: w.note || "" })),
+  });
 
   // What a set of managed identities can do: take over a scope, or read sensitive data.
   const identityReach = (principals) => {
@@ -605,6 +608,8 @@ function analyse(d, opts = {}) {
         ...base(e, "path-identity-takeover"),
         path: [...entryStep(e), { t: "identity", label: top.via }, { t: "target", label: top.text }],
         detail: `${entryText(e)}. Its ${top.via} holds ${list(own.takeover.map((x) => x.text))}: whoever breaks into it can change or delete everything there. Give the identity only the roles it needs, on the resources it needs`,
+        fix: "Give the identity only the roles it needs, on the resources it needs",
+        reached: own.takeover.map((x) => `${x.text}, through its ${x.via}`),
       });
     }
     if (own.data.length) {
@@ -614,6 +619,8 @@ function analyse(d, opts = {}) {
         targets: hits.map((h) => h.t.id),
         path: [...entryStep(e), { t: "identity", label: e.principals.length === 1 ? e.principals[0].label : "managed identity" }, { t: "target", label: hits.length === 1 ? hits[0].t.name : `${hits[0].t.name} +${hits.length - 1}`, note: hits.length === 1 ? hits[0].t.what : `${hits.length} sensitive resources` }],
         detail: `${entryText(e)}. Its managed identity can read data in ${list(hits.map((h) => `${h.t.name} (${h.role})`))}. Whoever breaks into it gets that data. Keep the access only if the app needs it, and narrow the role`,
+        fix: "Keep the access only if the app needs it, and narrow the role",
+        reached: hits.map((h) => `${h.t.name} (${h.t.what}): ${h.role}`),
       });
     }
     // 3: network reach to sensitive workloads
@@ -626,6 +633,9 @@ function analyse(d, opts = {}) {
         targets: reach.map((r) => r.t.id),
         path: [...entryStep(e), netStep(first.hit), targetStep(first, reach.length - 1)],
         detail: `${entryText(e)}. From its network it can reach ${list(reach.map(reachText))}. ${e.admin ? "An admin port is open to the internet, so one stolen password is one step from the data. " : ""}Put an NSG that allows only the needed sources on the data subnet (turn on network policies for private endpoints), or route the traffic through a firewall`,
+        fix: "Put an NSG that allows only the needed sources on the data subnet (turn on network policies for private endpoints), or route the traffic through a firewall",
+        ...(e.admin && { risk: "An admin port is open to the internet, so one stolen password is one step from the data" }),
+        reached: reach.map(reachText),
       });
     }
     // 4: inside the network: sign in to the next machine, and the next, and see what opens up from there
@@ -644,6 +654,8 @@ function analyse(d, opts = {}) {
         ...base(e, "path-pivot-takeover"),
         path: [...entryStep(e), ...hopSteps(takeover.chain), { t: "identity", label: takeover.x.via }, { t: "target", label: takeover.x.text }],
         detail: `${entryText(e)}. From it an attacker can sign in onward (${chainText(takeover.chain)}). ${takeover.vm.name}'s ${takeover.x.via} holds ${takeover.x.text}. Allow admin ports between subnets only from a Bastion or jump subnet, and narrow the identity's role`,
+        fix: "Allow admin ports between subnets only from a Bastion or jump subnet, and narrow the identity's role",
+        reached: [`${takeover.x.text}, through ${takeover.vm.name}'s ${takeover.x.via}, via ${chainText(takeover.chain)}`],
       });
     }
     if (gained.size) {
@@ -655,6 +667,8 @@ function analyse(d, opts = {}) {
         targets: g.map((x) => x.r.t.id),
         path: [...entryStep(e), ...hopSteps(first.chain), lastStep, targetStep(first.r, g.length - 1)],
         detail: `${entryText(e)}. It cannot reach this data itself, but the NSGs let it sign in to other machines that can: ${list(g.map((x) => `${reachText(x.r)} via ${chainText(x.chain)}`))}. Allow SSH, RDP and WinRM between subnets only from a Bastion or jump subnet`,
+        fix: "Allow SSH, RDP and WinRM between subnets only from a Bastion or jump subnet",
+        reached: g.map((x) => `${reachText(x.r)}, via ${chainText(x.chain)}`),
       });
     }
   }

@@ -1,11 +1,14 @@
 const { graphGet, graphGetAll } = require("../graphClient");
-const { resourceGraphQuery, subscriptionNames } = require("../armClient");
+const { resourceGraphQuery, subscriptionNames, armGet, subscriptionIdsToScan } = require("../armClient");
+const { mapLimit } = require("./util");
 const tenants = require("../tenants");
 const tenantContext = require("../tenantContext");
 const access = require("../access");
 
 const TOOL_ID = "access-lookup";
 const ID_BATCH = 200; // principal ids per Resource Graph query
+const PIM_API = "api-version=2020-10-01";
+const guid = (rid) => String(rid || "").toLowerCase().split("/").pop();
 
 const KNOWN_ROLES = {
   "8e3af657-a8ff-443c-a75c-2fe8c4bcb635": "Owner",
@@ -111,87 +114,218 @@ function viaOf(principalId, selfId, groupNameById, chains) {
 }
 
 const ENTRA_BATCH = 15; // principal ids per "in" filter
-const ENTRA_SELECT = "$select=principalId,directoryScopeId&$expand=roleDefinition($select=displayName,isBuiltIn,templateId)";
+const ENTRA_EXPAND = "$expand=roleDefinition($select=displayName,isBuiltIn,templateId)";
+const ENTRA_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId&${ENTRA_EXPAND}`;
+const ENTRA_SCHEDULE_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId,assignmentType,endDateTime&${ENTRA_EXPAND}`;
 
-async function entraPages(path, principalIds) {
+async function entraPages(path, principalIds, select = ENTRA_SELECT) {
   const out = [];
   for (let i = 0; i < principalIds.length; i += ENTRA_BATCH) {
     const ids = principalIds.slice(i, i + ENTRA_BATCH).map((id) => `'${id}'`).join(",");
-    out.push(...(await graphGetAll(`${path}?$filter=${encodeURIComponent(`principalId in (${ids})`)}&${ENTRA_SELECT}`, TOOL_ID)));
+    out.push(...(await graphGetAll(`${path}?$filter=${encodeURIComponent(`principalId in (${ids})`)}&${select}`, TOOL_ID)));
   }
   return out;
 }
 
+const entraKey = (r) => `${r.principalId}|${r.roleDefinitionId}|${r.directoryScopeId}`;
+
 // Entra ID (directory) roles held by these principals: active ones, and the
-// ones PIM lets them activate. Eligible roles need Entra ID P2; without it that
-// part is skipped with a note. Only role-assignable groups can hold Entra roles.
+// ones PIM lets them activate. The PIM parts need Entra ID P2; without it they
+// are skipped (eligible ones with a note). Only role-assignable groups can hold
+// Entra roles. `pim` tells which active ones are PIM ones: activated, or
+// assigned with an end date.
 async function entraRoles(principalIds) {
-  const out = { active: [], eligible: [], notes: [] };
+  const out = { active: [], eligible: [], pim: new Map(), notes: [] };
   try {
     out.active = await entraPages("/roleManagement/directory/roleAssignments", principalIds);
   } catch (err) {
     out.notes.push(/\(403\)/.test(err.message) ? "Entra roles could not be read: the access lookup needs RoleManagement.Read.Directory" : `Entra roles could not be read: ${err.message.slice(0, 200)}`);
     return out;
   }
-  try {
-    out.eligible = await entraPages("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds);
-  } catch {
-    out.notes.push("Eligible (PIM) roles could not be read; that needs Entra ID P2");
+  const [eligible, schedules] = await Promise.all([
+    entraPages("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds, ENTRA_SCHEDULE_SELECT).catch(() => null),
+    entraPages("/roleManagement/directory/roleAssignmentScheduleInstances", principalIds, ENTRA_SCHEDULE_SELECT).catch(() => []),
+  ]);
+  if (eligible) out.eligible = eligible;
+  else out.notes.push("Eligible (PIM) roles could not be read; that needs Entra ID P2");
+  for (const r of schedules) {
+    if (r.assignmentType === "Activated" || r.endDateTime) out.pim.set(entraKey(r), { state: r.assignmentType === "Activated" ? "activated" : "time-bound", end: r.endDateTime || null });
   }
   return out;
 }
 
+async function armAll(url) {
+  const rows = [];
+  while (url) {
+    const page = await armGet(url, TOOL_ID);
+    rows.push(...(page.value || []));
+    url = page.nextLink;
+  }
+  return rows;
+}
+
+const azureKey = (principalId, role, scope) => `${principalId}|${role}|${String(scope || "").toLowerCase()}`;
+
+// PIM for Azure roles: what these principals may activate (eligible), and
+// which of their active assignments are PIM ones (activated, or assigned with
+// an end date). Read per subscription with Reader. An instance on a management
+// group shows up in every subscription below it, so it is kept once; one a
+// person gets through a group (memberType Group) is listed through that group.
+async function azurePim(principalIds) {
+  const want = new Set(principalIds);
+  const out = { eligible: [], active: new Map(), names: new Map(), notes: [] };
+  const subs = await subscriptionIdsToScan(TOOL_ID);
+  const seen = new Set();
+  const failures = await mapLimit(subs, 6, async (s) => {
+    const base = `https://management.azure.com/subscriptions/${s}/providers/Microsoft.Authorization`;
+    const [eligible, active] = await Promise.all([armAll(`${base}/roleEligibilityScheduleInstances?${PIM_API}`), armAll(`${base}/roleAssignmentScheduleInstances?${PIM_API}`)]);
+    const read = (r) => {
+      const p = r.properties || {};
+      const x = p.expandedProperties || {};
+      const role = guid(p.roleDefinitionId);
+      if (x.roleDefinition && x.roleDefinition.displayName) out.names.set(role, x.roleDefinition.displayName);
+      const scope = p.scope || (x.scope && x.scope.id) || `/subscriptions/${s}`;
+      return want.has(p.principalId) && p.memberType !== "Group" ? { p, role, scope, key: azureKey(p.principalId, role, scope) } : null;
+    };
+    for (const r of eligible) {
+      const e = read(r);
+      if (!e || seen.has(e.key)) continue;
+      seen.add(e.key);
+      const inSub = e.scope.toLowerCase().startsWith(`/subscriptions/${s}`.toLowerCase());
+      out.eligible.push({ principalId: e.p.principalId, role: e.role, scope: e.scope, key: e.key, subscriptionId: inSub ? s : null, end: e.p.endDateTime || null });
+    }
+    for (const r of active) {
+      const a = read(r);
+      if (!a || (a.p.assignmentType !== "Activated" && !a.p.endDateTime)) continue;
+      out.active.set(a.key, { state: a.p.assignmentType === "Activated" ? "activated" : "time-bound", end: a.p.endDateTime || null });
+    }
+  });
+  if (failures.length) out.notes.push(`PIM for Azure roles could not be read in ${failures.length} of ${subs.length} subscription${subs.length === 1 ? "" : "s"}: ${failures[0].message}`);
+  return out;
+}
+
+// PIM for Groups: groups the principal may join or own by activating
+// (eligible), and memberships that are activated or end on a date. Needs
+// Entra ID P2 and PrivilegedEligibilitySchedule.Read.AzureADGroup and
+// PrivilegedAssignmentSchedule.Read.AzureADGroup; without them it is skipped
+// with a note.
+async function groupPim(principalId) {
+  const out = { eligible: [], active: new Map(), notes: [] };
+  const filter = `$filter=${encodeURIComponent(`principalId eq '${principalId}'`)}`;
+  let eligible, active;
+  try {
+    [eligible, active] = await Promise.all([
+      graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?${filter}`, TOOL_ID),
+      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleInstances?${filter}`, TOOL_ID),
+    ]);
+  } catch (err) {
+    out.notes.push(
+      /\(403\)/.test(err.message)
+        ? "Eligible group memberships (PIM for Groups) could not be read: that needs PrivilegedEligibilitySchedule.Read.AzureADGroup and PrivilegedAssignmentSchedule.Read.AzureADGroup"
+        : "Eligible group memberships (PIM for Groups) could not be read; that needs Entra ID P2"
+    );
+    return out;
+  }
+  for (const a of active) {
+    if (a.accessId === "member" && (a.assignmentType === "Activated" || a.endDateTime)) out.active.set(a.groupId, { state: a.assignmentType === "Activated" ? "activated" : "time-bound", end: a.endDateTime || null });
+  }
+  const names = new Map();
+  await mapLimit([...new Set(eligible.map((e) => e.groupId))], 6, async (id) => {
+    const g = await graphGet(`/groups/${id}?$select=displayName`, TOOL_ID);
+    names.set(id, g.displayName);
+  });
+  out.eligible = eligible.map((e) => ({ groupId: e.groupId, name: names.get(e.groupId) || e.groupId, access: e.accessId === "owner" ? "owner" : "member", end: e.endDateTime || null }));
+  return out;
+}
+
 const entraScope = (s) => (!s || s === "/" ? "Whole directory" : s.startsWith("/administrativeUnits/") ? `Administrative unit ${s.split("/")[2]}` : s);
-const entraKey = (r) => `${r.principalId}|${r.roleDefinition && r.roleDefinition.templateId}|${r.directoryScopeId}`;
 
 // The access of one principal (a user or a group): its own Azure and Entra
 // role assignments and those of every group it sits in, with the chain of
-// groups for each.
+// groups for each. PIM is included: eligible Azure and Entra roles, which
+// active ones were activated or end on a date, and the roles of groups the
+// principal may join through PIM for Groups (and of the groups those sit in).
 async function accessOf(selfId, kind) {
   const base = kind === "user" ? `/users/${selfId}` : `/groups/${selfId}`;
-  const [direct, all] = await Promise.all([
+  const [direct, all, gpim] = await Promise.all([
     graphGetAll(`${base}/memberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
     graphGetAll(`${base}/transitiveMemberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
+    groupPim(selfId),
   ]);
-  const principalIds = [selfId, ...all.map((g) => g.id)];
-  const [rows, entra] = await Promise.all([roleRows(principalIds), entraRoles(principalIds)]);
+  const memberIds = new Set(all.map((g) => g.id));
+  // An activation makes the principal a real member; only groups it is not in
+  // yet add access. An eligible owner can add themselves, so that counts too.
+  const pimGroups = gpim.eligible.filter((e) => !memberIds.has(e.groupId));
+  const pimVia = new Map(); // principal id -> { path, access, end }
+  await mapLimit(pimGroups, 4, async (e) => {
+    if (!pimVia.has(e.groupId)) pimVia.set(e.groupId, { path: [e.name], access: e.access, end: e.end });
+    const parents = await graphGetAll(`/groups/${e.groupId}/transitiveMemberOf?$select=id,displayName`, TOOL_ID).then(groupOnly);
+    for (const p of parents) if (!memberIds.has(p.id) && p.id !== selfId && !pimVia.has(p.id)) pimVia.set(p.id, { path: [e.name, p.displayName], access: e.access, end: e.end });
+  });
+  const principalIds = [selfId, ...memberIds, ...pimVia.keys()];
+  const [rows, entra, azure] = await Promise.all([roleRows(principalIds), entraRoles(principalIds), azurePim(principalIds)]);
   const groupNameById = Object.fromEntries(all.map((g) => [g.id, g.displayName]));
   const starts = new Set(direct.map((g) => g.id));
-  const chain = chainFinder(starts, new Set(all.map((g) => g.id)));
+  const chain = chainFinder(starts, memberIds);
   const chains = new Map();
-  const holders = [...rows, ...entra.active, ...entra.eligible].map((r) => r.principalId).filter((id) => id !== selfId);
+  const holders = [...rows, ...entra.active, ...entra.eligible, ...azure.eligible].map((r) => r.principalId).filter((id) => id !== selfId && !pimVia.has(id));
   for (const id of new Set(holders)) {
     const c = await chain(id);
     if (c) chains.set(id, c);
   }
+  // A role held by a group the principal may activate into is eligible, until
+  // that group eligibility ends.
+  const via = (principalId) => {
+    const p = pimVia.get(principalId);
+    if (!p) return viaOf(principalId, selfId, groupNameById, chains);
+    return { via: `PIM group: ${p.path[0]}`, path: p.path, nested: p.path.length > 1, pimGroup: p.access };
+  };
+  // Eligible twice over (a role eligible to a group the principal may join): the earlier end counts.
+  const earliest = (x, y) => (!x ? y || null : !y ? x : x < y ? x : y);
+  const stateOf = (principalId, pim, end = null) => {
+    const p = pimVia.get(principalId);
+    if (p) return { state: "eligible", end: earliest(p.end, end) };
+    return pim ? { state: pim.state, end: pim.end } : { state: "active", end: null };
+  };
   const subNames = await subscriptionNames(TOOL_ID).catch(() => new Map());
-  const entraRow = (r, state) => ({
-    ...viaOf(r.principalId, selfId, groupNameById, chains),
+  const roleName = (g) => KNOWN_ROLES[g] || azure.names.get(g) || g;
+  const subRow = (subscriptionId) => ({ subscriptionId, subscriptionName: subNames.get(subscriptionId) || null });
+  const entraRow = (r, s) => ({
+    ...via(r.principalId),
     role: (r.roleDefinition && r.roleDefinition.displayName) || "Unknown role",
     builtIn: !!(r.roleDefinition && r.roleDefinition.isBuiltIn),
-    state,
+    ...s,
     scope: entraScope(r.directoryScopeId),
   });
-  // An activated PIM role also shows as an assignment; keep it once, as active.
-  const activeKeys = new Set(entra.active.map(entraKey));
+  // An activated PIM role also shows as an assignment; keep it once, as activated.
+  const activeEntra = new Set(entra.active.map(entraKey));
+  const activeAzure = new Set(rows.map((r) => azureKey(r.principalId, guid(r.roleDefinitionId), r.scope)));
   return {
-    groups: all.map((g) => ({
-      name: g.displayName,
-      direct: starts.has(g.id),
-      ...(chains.has(g.id) && chains.get(g.id).length > 1 && { through: chains.get(g.id).slice(0, -1).map((id) => groupNameById[id] || id) }),
-    })),
-    assignments: rows.map((r) => {
-      const roleGuid = (r.roleDefinitionId || "").split("/").pop();
-      return {
-        ...viaOf(r.principalId, selfId, groupNameById, chains),
-        role: KNOWN_ROLES[roleGuid] || roleGuid,
-        scope: r.scope,
-        subscriptionId: r.subscriptionId,
-        subscriptionName: subNames.get(r.subscriptionId) || null,
-      };
-    }),
-    entraRoles: [...entra.active.map((r) => entraRow(r, "active")), ...entra.eligible.filter((r) => !activeKeys.has(entraKey(r))).map((r) => entraRow(r, "eligible"))],
+    groups: [
+      ...all.map((g) => ({
+        name: g.displayName,
+        direct: starts.has(g.id),
+        ...(chains.has(g.id) && chains.get(g.id).length > 1 && { through: chains.get(g.id).slice(0, -1).map((id) => groupNameById[id] || id) }),
+        ...(gpim.active.has(g.id) && { pim: gpim.active.get(g.id).state, end: gpim.active.get(g.id).end }),
+      })),
+      ...pimGroups.map((e) => ({ name: e.name, direct: true, pim: "eligible", access: e.access, end: e.end })),
+    ],
+    assignments: [
+      ...rows.map((r) => {
+        const role = guid(r.roleDefinitionId);
+        return { ...via(r.principalId), role: roleName(role), scope: r.scope, ...subRow(r.subscriptionId), ...stateOf(r.principalId, azure.active.get(azureKey(r.principalId, role, r.scope))) };
+      }),
+      ...azure.eligible
+        .filter((e) => !activeAzure.has(e.key))
+        .map((e) => ({ ...via(e.principalId), role: roleName(e.role), scope: e.scope, ...subRow(e.subscriptionId), state: "eligible", end: pimVia.has(e.principalId) ? stateOf(e.principalId, null, e.end).end : e.end })),
+    ],
+    entraRoles: [
+      ...entra.active.map((r) => entraRow(r, stateOf(r.principalId, entra.pim.get(entraKey(r))))),
+      ...entra.eligible.filter((r) => !activeEntra.has(entraKey(r))).map((r) => entraRow(r, { state: "eligible", end: pimVia.has(r.principalId) ? stateOf(r.principalId, null, r.endDateTime).end : r.endDateTime || null })),
+    ],
     entraNotes: entra.notes,
+    azureNotes: azure.notes,
+    groupNotes: gpim.notes,
   };
 }
 
@@ -205,7 +339,7 @@ async function lookup(upn) {
 async function lookupAll(upn, keys) {
   const targets = tenants.scanTargets().filter((t) => access.inScope(keys, t.key));
   const multi = tenants.isMultiTenant();
-  const out = { user: null, groups: [], assignments: [], entraRoles: [], entraNotes: [], tenants: [] };
+  const out = { user: null, groups: [], assignments: [], entraRoles: [], entraNotes: [], azureNotes: [], groupNotes: [], tenants: [] };
   for (const t of targets) {
     try {
       const r = await tenantContext.runIn(t, () => lookup(upn));
@@ -217,7 +351,7 @@ async function lookupAll(upn, keys) {
       out.groups.push(...r.groups.map((g) => ({ ...g, ...(multi && { tenantName: t.name }) })));
       out.assignments.push(...r.assignments.map((a) => ({ ...a, ...(multi && { tenant: t.key, tenantName: t.name }) })));
       out.entraRoles.push(...r.entraRoles.map((a) => ({ ...a, ...(multi && { tenantName: t.name }) })));
-      out.entraNotes.push(...r.entraNotes.map((n) => (multi ? `${t.name}: ${n}` : n)));
+      for (const k of ["entraNotes", "azureNotes", "groupNotes"]) out[k].push(...r[k].map((n) => (multi ? `${t.name}: ${n}` : n)));
       out.tenants.push({ key: t.key, name: t.name, status: "found" });
     } catch (err) {
       const notFound = /\(404\)/.test(err.message);

@@ -1047,17 +1047,32 @@ function lookupTenantsHtml(r, ok) {
 function viaHtml(x, selfLabel) {
   if (x.via === "direct") return `<span class="text-2">${esc(selfLabel)}</span>`;
   const path = Array.isArray(x.path) && x.path.length ? x.path : [String(x.via || "").replace(/^group: /, "")];
-  return `<span class="text-2">${path.map(esc).join(' <span class="muted">›</span> ')}</span>${x.nested ? ' <span class="tag">nested</span>' : ""}`;
+  const pim = x.pimGroup ? ` <span class="tag" title="Eligible ${esc(x.pimGroup)} of ${esc(path[0])} through PIM for Groups">PIM group</span>` : "";
+  return `<span class="text-2">${path.map(esc).join(' <span class="muted">›</span> ')}</span>${x.nested ? ' <span class="tag">nested</span>' : ""}${pim}`;
 }
-function azureRolesCard(a, selfLabel, emptyText) {
+// PIM state of a role: eligible (can activate), activated now, active until a
+// date, or plain active.
+function pimStateHtml(x) {
+  const until = x.end ? ` until ${esc(fmt.date(x.end))}` : "";
+  if (x.state === "eligible") return `<span class="tag" title="Can activate this role with PIM">eligible</span><span class="text-2">${x.end ? until : " · no end"}</span>`;
+  if (x.state === "activated") return `<span class="text-2" title="Activated with PIM">activated${until}</span>`;
+  if (x.state === "time-bound") return `<span class="text-2" title="Assigned in PIM with an end date">active${until}</span>`;
+  return '<span class="text-2">active</span>';
+}
+const notesHtml = (notes) => (Array.isArray(notes) ? notes : []).map((n) => `<div class="status-msg">${esc(n)}</div>`).join("");
+const eligibleCount = (list) => list.filter((x) => x.state === "eligible").length;
+function azureRolesCard(r, selfLabel, emptyText) {
+  const a = Array.isArray(r.assignments) ? r.assignments : [];
+  const eligible = eligibleCount(a);
   return `
     <div class="card">
-      <div class="card-head"><h2>Azure roles</h2><span class="meta">${fmt.int(a.length)} · Via: the group they are in first, the group given the role last</span></div>
+      <div class="card-head"><h2>Azure roles</h2><span class="meta">${fmt.int(a.length - eligible)} active · ${fmt.int(eligible)} eligible (PIM) · Via: the group they are in first, the group given the role last</span></div>
+      ${notesHtml(r.azureNotes)}
       ${
         a.length
           ? tableHtml(
-              [{ label: "Role" }, { label: "Via" }, { label: "Subscription" }, { label: "Scope" }],
-              a.map((x) => [roleBadge(x.role), viaHtml(x, selfLabel), subCell(x), `<span class="detail-cell">${esc(shortScope(x.scope))}</span>`])
+              [{ label: "Role" }, { label: "State" }, { label: "Via" }, { label: "Subscription" }, { label: "Scope" }],
+              a.map((x) => [roleBadge(x.role), pimStateHtml(x), viaHtml(x, selfLabel), subCell(x), `<span class="detail-cell">${esc(shortScope(x.scope))}</span>`])
             )
           : `<div class="empty-state">${esc(emptyText)}</div>`
       }
@@ -1065,20 +1080,19 @@ function azureRolesCard(a, selfLabel, emptyText) {
 }
 function entraRolesCard(r, selfLabel, emptyText) {
   const list = Array.isArray(r.entraRoles) ? r.entraRoles : [];
-  const notes = Array.isArray(r.entraNotes) ? r.entraNotes : [];
-  const eligible = list.filter((x) => x.state === "eligible").length;
+  const eligible = eligibleCount(list);
   const multi = list.some((x) => x.tenantName);
   return `
     <div class="card">
       <div class="card-head"><h2>Entra ID roles</h2><span class="meta">${fmt.int(list.length - eligible)} active · ${fmt.int(eligible)} eligible (PIM)</span></div>
-      ${notes.map((n) => `<div class="status-msg">${esc(n)}</div>`).join("")}
+      ${notesHtml(r.entraNotes)}
       ${
         list.length
           ? tableHtml(
               [{ label: "Role" }, { label: "State" }, { label: "Via" }, { label: "Scope" }, ...(multi ? [{ label: "Tenant" }] : [])],
               list.map((x) => [
                 `${roleBadge(x.role)}${x.builtIn ? "" : ' <span class="tag">custom</span>'}`,
-                x.state === "eligible" ? '<span class="tag">eligible</span>' : '<span class="text-2">active</span>',
+                pimStateHtml(x),
                 viaHtml(x, selfLabel),
                 `<span class="detail-cell">${esc(x.scope)}</span>`,
                 ...(multi ? [esc(x.tenantName || "")] : []),
@@ -1088,19 +1102,26 @@ function entraRolesCard(r, selfLabel, emptyText) {
       }
     </div>`;
 }
-function membershipsCard(groups, title, emptyText) {
+function membershipsCard(groups, title, emptyText, notes) {
   const list = groups.map((g) => (typeof g === "string" ? { name: g, direct: true } : g));
+  const until = (g) => (g.end ? ` until ${fmt.date(g.end)}` : "");
   const tag = (g) => {
     const name = g.tenantName ? `${g.name} (${g.tenantName})` : g.name;
-    const how = g.direct ? "direct member" : g.through ? `nested, through ${g.through.join(" › ")}` : "nested, through another group";
-    return `<span class="tag" title="${esc(how)}">${esc(name)}${g.direct ? "" : ' <span class="muted">nested</span>'}</span>`;
+    const how =
+      g.pim === "eligible"
+        ? `eligible ${g.access || "member"} through PIM for Groups${g.end ? until(g) : ", no end"}`
+        : `${g.direct ? "direct member" : g.through ? `nested, through ${g.through.join(" › ")}` : "nested, through another group"}${g.pim === "activated" ? `, activated with PIM${until(g)}` : g.pim === "time-bound" ? until(g) : ""}`;
+    const mark = g.pim === "eligible" ? `eligible${g.access === "owner" ? " owner" : ""}` : g.pim === "activated" ? "activated" : !g.direct ? "nested" : "";
+    return `<span class="tag" title="${esc(how)}">${esc(name)}${mark ? ` <span class="muted">${mark}</span>` : ""}</span>`;
   };
-  const direct = list.filter((g) => g.direct);
+  const eligible = list.filter((g) => g.pim === "eligible");
+  const direct = list.filter((g) => g.direct && g.pim !== "eligible");
   const nested = list.filter((g) => !g.direct);
   return `
     <div class="card">
-      <div class="card-head"><h2>${esc(title)}</h2><span class="meta">${fmt.int(direct.length)} direct · ${fmt.int(nested.length)} nested (hover one to see the way in)</span></div>
-      ${list.length ? `<div class="inline-list">${[...direct, ...nested].map(tag).join("")}</div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
+      <div class="card-head"><h2>${esc(title)}</h2><span class="meta">${fmt.int(direct.length)} direct · ${fmt.int(nested.length)} nested${eligible.length ? ` · ${fmt.int(eligible.length)} eligible (PIM)` : ""} (hover one to see the way in)</span></div>
+      ${notesHtml(notes)}
+      ${list.length ? `<div class="inline-list">${[...direct, ...nested, ...eligible].map(tag).join("")}</div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
     </div>`;
 }
 function accessStats(r) {
@@ -1111,11 +1132,12 @@ function accessStats(r) {
   const subs = new Set(a.map((x) => x.subscriptionId).filter(Boolean)).size;
   const owners = a.filter((x) => /^owner/i.test(x.role || "")).length;
   const globalAdmin = e.some((x) => /^global administrator$/i.test(x.role || ""));
+  const eligibleOwners = a.filter((x) => /^owner/i.test(x.role || "") && x.state === "eligible").length;
   return `
-      ${statTile({ label: "Azure roles", value: fmt.int(a.length), delta: `${fmt.int(subs)} subscription${subs === 1 ? "" : "s"}` })}
-      ${statTile({ label: "Entra roles", value: fmt.int(e.length), deltaCls: globalAdmin ? "bad" : "", delta: globalAdmin ? "includes Global Administrator" : `${fmt.int(e.filter((x) => x.state === "eligible").length)} eligible` })}
+      ${statTile({ label: "Azure roles", value: fmt.int(a.length), delta: `${fmt.int(eligibleCount(a))} eligible · ${fmt.int(subs)} subscription${subs === 1 ? "" : "s"}` })}
+      ${statTile({ label: "Entra roles", value: fmt.int(e.length), deltaCls: globalAdmin ? "bad" : "", delta: globalAdmin ? "includes Global Administrator" : `${fmt.int(eligibleCount(e))} eligible` })}
       ${statTile({ label: "Via groups", value: fmt.int(viaGroups + e.filter((x) => x.via !== "direct").length), delta: nested ? `${fmt.int(nested)} through nested groups` : "" })}
-      ${statTile({ label: "Owner", value: fmt.int(owners), deltaCls: owners ? "bad" : "", delta: owners ? "highest Azure privilege" : "" })}`;
+      ${statTile({ label: "Owner", value: fmt.int(owners), deltaCls: owners - eligibleOwners ? "bad" : "", delta: eligibleOwners ? `${fmt.int(eligibleOwners)} eligible (PIM)` : owners ? "highest Azure privilege" : "" })}`;
 }
 function lookupHtml(r) {
   const user = r.user || {};
@@ -1123,9 +1145,9 @@ function lookupHtml(r) {
     <div class="person"><div class="avatar">${esc(initials(user.displayName || user.upn))}</div><div><div class="p-name">${esc(user.displayName || "")}</div><div class="p-upn">${esc(user.upn || "")}</div></div></div>
     ${lookupTenantsHtml(r, "found")}
     <div class="stat-row">${accessStats(r)}</div>
-    ${azureRolesCard(Array.isArray(r.assignments) ? r.assignments : [], "direct", "No Azure roles found for this person.")}
+    ${azureRolesCard(r, "direct", "No Azure roles found for this person.")}
     ${entraRolesCard(r, "direct", "No Entra ID roles.")}
-    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Group memberships", "Not a member of any group.")}`;
+    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Group memberships", "Not a member of any group.", r.groupNotes)}`;
 }
 function groupListHtml(r) {
   const groups = r.groups || [];
@@ -1180,9 +1202,9 @@ function groupHtml(r) {
       ${accessStats(r)}
       ${statTile({ label: "Members", value: `${fmt.int(members.length)}${r.moreMembers ? "+" : ""}`, delta: groupMembers ? `${fmt.int(groupMembers)} of them groups` : "direct members" })}
     </div>
-    ${azureRolesCard(Array.isArray(r.assignments) ? r.assignments : [], "this group", "This group gives no Azure roles, directly or through the groups it sits in.")}
+    ${azureRolesCard(r, "this group", "This group gives no Azure roles, directly or through the groups it sits in.")}
     ${entraRolesCard(r, "this group", "This group gives no Entra ID roles.")}
-    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Member of", "This group is not inside any other group.")}
+    ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Member of", "This group is not inside any other group.", r.groupNotes)}
     <div class="card">
       <div class="card-head"><h2>Members</h2><span class="meta">${fmt.int(members.length)}${r.moreMembers ? " (first 500)" : ""} · direct members; the members of a group listed here get the same roles</span></div>
       ${
@@ -2081,7 +2103,57 @@ function epBody(shown, t) {
     const maps = shown.filter((f) => f.matrix).sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "seg-flat-vnet" ? -1 : 1));
     return maps.length ? SM_LEGEND + maps.map((f) => epMap(f, t)).join("") : '<p class="muted">No VNet with two or more subnets.</p>';
   }
-  return areaBody(shown, t);
+  return epPaths(shown, t);
+}
+// Attack paths, one card per internet entry point: what is open on it once at
+// the top, then each path as a short route (the steps after the entry, one per
+// line with the reason beside it), the fix, and the full list in a fold.
+const SEV_RANK = { crit: 0, warn: 1, "": 2 };
+const epEntryId = (f) => String(f.id).split("#")[0];
+function epRoute(f) {
+  const steps = (Array.isArray(f.path) ? f.path : []).filter((s) => !["internet", "entry"].includes(s.t));
+  // The entry itself opens the route; the internet and the public address are in the card head.
+  return `<ol class="ep-route">${steps.map((s) => `<li class="ep-step ps-${esc(s.t)}"><span class="ep-step-label">${esc(s.label)}</span>${s.note ? `<span class="ep-step-note">${esc(s.note)}</span>` : ""}</li>`).join("")}</ol>`;
+}
+function epPathItem(f, ranAt) {
+  const reached = Array.isArray(f.reached) ? f.reached : [];
+  return `<li class="ep-path">
+      <div class="ep-path-top">${kindBadge(f.kind)}${isNew(f, ranAt) ? '<span class="new-badge">NEW</span>' : ""}<span class="ep-spacer"></span>${controlTags(f)}${canRun() ? acceptButton(f) : ""}</div>
+      ${epRoute(f)}
+      ${f.risk ? `<div class="ep-risk">${esc(f.risk)}.</div>` : ""}
+      ${f.fix ? `<div class="ep-fix"><b>Fix:</b> ${esc(f.fix)}.</div>` : ""}
+      <details class="ep-more"><summary>${reached.length > 1 ? `All ${fmt.int(reached.length)} reached` : "Details"}</summary>${reached.length ? `<ul>${reached.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}<p>${esc(f.detail || "")}</p></details>
+    </li>`;
+}
+function epPaths(shown, t) {
+  const paths = shown.filter((f) => f.kind.startsWith("path-"));
+  if (!paths.length) return '<p class="muted">No attack paths. Nothing reachable from the internet leads to sensitive data or to a role that can take over a subscription.</p>';
+  const byEntry = new Map();
+  for (const f of paths) {
+    const k = epEntryId(f);
+    if (!byEntry.has(k)) byEntry.set(k, []);
+    byEntry.get(k).push(f);
+  }
+  const worst = (list) => Math.min(...list.map((f) => SEV_RANK[kindSev(f.kind)] ?? 2));
+  const groups = [...byEntry.values()]
+    .map((list) => list.sort((a, b) => (SEV_RANK[kindSev(a.kind)] ?? 2) - (SEV_RANK[kindSev(b.kind)] ?? 2)))
+    .sort((a, b) => worst(a) - worst(b) || b.length - a.length || String(a[0].name).localeCompare(String(b[0].name)));
+  return groups
+    .map((list) => {
+      const f = list[0];
+      const open = Array.isArray(f.open) ? f.open : [];
+      const where = [f.entry, f.resourceGroup ? `rg ${f.resourceGroup}` : "", f.subscriptionName || "", multiView() && f.tenantName ? f.tenantName : ""].filter(Boolean).join(" · ");
+      const crit = list.filter((x) => kindSev(x.kind) === "crit").length;
+      return `<div class="ep-card${crit ? " ep-crit" : ""}">
+        <div class="ep-head">
+          <div class="ep-who"><div class="ep-name">${esc(f.name)}</div><div class="ep-where">${esc(where)}</div></div>
+          <div class="ep-count">${fmt.int(list.length)} path${list.length === 1 ? "" : "s"}${crit ? ` · <span class="bad">${fmt.int(crit)} critical</span>` : ""}</div>
+        </div>
+        <div class="ep-open"><span class="ep-open-label">Open to the internet</span>${open.map((w) => `<span class="ep-way" title="${esc(w.note)}"><b>${esc(w.via)}</b> ${esc(w.ports)}</span>`).join("")}</div>
+        <ul class="ep-paths">${list.map((x) => epPathItem(x, t.data.ranAt)).join("")}</ul>
+      </div>`;
+    })
+    .join("");
 }
 const EP_VIEW = {
   stats: epStats,

@@ -42,7 +42,7 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
 | `LicenseAssignment.Read.All` | Licence coverage: the licences the tenant owns |
-| `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup` | Licence coverage: who is eligible or time-bound in PIM for Groups; PIM: who can activate a group membership, and when they last did |
+| `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup` | Licence coverage: who is eligible or time-bound in PIM for Groups; PIM: who can activate a group membership, and when they last did; access lookup: groups a person or group may join with PIM, and the roles that come with them |
 
 All of these only read. Without P1 the stale accounts and MFA coverage scans and the admin MFA check report that the licence is
 missing; the other checks still run.

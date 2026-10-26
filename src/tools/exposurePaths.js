@@ -382,6 +382,32 @@ function buildEntries(d, net) {
   return entries;
 }
 
+// Which route the entry subnet uses for a target address. Returns { nva: true } when a firewall (NVA) gets it,
+// otherwise { note } explaining why a firewall route there does not apply.
+function routeTo(net, es, ts, place) {
+  const rt = es.rtId && net.routeTables.get(es.rtId);
+  if (!rt) return {};
+  const space = (net.vnets.get(ts.vnetId) || { spaces: [] }).spaces.find((s) => contains(s, place.prefix));
+  const system = place.pe && !/^(enabled|routetableenabled)$/i.test(ts.pePolicies) ? 32 : space ? space.bits : -1;
+  let best = null;
+  let bypassed = null;
+  for (const r of arr(rt.routes)) {
+    const p = r.properties || r;
+    const c = cidr(p.addressPrefix);
+    if (!contains(c, place.prefix)) continue;
+    const nva = /^virtualappliance$/i.test(p.nextHopType || "");
+    if (c.bits < system) {
+      if (nva && (!bypassed || c.bits > bypassed.bits)) bypassed = { bits: c.bits, prefix: p.addressPrefix, table: rt.name };
+      continue;
+    }
+    if (!best || c.bits > best.bits) best = { bits: c.bits, nva, prefix: p.addressPrefix };
+  }
+  if (best) return best.nva ? { nva: true } : { note: `route ${best.prefix} in ${rt.name} keeps the traffic off the firewall` };
+  if (!bypassed) return {};
+  const why = system === 32 ? "the private endpoint's /32 route wins (route-table policies are off on its subnet)" : `the ${ts.vnetId === es.vnetId ? "VNet's" : "peering's"} own route for ${space ? `the ${(net.vnets.get(ts.vnetId) || {}).name} address space` : "the address space"} is more specific`;
+  return { note: `the ${bypassed.prefix} route to the firewall in ${bypassed.table} does not cover this traffic: ${why}` };
+}
+
 // Can traffic from an entry's subnet reach a target's place with nothing in between?
 function lateral(net, entrySubnetId, place, ports) {
   const es = net.subnets.get(entrySubnetId);
@@ -391,18 +417,15 @@ function lateral(net, entrySubnetId, place, ports) {
   const peered = !sameVnet && net.vnets.get(es.vnetId) && net.vnets.get(es.vnetId).peers.has(ts.vnetId);
   if (!sameVnet && !peered) return null;
   const src = es.prefixes[0];
-  // A route that sends the traffic to a firewall (NVA) counts as segmentation. It must beat the VNet's own route,
-  // and a private endpoint's /32 route beats it unless the endpoint's subnet has route-table policies on.
-  const space = (net.vnets.get(ts.vnetId) || { spaces: [] }).spaces.find((s) => contains(s, place.prefix));
-  const peRoutes = /^(enabled|routetableenabled)$/i.test(ts.pePolicies);
-  const rt = es.rtId && net.routeTables.get(es.rtId);
-  const nva = rt && arr(rt.routes).find((r) => {
-    const p = r.properties || r;
-    const c = cidr(p.addressPrefix);
-    return /^virtualappliance$/i.test(p.nextHopType || "") && contains(c, place.prefix) && (!space || c.bits >= space.bits) && (!place.pe || peRoutes);
-  });
-  if (nva) return null;
+  // Does the traffic go through a firewall (NVA)? Azure picks the route with the longest matching prefix; at equal
+  // length a user-defined route beats the system route. The system route for the VNet's own address space (or the
+  // peered VNet's) is therefore more specific than 0.0.0.0/0: a default route to a firewall does not cover traffic
+  // inside the VNet or across a peering. Only a UDR for the VNet range or narrower does. A private endpoint adds its
+  // own /32 system route, which beats any UDR unless the endpoint's subnet has route-table network policies on.
+  const route = routeTo(net, es, ts, place);
+  if (route.nva) return null;
   const steps = [];
+
   if (es.nsgId && net.nsgs.get(es.nsgId)) {
     const out = nsgDecides(net.nsgs.get(es.nsgId), "outbound", src, place.prefix, ports);
     if (!out.allow) return null;
@@ -423,7 +446,7 @@ function lateral(net, entrySubnetId, place, ports) {
     const v = nsgDecides(net.nsgs.get(place.nicNsg), "inbound", src, place.prefix, ports);
     if (!v.allow) return null;
   }
-  return { port, sameVnet, sameSubnet: entrySubnetId === place.subnetId, peered, note: steps.join("; "), subnet: ts.name, vnet: (net.vnets.get(ts.vnetId) || {}).name };
+  return { port, sameVnet, sameSubnet: entrySubnetId === place.subnetId, peered, note: [...steps, route.note].filter(Boolean).join("; "), subnet: ts.name, vnet: (net.vnets.get(ts.vnetId) || {}).name };
 }
 
 function analyse(d, opts = {}) {
@@ -764,5 +787,5 @@ module.exports = {
   label: "Exposure paths",
   schedule: "30 4 * * *", // daily at 04:30
   run,
-  _test: { analyse, cidr, contains, internetPorts, nsgDecides, lateral, buildNetwork, portsText },
+  _test: { analyse, cidr, contains, internetPorts, nsgDecides, lateral, routeTo, buildNetwork, portsText },
 };

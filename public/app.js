@@ -648,6 +648,10 @@ function render() {
   }
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === pageId));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.route === key));
+  // Opening a page in a folded section unfolds it, so the current page is always visible.
+  const current = $(`.nav-item[data-route="${CSS.escape(key)}"]`);
+  const sec = current && current.closest(".nav-section.closed");
+  if (sec) toggleNavSection(sec, true);
   document.body.classList.remove("nav-open");
   if (state.route !== key) {
     window.scrollTo(0, 0);
@@ -674,17 +678,48 @@ function buildNav() {
     })),
   ];
   if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "load", label: "Server load", icon: "cpu" },{ route: "settings", label: "Settings", icon: "settings" }] });
+  const shut = navClosed();
+  const item = (it) => `<a class="nav-item" href="#/${esc(it.route)}" data-route="${esc(it.route)}">${icon(it.icon)}<span>${esc(it.label)}</span>${it.count ? '<span class="nav-count"></span>' : ""}</a>`;
   $("#nav").innerHTML = groups
-    .map(
-      (g) =>
-        (g.label ? `<div class="nav-group">${esc(g.label)}</div>` : "") +
-        g.items.map((it) => `<a class="nav-item" href="#/${esc(it.route)}" data-route="${esc(it.route)}">${icon(it.icon)}<span>${esc(it.label)}</span>${it.count ? '<span class="nav-count"></span>' : ""}</a>`).join("")
+    .map((g) =>
+      g.label
+        ? `<div class="nav-section${shut.has(g.label) ? " closed" : ""}" data-section="${esc(g.label)}"><button type="button" class="nav-group" aria-expanded="${!shut.has(g.label)}">${icon("chevron")}<span>${esc(g.label)}</span><span class="nav-group-count"></span></button><div class="nav-items">${g.items.map(item).join("")}</div></div>`
+        : g.items.map(item).join("")
     )
     .join("");
+  $$("#nav .nav-group").forEach((b) => b.addEventListener("click", () => toggleNavSection(b.parentElement)));
+}
+// Sidebar sections the viewer folded away, kept in this browser only.
+const NAV_CLOSED = "aod.navClosed";
+function navClosed() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NAV_CLOSED) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+function toggleNavSection(sec, open) {
+  const on = open != null ? open : sec.classList.contains("closed");
+  sec.classList.toggle("closed", !on);
+  sec.querySelector(".nav-group").setAttribute("aria-expanded", String(on));
+  const shut = navClosed();
+  if (on) shut.delete(sec.dataset.section);
+  else shut.add(sec.dataset.section);
+  try {
+    localStorage.setItem(NAV_CLOSED, JSON.stringify([...shut]));
+  } catch {
+    // private window: folding just is not remembered
+  }
 }
 function setNavCount(id, n) {
   const el = $(`.nav-item[data-route="scan/${id}"] .nav-count`);
   if (el) el.textContent = fmt.int(n);
+  // A folded section shows the open findings of its scans together.
+  const sec = el && el.closest(".nav-section");
+  if (sec) {
+    const total = [...sec.querySelectorAll(".nav-count")].reduce((sum, c) => sum + (Number(c.textContent.replace(/\D/g, "")) || 0), 0);
+    sec.querySelector(".nav-group-count").textContent = total ? fmt.int(total) : "";
+  }
 }
 function renderMe() {
   const me = state.me || {};
@@ -1477,15 +1512,86 @@ function orCosts(list) {
   for (const f of list) if (f.monthlyCost > 0) by[f.currency || ""] = (by[f.currency || ""] || 0) + f.monthlyCost;
   return Object.entries(by).sort((a, b) => b[1] - a[1]);
 }
+// What cleaning up has saved: resources that were found and are now deleted (from /api/orphaned-resources/savings,
+// kept by the scan). Loaded once per run.
+const MONTH_MS = 30.44 * 86400000;
+function orSavings(t) {
+  if (t.savings && t.savings.ranAt === t.data.ranAt) return t.savings;
+  if (!t.savingsLoading) {
+    const ranAt = t.data.ranAt;
+    t.savingsLoading = apiJson("/api/orphaned-resources/savings")
+      .then((data) => (t.savings = { ranAt, data }))
+      .catch((err) => (t.savings = { ranAt, error: err.message }))
+      .finally(() => {
+        t.savingsLoading = null;
+        if (state.route === "scan/orphaned-resources") renderFindings("orphaned-resources");
+      });
+  }
+  return null;
+}
+// [[currency, a month, saved so far]], biggest first
+function orSaved(entries) {
+  const by = {};
+  for (const e of entries) {
+    const c = e.currency || "USD";
+    const x = (by[c] = by[c] || [0, 0]);
+    x[0] += e.monthlyCost || 0;
+    x[1] += (e.monthlyCost || 0) * Math.max(0, (Date.now() - Date.parse(e.savedAt)) / MONTH_MS);
+  }
+  return Object.entries(by).map(([c, [m, so]]) => [c, m, so]).sort((a, b) => b[1] - a[1]);
+}
+const orView = (t) => (t.filters.view === "saved" ? "saved" : "findings");
 function orStats(all, t) {
   const costs = orCosts(all);
   const unpriced = all.filter((f) => f.monthlyCost === null).length;
   const money = (pairs, k) => (pairs.length ? pairs.map(([c, v]) => fmt.money(v * k, c, true)).join(" + ") : "–");
+  const sv = orSavings(t);
+  const saved = sv && sv.data ? orSaved(sv.data.entries) : [];
+  const savedTile = statTile({
+    label: "Saved a month by cleanup",
+    value: !sv ? "…" : saved.length ? saved.map(([c, m]) => fmt.money(m, c, true)).join(" + ") : "–",
+    delta: saved.length ? `about ${saved.map(([c, , so]) => fmt.money(so, c, true)).join(" + ")} saved so far` : sv && sv.data && sv.data.since ? `counting since ${fmt.date(sv.data.since)}` : "deleted orphans count here",
+    deltaCls: saved.length ? "good" : "",
+  });
   return (
     statTile({ label: "Wasted a month", value: money(costs, 1), delta: unpriced ? `${fmt.int(unpriced)} without a price` : "Azure list price, before discounts", deltaCls: costs.length ? "bad" : "" }) +
     statTile({ label: "Wasted a year", value: money(costs, 12), delta: "if nothing is cleaned up" }) +
+    savedTile +
     genericStats(all, t)
   );
+}
+function orExtra(all, t) {
+  const v = orView(t);
+  for (const sel of ["#scan-fw", "#scan-new", "#scan-csv"]) $(sel).classList.toggle("hidden", v !== "findings");
+  const sv = orSavings(t);
+  const n = sv && sv.data ? sv.data.entries.length : 0;
+  return `<div class="seg"><button type="button" data-view="findings" class="${v === "findings" ? "active" : ""}">Findings <span class="n">${fmt.int(all.length)}</span></button><button type="button" data-view="saved" class="${v === "saved" ? "active" : ""}">Cleaned up <span class="n">${fmt.int(n)}</span></button></div>`;
+}
+function orPage(all, t) {
+  if (orView(t) !== "saved") return null;
+  const sv = orSavings(t);
+  if (!sv) return `<div class="empty-state">Loading what has been cleaned up…</div>`;
+  if (sv.error) return `<div class="empty-state">Could not load the savings: ${esc(sv.error)}</div>`;
+  const q = t.filters.q;
+  const list = sv.data.entries
+    .filter((e) => (!t.filters.sub || e.subscriptionId === t.filters.sub) && (!q || [e.name, e.resourceGroup, e.subscriptionName, e.tenantName, (KINDS[e.kind] || [e.kind])[0]].join(" ").toLowerCase().includes(q)))
+    .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+  if (!list.length) return `<div class="empty-state">${sv.data.entries.length ? "Nothing cleaned up matches these filters." : `Nothing counted yet. When an orphaned resource with a price is deleted, the next scan counts it here${sv.data.since ? ` (counting since ${esc(fmt.date(sv.data.since))})` : ""}.`}</div>`;
+  const saved = orSaved(list);
+  const rows = list.slice(0, t.shown).map((e) => {
+    const months = Math.max(0, (Date.now() - Date.parse(e.savedAt)) / MONTH_MS);
+    return [
+      kindBadge(e.kind),
+      nameCell(e),
+      subCell(e),
+      `<span class="num">${esc(fmt.money(e.monthlyCost, e.currency))}</span>`,
+      `<span title="${esc(e.savedAt)}">${esc(fmt.date(e.savedAt))}</span>`,
+      `<span class="num good">${esc(fmt.money(e.monthlyCost * months, e.currency))}</span>`,
+    ];
+  });
+  return `<p class="muted small">Orphaned resources that were deleted after the dashboard found them. Each saves its monthly list price from the day it went (before discounts; a resource that was put back in use is not counted). ${saved.map(([c, m, so]) => `${esc(fmt.money(m, c))} a month, about ${esc(fmt.money(so, c))} so far`).join("; ")}.</p>` +
+    tableHtml([{ label: "Kind" }, { label: "Resource" }, { label: "Subscription" }, { label: "A month", cls: "num nowrap" }, { label: "Deleted" }, { label: "Saved so far", cls: "num nowrap" }], rows) +
+    moreButton(Math.min(list.length, t.shown), list.length, t);
 }
 function orBody(shown, t) {
   const sorted = shown.slice().sort((a, b) => (b.monthlyCost || 0) - (a.monthlyCost || 0));
@@ -1768,7 +1874,7 @@ function lcStats(all, t) {
 }
 
 const VIEWS = {
-  "orphaned-resources": { stats: orStats, body: orBody },
+  "orphaned-resources": { stats: orStats, extra: orExtra, page: orPage, showKinds: (t) => orView(t) === "findings", body: orBody },
   "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },

@@ -2,6 +2,8 @@ const { resourceGraphQuery, subscriptionIdsToScan } = require("../armClient");
 const { runChecks, mapLimit } = require("./util");
 const prices = require("../retailPrices");
 const log = require("../log");
+const store = require("../findingsStore");
+const tenantContext = require("../tenantContext");
 
 const TOOL_ID = "orphaned-resources";
 const PRICE_CONCURRENCY = 4;
@@ -292,6 +294,108 @@ async function emptyAppServicePlans(book) {
   return out;
 }
 
+// --- Savings: what cleaning up has saved ---
+// A priced finding that is gone from this run counts as saved only when the resource itself is gone (deleted):
+// a disk attached again or a plan given an app still costs money. Each saving keeps its monthly list price and the
+// day it went; the page adds up a month's worth and what it has saved since. Kept per tenant, never pruned.
+const SAVINGS_KEY = "savings/orphaned-resources.json";
+const CHECK_OF_KIND = {
+  "unattached-disk": "Unattached disks",
+  "unused-public-ip": "Unused public IPs",
+  "orphaned-snapshot": "Orphaned snapshots",
+  "empty-app-service-plan": "Empty App Service plans",
+};
+const PENDING_DAYS = 30; // a gone finding not confirmed in this time (its subscription no longer scanned) is dropped
+const ID_BATCH = 200;
+
+// prev: last run's findings; now: this run's; scanned: subscription ids this run covered; exists(ids) -> Set of the
+// ids (lowercase) that still exist. Returns the new ledger.
+async function updateSavings(ledger, prev, now, scanned, exists, at) {
+  const doc = { since: ledger.since || at, entries: ledger.entries || [], pending: [] };
+  const key = (f) => String(f.id || "").toLowerCase();
+  const nowKeys = new Set(now.map(key));
+  const failed = new Set(now.filter((f) => f.kind === "scan-error").map((f) => f.name));
+  const saved = new Set(doc.entries.map((e) => key(e)));
+  const subs = new Set(scanned.map((x) => String(x).toLowerCase()));
+  const cutoff = Date.parse(at) - PENDING_DAYS * 86400000;
+  const seen = new Set();
+  const candidates = [];
+  for (const f of [...(ledger.pending || []), ...prev.map((x) => ({ ...x, goneAt: at }))]) {
+    const k = key(f);
+    if (!k || seen.has(k) || saved.has(k) || nowKeys.has(k) || !(f.monthlyCost > 0) || !CHECK_OF_KIND[f.kind]) continue;
+    seen.add(k);
+    if (Date.parse(f.goneAt || at) < cutoff) continue;
+    // Not looked at this run (its check failed or its subscription was not scanned): try again next run.
+    if (failed.has(`${CHECK_OF_KIND[f.kind]} check failed`) || !subs.has(String(f.subscriptionId || "").toLowerCase())) doc.pending.push(f);
+    else candidates.push(f);
+  }
+  if (!candidates.length) return doc;
+  let still;
+  try {
+    still = await exists(candidates.map((f) => f.id));
+  } catch (err) {
+    log.record({ tool: TOOL_ID, level: "warn", message: `could not check whether cleaned-up resources are deleted; tried again next run: ${err.message}` });
+    doc.pending.push(...candidates);
+    return doc;
+  }
+  for (const f of candidates) {
+    if (still.has(key(f))) continue; // in use again, not deleted
+    doc.entries.push({
+      id: f.id, kind: f.kind, name: f.name, resourceGroup: f.resourceGroup, subscriptionId: f.subscriptionId, location: f.location,
+      monthlyCost: f.monthlyCost, currency: f.currency, firstSeen: f.firstSeen || null, savedAt: f.goneAt || at,
+    });
+  }
+  return doc;
+}
+
+async function existingIds(ids) {
+  const out = new Set();
+  for (let i = 0; i < ids.length; i += ID_BATCH) {
+    const list = ids.slice(i, i + ID_BATCH).map((id) => `'${String(id).toLowerCase().replace(/'/g, "")}'`).join(",");
+    const rows = await resourceGraphQuery(`Resources | where tolower(id) in (${list}) | project id`, { toolId: TOOL_ID });
+    for (const r of rows) out.add(String(r.id).toLowerCase());
+  }
+  return out;
+}
+
+async function recordSavings(findings) {
+  const t = tenantContext.current();
+  const k = t && !tenantContext.isHome(t) ? t.key : store.HOME;
+  const [latest, ledger, scanned] = await Promise.all([store.read(TOOL_ID, [k]), store.getDoc(SAVINGS_KEY), subscriptionIdsToScan(TOOL_ID)]);
+  if (!latest.ranAt && !ledger) return; // first run here: nothing to compare with
+  const doc = await updateSavings(ledger || {}, latest.findings || [], findings, scanned, existingIds, new Date().toISOString());
+  await store.putDoc(SAVINGS_KEY, doc);
+  const fresh = doc.entries.length - ((ledger && ledger.entries) || []).length;
+  if (fresh) log.record({ tool: TOOL_ID, level: "info", message: `${fresh} cleaned-up resource(s) counted as saved` });
+}
+
+async function savings(keys) {
+  const out = { since: null, entries: [], failures: [] };
+  for (const k of keys) {
+    try {
+      const doc = await store.getDoc(SAVINGS_KEY, k);
+      if (!doc) continue;
+      if (doc.since && (!out.since || doc.since < out.since)) out.since = doc.since;
+      out.entries.push(...(doc.entries || []).map((e) => ({ ...e, ...(k !== store.HOME && { tenant: k }) })));
+    } catch (err) {
+      out.failures.push({ tenant: k, error: `could not read the savings: ${err.message}` });
+    }
+  }
+  return out;
+}
+
+function registerRoutes(app, { readKeys, decorate }) {
+  app.get("/api/orphaned-resources/savings", async (req, res) => {
+    try {
+      const out = await savings(readKeys(req));
+      await decorate(TOOL_ID, out.entries);
+      res.json(out);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
+
 // A failed check shows as a scan-error finding instead of silently fewer
 // findings; run() throws only when every check fails.
 async function run() {
@@ -309,6 +413,7 @@ async function run() {
   }
   const total = findings.reduce((s, f) => s + (f.monthlyCost || 0), 0);
   log.record({ tool: TOOL_ID, level: "info", message: `${findings.length} finding(s), about ${Math.round(total)} ${prices.currency()} a month at list price` });
+  await recordSavings(findings).catch((err) => log.record({ tool: TOOL_ID, level: "warn", message: `savings not updated: ${err.message}` }));
   return findings;
 }
 
@@ -317,5 +422,6 @@ module.exports = {
   label: "Orphaned resources",
   schedule: "0 3 * * *", // nightly at 03:00
   run,
-  _test: { diskTier, diskSku, appServiceSkuName, diskDescription },
+  registerRoutes,
+  _test: { diskTier, diskSku, appServiceSkuName, diskDescription, updateSavings },
 };

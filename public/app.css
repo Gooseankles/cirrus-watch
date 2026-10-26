@@ -92,7 +92,18 @@ button { font: inherit; color: inherit; }
 .brand-name { font-weight: 600; font-size: 0.95rem; line-height: 1.15; }
 .brand-sub { font-size: 0.72rem; color: var(--muted); }
 .nav { display: flex; flex-direction: column; gap: 1px; }
-.nav-group { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin: 14px 10px 5px; }
+.nav-group {
+  display: flex; align-items: center; gap: 6px; width: calc(100% - 8px); margin: 10px 4px 2px; padding: 4px 6px;
+  font: inherit; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted);
+  background: none; border: none; border-radius: 6px; cursor: pointer; text-align: left;
+}
+.nav-group:hover { color: var(--text); background: var(--surface-2); }
+.nav-group svg { width: 12px; height: 12px; stroke: currentColor; transform: rotate(90deg); transition: transform 0.15s; flex: none; }
+.nav-section.closed .nav-group svg { transform: rotate(0deg); }
+.nav-group-count { margin-left: auto; letter-spacing: 0; font-variant-numeric: tabular-nums; display: none; }
+.nav-section.closed .nav-group-count { display: inline; }
+.nav-items { display: flex; flex-direction: column; gap: 1px; }
+.nav-section.closed .nav-items { display: none; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: 7px; border: none; background: none;

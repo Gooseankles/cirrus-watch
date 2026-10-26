@@ -53,6 +53,9 @@ app.use(
     secret: process.env.SESSION_SECRET || "dev-only-change-me",
     resave: false,
     saveUninitialized: false,
+    // rolling: every request moves the end 8 hours on, so a sign-in ends after 8 idle hours, not 8 hours after
+    // signing in while someone is still using the page. The store only rewrites its file every few minutes.
+    rolling: true,
     cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: "lax", secure: httpsSite },
   })
 );

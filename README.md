@@ -11,7 +11,7 @@ are needed.
 
 | Tool | Runs | What it finds or does |
 |---|---|---|
-| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups |
+| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups; **Cleaned up** lists the priced ones that were deleted since and what that saves (list price, so it works where cost analysis is off) |
 | Tag compliance | Daily | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
 | Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
 | Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree) |
@@ -161,6 +161,9 @@ This is a separate app registration from the identity the scans use: it only sig
 6. Users and groups → assign people or groups to Admin or User. Roles live only in Entra; the dashboard reads the
    `roles` claim on the ID token.
 
+The sidebar groups (Access, Identity, Resources and so on) fold away with a click on their heading; the browser
+remembers which are folded.
+
 ### Audit log
 
 Admin → **Audit log** shows who signed in (and refused or failed sign-ins), which pages they opened (each scan,
@@ -273,7 +276,10 @@ each subscription it can see.
   cannot be reached, the dashboard still starts, says so on the tools that need a secret, refuses to save new
   secrets and retries every minute. `GET /api/secret-store` (Admin) shows which store is in use.
 - **Accepted and snoozed findings**: with each tenant's scan results (`suppressions/<tool>.json`).
-- **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`.
+- **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`. A sign-in ends after 8 hours without use
+  and at the latest 24 hours after signing in. In Docker, map `DATA_DIR` to a volume, or every image update signs
+  everyone out.
+- **Cleanup savings** (orphaned resources deleted after they were found): `savings/orphaned-resources.json` per tenant.
 - **Activity log** (scan runs): JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 - **Audit log** (who opened and changed what): `audit.jsonl` next to it, kept `AUDIT_RETENTION_DAYS`.
 

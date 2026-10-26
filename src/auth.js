@@ -144,6 +144,7 @@ async function handleCallback(req, res) {
         upn: claims.preferred_username || null,
         roles,
         via: "sso",
+        signedInAt: Date.now(),
       };
       audit.record(req, { action: "sign-in" });
       res.redirect("/");
@@ -205,7 +206,7 @@ function handleLocalLogin(req, res) {
   // A fresh session ID on sign-in, so an ID planted before it is worth nothing.
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: "could not start a session" });
-    req.session.user = { name: "admin", upn: null, roles: ["Admin"], via: "local" };
+    req.session.user = { name: "admin", upn: null, roles: ["Admin"], via: "local", signedInAt: Date.now() };
     audit.record(req, { action: "sign-in" });
     res.json({ ok: true });
   });
@@ -225,6 +226,16 @@ function handleLogout(req, res) {
 
 const EXEMPT_PREFIXES = ["/auth/", "/api/me", "/login.html", "/login.js"];
 
+// A sign-in ends after 8 idle hours (the rolling cookie in server.js) and at the latest this long after signing in,
+// so a tab left open (it polls) does not stay signed in for ever.
+const MAX_SIGN_IN_MS = 24 * 60 * 60 * 1000;
+
+function signInExpired(req) {
+  const u = req.session.user;
+  if (!u.signedInAt) u.signedInAt = Date.now(); // signed in before this rule: counts from now
+  return Date.now() - u.signedInAt > MAX_SIGN_IN_MS;
+}
+
 function requireAuth(req, res, next) {
   if (EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();
   if (!ssoConfigured() && !localAdminConfigured()) {
@@ -232,7 +243,10 @@ function requireAuth(req, res, next) {
     if (req.path.startsWith("/api/")) return res.status(503).json({ error: message });
     return res.status(503).send(message);
   }
-  if (req.session && req.session.user) return next();
+  if (req.session && req.session.user) {
+    if (!signInExpired(req)) return next();
+    return req.session.destroy(() => (req.path.startsWith("/api/") ? res.status(401).json({ error: "sign in again (signed in over 24 hours ago)" }) : res.redirect("/login.html")));
+  }
   if (req.path.startsWith("/api/")) return res.status(401).json({ error: "sign in required" });
   return res.redirect("/login.html");
 }

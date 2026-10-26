@@ -8,6 +8,9 @@
 //    whose identity is missing or lacks the roles its remediation needs,
 //    remediation that failed or never ran, assignments that evaluate no
 //    resources at all — and exemptions that never expire or have lapsed.
+// 3. Recommendations: the built-in policy that would block each probe (and
+//    the Microsoft cloud security benchmark), marked as enforced with Deny,
+//    assigned but only auditing, or not assigned at all.
 const { resourceGraphQuery, armGet, armPost, subscriptionIdsToScan } = require("../armClient");
 const settings = require("../settings");
 const log = require("../log");
@@ -43,6 +46,7 @@ const UAA = "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9";
 const PROBES = [
   {
     id: "storage-public-blob",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/4fa4b6c0-31ca-4c0d-b10d-24b96f62a751", name: "Storage account public access should be disallowed", effect: "Deny" },
     label: "Storage account with public blob access",
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: "2023-01-01",
@@ -50,6 +54,7 @@ const PROBES = [
   },
   {
     id: "storage-http",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/404c3081-a854-4457-ae30-26a93ef643f9", name: "Secure transfer to storage accounts should be enabled", effect: "Deny" },
     label: "Storage account accepting plain HTTP",
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: "2023-01-01",
@@ -57,6 +62,7 @@ const PROBES = [
   },
   {
     id: "storage-old-tls",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/fe83a0eb-a853-422d-aac2-1bffd182c5d0", name: "Storage accounts should have the specified minimum TLS version", effect: "Deny", parameters: "minimumTlsVersion: TLS1_2" },
     label: "Storage account allowing TLS 1.0",
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: "2023-01-01",
@@ -64,6 +70,7 @@ const PROBES = [
   },
   {
     id: "public-ip",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/6c112d4e-5bc7-47ae-a041-ea2d9dccd749", name: "Not allowed resource types", effect: "Deny", parameters: "listOfResourceTypesNotAllowed: Microsoft.Network/publicIPAddresses, on the scopes that should have none" },
     label: "Public IP address",
     type: "Microsoft.Network/publicIPAddresses",
     apiVersion: "2023-09-01",
@@ -71,6 +78,7 @@ const PROBES = [
   },
   {
     id: "keyvault-no-purge-protection",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/0b60c0b2-2dc2-4e1c-b5c9-abbed971de53", name: "Key vaults should have deletion protection enabled", effect: "Deny" },
     label: "Key vault without purge protection",
     type: "Microsoft.KeyVault/vaults",
     apiVersion: "2023-07-01",
@@ -78,6 +86,7 @@ const PROBES = [
   },
   {
     id: "sql-public-network",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/1b8ca024-1d5c-4dec-8995-b1a932b41780", name: "Public network access on Azure SQL Database should be disabled", effect: "Deny" },
     label: "SQL server open to public networks",
     type: "Microsoft.Sql/servers",
     apiVersion: "2023-05-01-preview",
@@ -85,6 +94,7 @@ const PROBES = [
   },
   {
     id: "untagged-resource",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/871b6d14-10aa-478d-b590-94f262ecfa99", name: "Require a tag on resources", effect: "Deny", parameters: "tagName: a tag every resource must carry (one assignment per tag)" },
     label: "Resource without the required tags",
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: "2023-01-01",
@@ -92,6 +102,7 @@ const PROBES = [
   },
   {
     id: "denied-region",
+    recommend: { definitionId: "/providers/Microsoft.Authorization/policyDefinitions/e56962a6-4747-49cd-b67b-bf8b01975c4c", name: "Allowed locations", effect: "Deny", parameters: "listOfAllowedLocations: the regions you use" },
     label: "Resource in a region that should be blocked",
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: "2023-01-01",
@@ -99,6 +110,78 @@ const PROBES = [
     content: { kind: "StorageV2", sku: { name: "Standard_LRS" }, properties: { allowBlobPublicAccess: false, supportsHttpsTrafficOnly: true, minimumTlsVersion: "TLS1_2" } },
   },
 ];
+
+// Worth assigning even though no probe tests it.
+const BASELINE = [
+  {
+    id: "security-benchmark",
+    definitionId: "/providers/Microsoft.Authorization/policySetDefinitions/1f3afdf9-d0c9-4c3d-847f-89da613e70a8",
+    name: "Microsoft cloud security benchmark",
+    effect: "Audit (the initiative's defaults)",
+    why: "The audit checks behind Defender for Cloud's secure score. Defender assigns it to each subscription by default; it reports, it does not block",
+  },
+];
+
+// definitionId (lower case) -> where it is assigned: [{ assignment, scopeText, subscriptionId, effect, enforced }]
+function noteCoverage(coverage, a, base, effects) {
+  const enforced = String((a.properties || {}).enforcementMode).toLowerCase() !== "donotenforce";
+  const top = String((a.properties || {}).policyDefinitionId || "").toLowerCase();
+  const add = (id, effect) => {
+    const key = String(id || "").toLowerCase();
+    if (!key) return;
+    if (!coverage.has(key)) coverage.set(key, []);
+    coverage.get(key).push({ assignment: base.name, assignmentId: a.id, scopeText: base.scopeText, subscriptionId: base.subscriptionId, effect: effect || null, enforced });
+  };
+  if (/policysetdefinitions/i.test(top)) add(top, null);
+  for (const e of effects) add(e.definitionId, e.effect);
+}
+
+// in-place: an enforced assignment denies with it (an initiative: is assigned
+// and enforced); audit-only: assigned but not denying or not enforced;
+// missing: not assigned anywhere.
+function coverageStatus(where, initiative) {
+  if (!where || !where.length) return "missing";
+  if (initiative) return where.some((w) => w.enforced) ? "in-place" : "audit-only";
+  return where.some((w) => w.enforced && (w.effect === "deny" || w.effect === "denyaction")) ? "in-place" : "audit-only";
+}
+
+// One row per probe (the built-in policy that blocks it) plus the baseline,
+// most urgent first. probeFindings: this run's probe findings; coverage: null
+// when the assignments could not be read.
+function buildRecommendations(probeFindings, coverage, probesOn = enabledProbes()) {
+  const on = new Set(probesOn.map((p) => p.id));
+  const rank = { deploy: 0, tighten: 1, optional: 2, "in-place": 3, unknown: 4 };
+  const where = (id) => (coverage ? coverage.get(id.toLowerCase()) || [] : null);
+  const rows = [];
+  for (const p of PROBES) {
+    const r = p.recommend;
+    const mine = probeFindings.filter((f) => f.probe === p.id);
+    const at = where(r.definitionId);
+    const status = coverage ? coverageStatus(at) : "unknown";
+    const priority = !coverage ? "unknown" : status === "in-place" ? "in-place" : mine.length ? (status === "audit-only" ? "tighten" : "deploy") : "optional";
+    rows.push({
+      id: p.id,
+      probe: p.label,
+      probeOn: on.has(p.id),
+      definitionId: r.definitionId,
+      name: r.name,
+      initiative: false,
+      effect: r.effect,
+      parameters: r.parameters,
+      status,
+      priority,
+      assignedAt: (at || []).slice(0, 20),
+      subscriptions: mine.map((f) => ({ subscriptionId: f.subscriptionId, verdict: f.kind === "probe-not-blocked" ? "open" : "audit" })),
+    });
+  }
+  for (const b of BASELINE) {
+    const at = where(b.definitionId);
+    const status = coverage ? coverageStatus(at, true) : "unknown";
+    const priority = !coverage ? "unknown" : status === "missing" ? "deploy" : status === "audit-only" ? "tighten" : "in-place";
+    rows.push({ id: b.id, definitionId: b.definitionId, name: b.name, initiative: true, effect: b.effect, why: b.why, status, priority, assignedAt: (at || []).slice(0, 20), subscriptions: [] });
+  }
+  return rows.sort((x, y) => rank[x.priority] - rank[y.priority]);
+}
 
 function enabledProbes() {
   const raw = (settings.get("POLICY_PROBES") || "").trim();
@@ -184,6 +267,7 @@ async function runProbes(subscriptionIds, findings, tally, previous = new Map())
       subscriptionId: sub,
       resourceGroup: null,
       probe: probe.id,
+      recommend: `assign "${probe.recommend.name}" with effect ${probe.recommend.effect}`,
       detail:
         v.verdict === "audited"
           ? `would be created; policy only audits it (${v.assignments.length} assignment(s)), nothing denies it`
@@ -345,7 +429,7 @@ function scopeText(scope) {
   return rg ? `resource group ${rg[1]}` : "subscription";
 }
 
-async function healthChecks(findings, tally) {
+async function healthChecks(findings, tally, coverage = new Map()) {
   const now = Date.now();
   const [assignments, exemptions, states, ancestors] = await Promise.all([
     resourceGraphQuery(
@@ -422,6 +506,7 @@ async function healthChecks(findings, tally) {
       return;
     }
     inventory.push(assignmentInfo(a, base, analysis, stateBy.get(a.id.toLowerCase()), exemptionsBy.get(a.id.toLowerCase())));
+    noteCoverage(coverage, a, base, analysis.effects);
     if (analysis.missing.length) {
       add("definition-missing", `${analysis.missing.length} policy definition(s) it points to no longer exist`);
     }
@@ -609,8 +694,8 @@ async function previousProbes() {
     const out = new Map();
     for (const f of findings) {
       if (!String(f.kind).startsWith("probe-")) continue;
-      const { kind, id, name, subscriptionId, resourceGroup, probe, detail } = f;
-      out.set(id, { kind, id, name, subscriptionId, resourceGroup, probe, detail });
+      const { kind, id, name, subscriptionId, resourceGroup, probe, detail, recommend } = f;
+      out.set(id, { kind, id, name, subscriptionId, resourceGroup, probe, detail, ...(recommend && { recommend }) });
     }
     return out;
   } catch {
@@ -622,7 +707,8 @@ async function run() {
   const findings = [];
   const tally = { blocked: 0, audited: 0, allowed: 0, probeErrors: 0, probeReasons: new Map(), lookupErrors: 0, assignments: 0, nonCompliant: 0 };
   const subs = await subscriptionIdsToScan(TOOL_ID);
-  const results = await Promise.allSettled([previousProbes().then((prev) => runProbes(subs, findings, tally, prev)), healthChecks(findings, tally)]);
+  const coverage = new Map();
+  const results = await Promise.allSettled([previousProbes().then((prev) => runProbes(subs, findings, tally, prev)), healthChecks(findings, tally, coverage)]);
   if (results.every((r) => r.status === "rejected")) throw results[0].reason;
   // Shown on the scan page, not only in the log.
   const names = ["Probes", "Assignment health"];
@@ -632,7 +718,8 @@ async function run() {
   if (tally.probeErrors) findings.push(scanError(TOOL_ID, "probe-calls", `${tally.probeErrors} probe call(s) failed`, probeErrorDetail(tally.probeReasons, tally.probeSample)));
   if (results[1].status === "fulfilled") {
     try {
-      await store.putDoc(ASSIGNMENTS_KEY, { updatedAt: new Date().toISOString(), assignments: results[1].value });
+      const recommendations = buildRecommendations(findings.filter((f) => String(f.kind).startsWith("probe-")), coverage);
+      await store.putDoc(ASSIGNMENTS_KEY, { updatedAt: new Date().toISOString(), assignments: results[1].value, recommendations });
     } catch (err) {
       log.record({ tool: TOOL_ID, level: "error", message: `could not save the assignment list: ${err.message}` });
     }
@@ -648,11 +735,11 @@ async function run() {
 
 /* ---------- read routes ---------- */
 
-// Each tenant's assignments from its last scan.
+// Each tenant's assignments and policy recommendations from its last scan.
 function registerRoutes(app, { readKeys, decorate }) {
   app.get(`/api/${TOOL_ID}/assignments`, async (req, res) => {
     try {
-      const out = { updatedAt: null, assignments: [], failures: [] };
+      const out = { updatedAt: null, assignments: [], recommendations: [], failures: [] };
       for (const k of readKeys(req)) {
         let doc;
         try {
@@ -663,9 +750,11 @@ function registerRoutes(app, { readKeys, decorate }) {
         }
         if (!doc) continue;
         if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
-        out.assignments.push(...(doc.assignments || []).map((x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) })));
+        const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
+        out.assignments.push(...(doc.assignments || []).map(tag));
+        out.recommendations.push(...(doc.recommendations || []).map((r) => ({ ...tag(r), subscriptions: (r.subscriptions || []).map(tag) })));
       }
-      await decorate(TOOL_ID, out.assignments);
+      await decorate(TOOL_ID, [...out.assignments, ...out.recommendations.flatMap((r) => r.subscriptions)]);
       res.json(out);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -680,5 +769,6 @@ module.exports = {
   run,
   registerRoutes,
   PROBES,
-  _test: { probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes, errorReason, errorText, probeErrorDetail, parameterRows, assignmentInfo, probeBody },
+  BASELINE,
+  _test: { buildRecommendations, coverageStatus, noteCoverage, probeVerdict, resolveValue, effectOf, covers, hasRole, analyseAssignment, healthChecks, runProbes, errorReason, errorText, probeErrorDetail, parameterRows, assignmentInfo, probeBody },
 };

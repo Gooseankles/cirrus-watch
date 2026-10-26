@@ -1,7 +1,8 @@
 "use strict";
 /* Policy check: every policy assignment with its parameters, member policies and their effects, excluded scopes,
    identity and exemptions (the Assignments view, and the Details panel on Assignment health rows). The list comes
-   from /api/policy-check/assignments, saved by the last scan. Uses app.js helpers. */
+   from /api/policy-check/assignments, saved by the last scan, which also holds the Recommended view (built-in policies
+   to assign). Uses app.js helpers. */
 const PolicyAssignments = (() => {
   const ID = "policy-check";
   const EFFECTS = {
@@ -165,5 +166,76 @@ const PolicyAssignments = (() => {
     );
   }
 
-  return { page, extra, detailFor, hasDetail };
+  // The Recommended view: the built-in policy that would block each probe, and the baseline, most urgent first.
+  const PRIORITY = {
+    deploy: ["Deploy", "bad"],
+    tighten: ["Set to Deny", "warn"],
+    optional: ["Optional", ""],
+    "in-place": ["In place", "good"],
+    unknown: ["Unknown", ""],
+  };
+  const portalLink = (r) =>
+    r.initiative ? "" : ` · <a href="https://portal.azure.com/#view/Microsoft_Azure_Policy/PolicyDetailBlade/definitionId/${encodeURIComponent(r.definitionId)}" target="_blank" rel="noopener">open in the portal</a>`;
+  const todo = (r) => r.priority === "deploy" || r.priority === "tighten";
+  function todoCount(t) {
+    const inv = inventory(t);
+    return inv && inv.data ? (inv.data.recommendations || []).filter(todo).length : null;
+  }
+
+  function why(r) {
+    if (r.initiative) return esc(r.why || "");
+    const subs = (verdict) =>
+      r.subscriptions
+        .filter((s) => s.verdict === verdict)
+        .map((s) => esc(s.subscriptionName || s.subscriptionId))
+        .join(", ");
+    const probe = `Blocks the probe "${esc(r.probe)}".`;
+    if (!r.probeOn) return `${probe} <span class="muted">That probe is turned off, so it was not tested.</span>`;
+    const open = subs("open");
+    const audit = subs("audit");
+    const parts = (open ? `<div><span class="verdict open">Open</span> ${open}</div>` : "") + (audit ? `<div><span class="verdict audit">Audit</span> ${audit}</div>` : "");
+    return probe + (parts || ` <span class="muted">Already blocked in every subscription${r.status === "missing" ? " by another policy" : ""}.</span>`);
+  }
+
+  function assignedAt(r) {
+    if (!r.assignedAt.length) return `<span class="muted">${r.status === "unknown" ? "not read" : "not assigned"}</span>`;
+    return r.assignedAt
+      .map((w) => {
+        const note = !w.enforced ? `<span class="tag bad">not enforced</span>` : w.effect ? `<span class="tag ${effectCls(w.effect)}">${esc(effectName(w.effect))}</span>` : "";
+        return `<div>${esc(w.assignment)} <span class="muted small">${esc(w.subscriptionName || w.scopeText || "")}</span> ${note}</div>`;
+      })
+      .join("");
+  }
+
+  function recommended(t) {
+    const inv = inventory(t);
+    if (!inv) return `<div class="empty-state">Loading the recommendations…</div>`;
+    if (inv.error) return `<div class="empty-state">Could not load the recommendations: ${esc(inv.error)}</div>`;
+    const all = inv.data.recommendations || [];
+    if (!all.length) return `<div class="empty-state">No recommendations yet; the next scan works them out.</div>`;
+    const q = t.filters.q;
+    const sub = t.filters.sub;
+    const list = all.filter(
+      (r) =>
+        (!sub || r.subscriptions.some((s) => s.subscriptionId === sub) || r.assignedAt.some((w) => w.subscriptionId === sub)) &&
+        (!q || [r.name, r.probe, r.definitionId, r.parameters, r.why].filter(Boolean).join(" ").toLowerCase().includes(q))
+    );
+    const rows = list.map((r) => {
+      const [label, cls] = PRIORITY[r.priority] || PRIORITY.unknown;
+      const tenant = r.tenantName ? `<span class="tag">${esc(r.tenantName)}</span> ` : "";
+      return `<tr>
+        <td class="nowrap"><span class="tag ${cls}">${label}</span></td>
+        <td style="min-width:320px"><div class="name-cell"><div class="primary">${tenant}${esc(r.name)}${r.initiative ? ` <span class="tag">initiative</span>` : ""}</div><div class="secondary">Effect: ${esc(r.effect)}${r.parameters ? ` · ${esc(r.parameters)}` : ""}${portalLink(r)}</div><div class="secondary mono small" title="${esc(r.definitionId)}">${r.initiative ? "Initiative" : "Policy"} ID ${esc(String(r.definitionId).split("/").pop())}</div></div></td>
+        <td><span class="detail-cell">${why(r)}</span></td>
+        <td>${assignedAt(r)}</td>
+      </tr>`;
+    });
+    const n = all.filter(todo).length;
+    return (
+      `<p class="muted small">${n ? `${fmt.int(n)} built-in polic${n === 1 ? "y" : "ies"} to assign or set to Deny.` : "Every recommended policy is in place."} Assign them at the management group or subscription where the probes came back open; start with the effect on Audit if you are unsure what they would block.</p>` +
+      `<div class="table-wrap"><table class="data"><thead><tr><th></th><th>Built-in policy</th><th>Why</th><th>Assigned now</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`
+    );
+  }
+
+  return { page, extra, detailFor, hasDetail, recommended, todoCount };
 })();

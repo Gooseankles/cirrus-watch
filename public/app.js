@@ -1595,7 +1595,7 @@ const isProbe = (f) => String(f.kind || "").startsWith("probe-");
 // Probe call or check failures (scan-error findings named after the probes).
 const pcProbeErrors = (all) => all.filter((f) => f.kind === "scan-error" && /\/scan-errors\/(probe-calls|Probes)$/.test(f.id || ""));
 // With no probe findings, the page opens on Assignment health until a view is picked.
-const pcView = (t) => (t.filters.view === "assignments" ? "assignments" : t.filters.view === "health" || (!t.viewPicked && t.pcNoProbes) ? "health" : "probes");
+const pcView = (t) => (["assignments", "recommended"].includes(t.filters.view) ? t.filters.view : t.filters.view === "health" || (!t.viewPicked && t.pcNoProbes) ? "health" : "probes");
 function pcStats(all, t) {
   const probes = all.filter(isProbe);
   const open = probes.filter((f) => f.kind === "probe-not-blocked");
@@ -1617,14 +1617,16 @@ function pcExtra(all, t) {
   const nProbes = all.filter(isProbe).length;
   const nHealth = all.filter((f) => !isProbe(f) && f.kind !== "scan-error").length;
   const v = pcView(t);
-  for (const sel of ["#scan-fw", "#scan-new"]) $(sel).classList.toggle("hidden", v === "assignments");
-  $("#scan-q").placeholder = v === "assignments" ? "Search assignment, parameter, policy inside" : "Search name, detail, subscription";
-  return `<div class="seg"><button type="button" data-view="probes" class="${v === "probes" ? "active" : ""}">Probes <span class="n">${fmt.int(nProbes)}</span></button><button type="button" data-view="health" class="${v === "health" ? "active" : ""}">Assignment health <span class="n">${fmt.int(nHealth)}</span></button><button type="button" data-view="assignments" class="${v === "assignments" ? "active" : ""}">Assignments</button></div>${v === "assignments" ? PolicyAssignments.extra(t) : ""}`;
+  for (const sel of ["#scan-fw", "#scan-new"]) $(sel).classList.toggle("hidden", v === "assignments" || v === "recommended");
+  $("#scan-q").placeholder = v === "assignments" ? "Search assignment, parameter, policy inside" : v === "recommended" ? "Search policy, probe" : "Search name, detail, subscription";
+  const todo = PolicyAssignments.todoCount(t);
+  return `<div class="seg"><button type="button" data-view="probes" class="${v === "probes" ? "active" : ""}">Probes <span class="n">${fmt.int(nProbes)}</span></button><button type="button" data-view="health" class="${v === "health" ? "active" : ""}">Assignment health <span class="n">${fmt.int(nHealth)}</span></button><button type="button" data-view="assignments" class="${v === "assignments" ? "active" : ""}">Assignments</button><button type="button" data-view="recommended" class="${v === "recommended" ? "active" : ""}">Recommended${todo ? ` <span class="n">${fmt.int(todo)}</span>` : ""}</button></div>${v === "assignments" ? PolicyAssignments.extra(t) : ""}`;
 }
-const pcScope = (f, t) => (pcView(t) === "assignments" ? true : pcView(t) === "health" ? !isProbe(f) : isProbe(f));
+const pcScope = (f, t) => (pcView(t) === "assignments" || pcView(t) === "recommended" ? true : pcView(t) === "health" ? !isProbe(f) : isProbe(f));
 // Probes view with no probe findings at all: say why, not "no findings match".
 function pcEmptyProbes(all, t) {
   if (pcView(t) === "assignments") return PolicyAssignments.page(t);
+  if (pcView(t) === "recommended") return PolicyAssignments.recommended(t);
   if (pcView(t) !== "probes" || all.some(isProbe)) return null;
   return pcProbeErrors(all).length
     ? `<div class="empty-state">The probes could not run this time (see the errors above), so no subscription is listed.</div>`
@@ -1647,7 +1649,7 @@ function pcMatrix(shown, t) {
     const dot = isNew(f, ranAt) ? '<span class="nd" title="New this run"></span>' : "";
     // A runner can click a verdict to accept it (e.g. public IPs are allowed in that subscription).
     const acc = f.key && canRunFor(f) ? ` data-accept="${esc(f.key)}" role="button" tabindex="0"` : "";
-    const tip = esc((f.detail || "") + (acc ? " · Click to accept" : ""));
+    const tip = esc((f.detail || "") + (f.recommend ? ` · Fix: ${f.recommend}` : "") + (acc ? " · Click to accept" : ""));
     return f.kind === "probe-not-blocked"
       ? `<span class="verdict open${acc ? " clickable" : ""}" title="${tip}"${acc}>${dot}Open</span>`
       : `<span class="verdict audit${acc ? " clickable" : ""}" title="${tip}"${acc}>${dot}Audit</span>`;
@@ -1665,7 +1667,7 @@ function pcMatrix(shown, t) {
       <span><span class="verdict ok">blocked</span> denied by policy</span>
       <span><span class="verdict open"><span class="nd"></span></span> new this run</span>
     </div>
-    <div class="note">Subscriptions where every probe was blocked (or whose open probes were all accepted) are not listed. Hover a verdict for the policy detail${canRun() ? "; click it to accept it" : ""}.</div>`;
+    <div class="note">Subscriptions where every probe was blocked (or whose open probes were all accepted) are not listed. Hover a verdict for the policy detail and the fix${canRun() ? "; click it to accept it" : ""}. The Recommended tab lists the built-in policies to assign.</div>`;
 }
 function pcHealth(shown, t) {
   const ranAt = t.data.ranAt;

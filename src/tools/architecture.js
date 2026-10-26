@@ -168,6 +168,8 @@ function buildNetwork(d) {
   };
   const byPrio = (a, b) => a.p - b.p;
   const nics = new Map();
+  // Every NIC address, not only a VM's primary one: a route's next hop is often a firewall VM's inside NIC.
+  const addrs = (d.nics || []).filter((n) => n.nicIp).map((n) => [n.nicIp, n.vm || n.pe || n.id]);
   for (const n of d.nics || []) {
     if (!n.nicIp || !n.nicSubnet) continue;
     const owner = n.vm || n.pe || n.id;
@@ -208,6 +210,7 @@ function buildNetwork(d) {
       }),
     })),
     nics: [...nics.values()],
+    addrs,
     firewalls: (d.firewalls || []).filter((f) => f.fwIp).map((f) => ({ id: f.id, name: f.name, ip: f.fwIp, policy: f.policy, subnet: f.fwSubnet })),
   };
 }

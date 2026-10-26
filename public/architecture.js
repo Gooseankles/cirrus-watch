@@ -312,11 +312,12 @@
       const name = (id) => id.split("/").pop();
       const bad = (r.checks || []).filter((c) => c.ok !== "all").map((c) => `${c.label}${c.open ? ` (open: ${c.open})` : c.by ? ` (${c.by})` : ""}`);
       const text = `${name(r.from)} → ${name(r.to)}: ${FLOW_WORD[r.state]}, ${r.via}${bad.length && r.state !== "deny" ? `\n  ${bad.join("\n  ")}` : r.why ? `\n  ${r.why}` : ""}`;
-      const fwTile = r.fw && tile.get(r.fw);
-      if (fwTile) {
+      const mid = r.fw || r.hop;
+      const fwTile = mid && tile.get(mid);
+      if (fwTile && fwTile !== a && fwTile !== b) {
         add(a, fwTile, r.state, true, text);
         add(fwTile, b, r.state, true, text);
-      } else add(a, b, r.state, !!r.fw, text);
+      } else add(a, b, r.state, !!mid, text);
     }
     const stateOf = (x) => (x.states.size === 1 ? [...x.states][0] : "part");
     for (const [k, x] of lines) {
@@ -349,7 +350,9 @@
       if (!roots.has(tenant)) roots.set(tenant, box(`tenant:${tenant}`, "tenant", inv.tenantName.get(tenant) || tenant, "tenant"));
       return roots.get(tenant);
     };
-    const resources = inv.resources.filter((r) => show(r) && picked(r));
+    // Firewalls the traffic lines pass through are drawn even when their group or kind is not picked.
+    const through = o.through || new Set();
+    const resources = inv.resources.filter((r) => (show(r) && picked(r)) || through.has(r.id));
     let leaves = 0;
 
     if (o.layout === "groups") {
@@ -409,7 +412,7 @@
         if (at) {
           const l = leaf(r);
           if (r.type === "microsoft.web/sites") l.sub = `${r.t.label} · VNet integration`;
-          if (!picked(r)) l.context = true;
+          if (!picked(r) || !show(r)) l.context = true;
           subnetBox(at.s, at.v).children.push(l);
         } else {
           const k = rgKey(r);
@@ -774,6 +777,8 @@
     const inv = a.data;
     if (!inv.updatedAt) return `<div class="empty-state big"><h3>Nothing saved yet</h3><p>Each scan saves what it found. Run it once${canRun() ? " (Run now above)" : ""} and the drawing shows here.</p></div>`;
     const o = opts(t, inv);
+    const last = o.traffic && t.archFlow && t.archFlow.results;
+    o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter(Boolean) : []);
     const m = model(inv, o);
     const flow = trafficFor(t, m, o);
     flowLinks(m, flow, o);

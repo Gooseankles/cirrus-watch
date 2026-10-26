@@ -73,7 +73,8 @@ function index(net) {
   const routeTables = new Map(arr(net.routeTables).map((r) => [r.id, r]));
   const nics = new Map(arr(net.nics).map((n) => [n.owner, n]));
   const firewalls = arr(net.firewalls);
-  return { subnets, vnets, nsgs, routeTables, nics, firewalls };
+  const addrs = new Map(arr(net.addrs));
+  return { subnets, vnets, nsgs, routeTables, nics, firewalls, addrs };
 }
 
 // The VirtualNetwork service tag as seen from a subnet: its VNet, peered VNets and the prefixes of its routes.
@@ -207,7 +208,12 @@ function evaluate(x, fw, srcNic, dstNic, checks) {
   if (r.kind === "appliance") {
     const firewall = x.firewalls.find((w) => w.ip === r.hopIp);
     steps.push(`${routeText(r)} sends it to ${firewall ? `firewall ${firewall.name}` : `appliance ${r.hopIp}`}`);
-    if (!firewall) return { state: "unknown", via: `appliance ${r.hopIp}`, steps: [...steps, "Its rules are not known (not an Azure Firewall this scan read)"] };
+    if (!firewall) {
+      // A firewall VM (Palo Alto, Fortinet...): the line goes through it, but its rules are not known here.
+      const owner = x.addrs && x.addrs.get(r.hopIp);
+      const who = owner ? owner.split("/").pop() : r.hopIp;
+      return { state: "unknown", via: `appliance ${who}`, ...(owner && { hop: owner }), steps: [...steps, `${who} is not an Azure Firewall, so its rules are not known here`] };
+    }
     via = `firewall ${firewall.name}`;
     fwId = firewall.id;
     const policy = fw && arr(fw.policies).find((p) => p.id === firewall.policy || arr(p.firewalls).includes(firewall.name));

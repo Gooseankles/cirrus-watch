@@ -122,6 +122,8 @@ const TOOL_SPNS = [
   { id: "diagnostic-settings", label: "Diagnostic settings" },
   { id: "quotas", label: "Quotas" },
   { id: "ipam", label: "IP addresses" },
+  { id: "architecture", label: "Architecture" },
+  { id: "firewall-policies", label: "Firewall policies" },
   { id: "change-log", label: "Change log" },
   { id: "privileged-roles", label: "Privileged roles" },
   { id: "pim", label: "PIM" },

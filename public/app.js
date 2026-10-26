@@ -10,6 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const ICON_PATHS = {
   home: '<path d="M3 11l9-8 9 8v9a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z"/>',
+  wall: '<rect x="3" y="4" width="18" height="16" rx="1"/><line x1="3" y1="9.3" x2="21" y2="9.3"/><line x1="3" y1="14.7" x2="21" y2="14.7"/><line x1="9" y1="4" x2="9" y2="9.3"/><line x1="15" y1="9.3" x2="15" y2="14.7"/><line x1="9" y1="14.7" x2="9" y2="20"/>',
   plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
   search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
@@ -130,6 +131,8 @@ const TOOLS = [
   { id: "azure-monitor", group: "governance", label: "Azure Monitor", icon: "activity", schedule: "Daily at 04:55", sub: "Whether Azure Monitor watches everything and works: VMs and Arc servers with no agent, the retired legacy agent, no data collection rule or no heartbeat, alert rules that are off, alert nobody or watch a deleted resource, broken action groups and workspaces at their daily cap. Switch it off per tenant in Settings (Azure Monitor) for customers who do not use it." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
   { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
+  { id: "firewall-policies", group: "resources", label: "Firewall policies", icon: "wall", schedule: "Daily at 04:50", sub: "Every Azure Firewall policy with its rules laid out in the order the firewall checks them, and what is wrong in them: duplicate rules, rules that never apply because an earlier rule already allows or blocks the traffic, rules covered by a wider one, any-to-any and all-port allows, admin ports forwarded from the internet, missing IP groups, threat intelligence or IDPS off. Classic firewall rules are read too. The Reach map shows every rule that lets traffic in to or out from a picked VM or IP address." },
+  { id: "architecture", group: "resources", info: true, label: "Architecture", icon: "grid", schedule: "Daily at 04:40", sub: "A drawing of the environment. Pick resource groups or whole subscriptions; the virtual networks and subnets their resources sit in are found and drawn by themselves, with peerings, VPN and ExpressRoute sites, private endpoints and public IPs. Download it as SVG, PNG or a draw.io file to edit. For information: no findings." },
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
   { id: "privileged-roles", group: "identity", label: "Privileged roles", icon: "crown", schedule: "Daily at 05:00", sub: "Who holds the powerful Entra roles: too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is in use, and admins with no MFA registered." },
   { id: "pim", group: "identity", label: "PIM", icon: "crown", schedule: "Daily at 05:10", sub: "A PIM review for Entra and Azure roles. PIM access lists everyone who can activate a role, directly or through a group (a group that is eligible for a role, or PIM for Groups membership of a group that holds one); Groups lists those groups. Findings: activation without MFA, a reason or approval, activation that lasts too long, roles that may be given permanently, guests and disabled accounts with PIM access, access that never ends, runs out soon or is never used, groups that are not role-assignable or have permanent members, and permanent Owners next to people who must activate. Needs Microsoft Entra ID P2." },
@@ -381,6 +384,23 @@ const KINDS = {
   "ipgroup-redundant": ["Covered entries", ""],
   "ipgroup-wide": ["Very wide entry", "warn"],
   "ipgroup-duplicate": ["Duplicate IP group", ""],
+  "fw-shadowed-deny": ["Deny never applies", "crit"],
+  "fw-shadowed-allow": ["Allow never applies", "warn"],
+  "fw-duplicate": ["Duplicate rule", "warn"],
+  "fw-redundant": ["Covered by another rule", ""],
+  "fw-any-any": ["Any-to-any allow", "crit"],
+  "fw-any-port": ["All ports allowed", "warn"],
+  "fw-app-any-fqdn": ["Every FQDN allowed", "warn"],
+  "fw-dnat-open-admin": ["Admin port open to internet", "crit"],
+  "fw-ipgroup-missing": ["Missing IP group or parent", "warn"],
+  "fw-fqdn-no-dns-proxy": ["FQDN rules without DNS proxy", "warn"],
+  "fw-policy-failed": ["Policy failed", "crit"],
+  "fw-policy-unused": ["Unused policy", ""],
+  "fw-empty": ["Policy without rules", ""],
+  "fw-threat-intel-off": ["Threat intelligence off", "warn"],
+  "fw-idps-off": ["IDPS off on Premium", ""],
+  "fw-classic-rules": ["Classic firewall rules", ""],
+  "fw-not-compared": ["Rules not compared", ""],
   "defender-low-score": ["Low secure score", "warn"],
   "defender-high": ["High severity", "crit"],
   "defender-medium": ["Medium severity", "warn"],
@@ -902,7 +922,7 @@ function toolCard(tool) {
     : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.accepted.length ? fmt.int(t.accepted.length) + " accepted · " : ""}${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
   return `<a class="tool-card" href="#/scan/${esc(tool.id)}">
     <div class="tc-head">${icon(tool.icon)}<span>${esc(tool.label)}</span></div>
-    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
+    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.id === "architecture" ? "drawing" : tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
     <div class="tc-delta">${delta}</div>
     <div class="tc-spark" data-spark="${esc(tool.id)}"></div>
     <div class="tc-kinds">${kinds.map(([k, c]) => `${kindBadge(k).replace("</span>", ` ${fmt.int(c)}</span>`)}`).join("")}</div>

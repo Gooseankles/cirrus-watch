@@ -33,7 +33,7 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 
 | Permission | Used for |
 | --- | --- |
-| `User.Read.All` | Access lookup (search people by name and find them), names of role holders |
+| `User.Read.All` | Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access |
 | `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; access packages: who is in each approver group; PIM: members and owners of groups that hold a role) |
 | `Application.Read.All` | App registration secret and certificate expiry |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |

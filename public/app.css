@@ -272,6 +272,7 @@ table.data .secondary code { color: var(--muted); font-size: 0.74rem; }
 .status-msg.error { color: var(--critical-text); }
 .status-msg.ok { color: var(--good-text); }
 .note { font-size: 0.78rem; color: var(--muted); margin-top: 8px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .inline-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { display: inline-block; padding: 2px 8px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); font-size: 0.78rem; color: var(--text-2); }
 

@@ -37,7 +37,7 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; access packages: who is in each approver group) |
 | `Application.Read.All` | App registration secret and certificate expiry |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
-| `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); access lookup: a person's or group's Entra roles |
+| `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings, eligibility and activation history; access lookup: a person's or group's Entra roles |
 | `AuditLog.Read.All` | Stale accounts (last sign-in), MFA coverage and admins' MFA registration; all need Entra ID P1 or P2 |
 | `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |

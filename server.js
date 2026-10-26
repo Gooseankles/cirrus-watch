@@ -211,6 +211,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/ipam")),
   registerScanTool(app, require("./src/tools/changeLog")),
   registerScanTool(app, require("./src/tools/privilegedRoles")),
+  registerScanTool(app, require("./src/tools/pim")),
   registerScanTool(app, require("./src/tools/staleAccounts")),
   registerScanTool(app, require("./src/tools/mfaCoverage")),
   registerScanTool(app, require("./src/tools/conditionalAccess")),

@@ -204,6 +204,7 @@
       ports: typeof saved.ports === "string" ? saved.ports : "",
       dir: saved.dir === "out" ? "out" : "in",
       flowBlocked: !!saved.flowBlocked,
+      flowColor: saved.flowColor === "state" ? "state" : "vm",
       pick: new Set(Array.isArray(store.get("pick")) ? store.get("pick") : []),
       hide: new Set(Array.isArray(store.get("hide")) ? store.get("hide") : []),
       openRg: new Set(),
@@ -219,7 +220,7 @@
     store.set("scope", [...o.scope]);
     store.set("pick", [...o.pick]);
     store.set("hide", [...o.hide]);
-    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked });
+    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor });
   }
 
   /* --- traffic lines: can the picked tile talk to the others on these ports? --- */
@@ -301,12 +302,16 @@
     const tile = new Map();
     for (const l of drawnLeaves(m.root)) for (const r of l.many || [l.r]) tile.set(r.id, l.key);
     const lines = new Map();
+    const byVm = o.flowColor === "vm";
+    let src = null, ends = [];
     const add = (a, b, state, fw, text) => {
       if (!a || !b || a === b) return;
-      const k = `${a}|${b}`;
-      const x = lines.get(k) || { a, b, states: new Set(), fw: false, texts: [] };
+      // Coloured by VM: one line per sender, so lines from two VMs to the same tile stay apart.
+      const k = byVm ? `${src}|${a}|${b}` : `${a}|${b}`;
+      const x = lines.get(k) || { a, b, src, states: new Set(), fw: false, texts: [], ends: new Set() };
       x.states.add(state);
       x.fw = x.fw || fw;
+      for (const e of ends) x.ends.add(e);
       if (x.texts.length < 12) x.texts.push(text);
       lines.set(k, x);
     };
@@ -315,6 +320,8 @@
       // Over the whole drawing, blocked pairs are left out unless asked for: most pairs are blocked on purpose.
       if (f.auto && !o.flowBlocked && r.state === "deny") continue;
       const a = tile.get(r.from), b = tile.get(r.to);
+      src = a;
+      ends = [a, b];
       const name = (id) => id.split("/").pop();
       const bad = (r.checks || []).filter((c) => c.ok !== "all").map((c) => `${c.label}${c.open ? ` (open: ${c.open})` : c.by ? ` (${c.by})` : ""}`);
       const text = `${name(r.from)} → ${name(r.to)}: ${FLOW_WORD[r.state]}, ${r.via}${bad.length && r.state !== "deny" ? `\n  ${bad.join("\n  ")}` : r.why ? `\n  ${r.why}` : ""}`;
@@ -326,15 +333,24 @@
       } else add(a, b, r.state, !!mid, text);
     }
     const stateOf = (x) => (x.states.size === 1 ? [...x.states][0] : "part");
+    // Each VM that sends gets its own colour, in a steady order so a colour stays with its VM between redraws.
+    const senders = [...new Set([...lines.values()].map((x) => x.src))].filter(Boolean).sort();
+    const vmCol = new Map(senders.map((k, i) => [k, VM_COLORS[i % VM_COLORS.length]]));
+    o.vmCol = byVm ? vmCol : null;
     for (const [k, x] of lines) {
       if (x.gone) continue;
-      // Both ways alike: one line with an arrow at each end.
-      const back = lines.get(`${x.b}|${x.a}`);
+      // Both ways alike: one line with an arrow at each end (only when coloured by result: by VM each way has its sender's colour).
+      const back = !byVm && lines.get(`${x.b}|${x.a}`);
       const both = back && !back.gone && stateOf(back) === stateOf(x) && back.fw === x.fw;
       if (both) back.gone = true;
-      m.links.push({ a: x.a, b: x.b, kind: `flow-${stateOf(x)}`, arrow: true, both, dash: x.fw, title: [...x.texts, ...(both ? back.texts : [])].slice(0, 16).join("\n") });
+      const on = new Set([...x.ends, x.a, x.b, ...(both ? back.ends : [])]);
+      m.links.push({ a: x.a, b: x.b, kind: `flow-${stateOf(x)}`, flow: stateOf(x), col: byVm ? vmCol.get(x.src) : null, on: [...on], arrow: true, both, dash: !byVm && x.fw, title: [...x.texts, ...(both ? back.texts : [])].slice(0, 16).join("\n") });
     }
   }
+  // Line colours for "colour by VM": easy to tell apart, readable on light and dark.
+  const VM_COLORS = ["#4c8df6", "#f08c00", "#12b886", "#d6336c", "#845ef7", "#15aabf", "#b07d2b", "#74b816", "#e8590c", "#5f3dc4"];
+  // Coloured by VM the result shows in the line: solid gets through, dashed some ports, dotted blocked or unknown.
+  const FLOW_DASH = { allow: "", part: "9 4", deny: "2 4", unknown: "1 5" };
 
   /* --- the model: a tree of boxes and resources, plus the lines between them --- */
   const LW = 196, LH = 46, GAP = 14, PAD = 12;
@@ -631,6 +647,8 @@
     out.push(`<g data-arch-node="${esc(n.key)}" class="arch-leaf"${n.context ? ' opacity="0.7"' : ""}><title>${esc(title)}</title>`);
     out.push(`<rect class="arch-leaf-bg" x="${n.ax}" y="${n.ay}" width="${LW}" height="${LH}" rx="6" fill="${p["--surface-2"]}" stroke="${p["--border-strong"]}"${n.context ? ' stroke-dasharray="3 3"' : ""}/>`);
     out.push(`<rect x="${n.ax + 6}" y="${n.ay + 7}" width="32" height="32" rx="5" fill="${col}" fill-opacity="0.18" stroke="${col}" stroke-opacity="0.6"/>`);
+    const vc = arch.vmCol && arch.vmCol.get(n.key);
+    if (vc) out.push(`<rect x="${n.ax + 1.5}" y="${n.ay + 6}" width="3.5" height="${LH - 12}" rx="1.75" fill="${vc}"><title>Its traffic lines have this colour</title></rect>`);
     const abbr = r.t.abbr;
     out.push(`<text x="${n.ax + 22}" y="${n.ay + 27}" text-anchor="middle" font-size="${abbr.length > 3 ? 8.5 : 10}" font-weight="700" fill="${col}">${esc(abbr)}</text>`);
     out.push(`<text x="${n.ax + 46}" y="${n.ay + 20}" font-size="12" font-weight="600" fill="${p["--text"]}">${esc(trunc(n.label, pub && arch.publicIps ? 17 : 21))}</text>`);
@@ -658,18 +676,34 @@
     "flow-unknown": (p) => [p["--muted"], "", 2],
   };
   function drawLinks(m, at, p, out) {
+    // Lines between the same two tiles (one per sender) are spread a little so each stays visible.
+    const pair = (l) => (l.a < l.b ? `${l.a}|${l.b}` : `${l.b}|${l.a}`);
+    const count = new Map(), seen = new Map();
+    for (const l of m.links) count.set(pair(l), (count.get(pair(l)) || 0) + 1);
     for (const l of m.links) {
       const a = at.get(l.a), b = at.get(l.b);
       if (!a || !b) continue;
       const s = anchor(a, b), e = anchor(b, a);
+      const k = pair(l), n = count.get(k), i = seen.get(k) || 0;
+      seen.set(k, i + 1);
+      if (n > 1) {
+        // The same side for both directions: measured from the lower key, not from this line's start.
+        const flip = l.a < l.b ? 1 : -1, len = Math.hypot(e.x - s.x, e.y - s.y) || 1;
+        const off = (i - (n - 1) / 2) * Math.min(6, 30 / n) * flip;
+        const nx = (-(e.y - s.y) / len) * off, ny = ((e.x - s.x) / len) * off;
+        for (const q of [s, e]) (q.x += nx), (q.y += ny);
+      }
       const bend = Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3);
       const c1 = s.h ? { x: s.x + (e.x > s.x ? bend : -bend), y: s.y } : { x: s.x, y: s.y + (e.y > s.y ? bend : -bend) };
       const c2 = e.h ? { x: e.x + (s.x > e.x ? bend : -bend), y: e.y } : { x: e.x, y: e.y + (s.y > e.y ? bend : -bend) };
-      const [col, dash0, w] = LINK_STYLE[l.kind](p);
-      const dash = l.dash ? "7 4" : dash0;
+      const [col0, dash0, w] = LINK_STYLE[l.kind](p);
+      const col = l.col || col0;
+      const dash = l.col ? FLOW_DASH[l.flow] : l.dash ? "7 4" : dash0;
+      const g = l.on ? ` class="arch-ln" data-on="${esc(l.on.join(" "))}"` : "";
+      out.push(`<g${g}>`);
       out.push(`<path d="M${s.x},${s.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${e.x},${e.y}" fill="none" stroke="${col}" stroke-width="${w}" stroke-opacity="0.85"${dash ? ` stroke-dasharray="${dash}"` : ""}><title>${esc(l.title)}</title></path>`);
       if (!l.arrow) {
-        out.push(`<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/><circle cx="${e.x}" cy="${e.y}" r="3" fill="${col}"/>`);
+        out.push(`<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/><circle cx="${e.x}" cy="${e.y}" r="3" fill="${col}"/></g>`);
         continue;
       }
       // An arrowhead where the traffic arrives (at both ends when it goes both ways).
@@ -682,6 +716,7 @@
       };
       out.push(l.both ? head(s, c1) : `<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/>`);
       out.push(head(e, c2));
+      out.push("</g>");
     }
   }
   function render(m, o) {
@@ -787,7 +822,8 @@
         ${TRAFFIC.map(([k, label]) => `<option value="${k}"${o.traffic === k ? " selected" : ""}>${esc(label)}</option>`).join("")}
       </select>
       ${o.traffic === "custom" ? `<input class="input" data-arch-ports placeholder="443, tcp 8080-8090, udp 53" value="${esc(o.ports)}" title="Ports, comma separated; tcp is assumed without a protocol"/>` : ""}
-      ${o.traffic && !o.sel ? `<label class="arch-opt" title="Pairs where nothing gets through (most are on purpose)"><input type="checkbox" data-arch-opt="flowBlocked"${o.flowBlocked ? " checked" : ""}/> Show blocked</label><span class="arch-hint">Click a VM to see only its traffic</span>` : ""}
+      ${o.traffic ? `<div class="seg" title="What the line colour shows"><button type="button" data-arch-fcol="vm" class="${o.flowColor === "vm" ? "active" : ""}" title="Each VM's lines in its own colour; solid gets through, dashed some ports, dotted blocked">Colour by VM</button><button type="button" data-arch-fcol="state" class="${o.flowColor === "state" ? "active" : ""}" title="Green gets through, yellow some ports, red blocked">By result</button></div>` : ""}
+      ${o.traffic && !o.sel ? `<label class="arch-opt" title="Pairs where nothing gets through (most are on purpose)"><input type="checkbox" data-arch-opt="flowBlocked"${o.flowBlocked ? " checked" : ""}/> Show blocked</label><span class="arch-hint">Point at a VM to light up its lines; click it to see only its traffic</span>` : ""}
       ${o.traffic && o.sel ? `<div class="seg"><button type="button" data-arch-dir="in" class="${o.dir === "in" ? "active" : ""}" title="Can the other drawn VMs reach the tile you click?">Into the picked tile</button><button type="button" data-arch-dir="out" class="${o.dir === "out" ? "active" : ""}" title="Can the tile you click reach the other drawn VMs?">Out of it</button></div>` : ""}
     </div>
     <div class="arch-cats">${CATS.map(([c, label]) => `<button type="button" class="chip${o.cats.has(c) ? " active" : ""}" data-arch-cat="${c}"><span class="arch-dot" style="background:var(${CATS.find((x) => x[0] === c)[2]})"></span>${esc(label)}</button>`).join("")}</div>`;
@@ -831,7 +867,9 @@
       <div class="arch-legend">
         ${m.grouped ? "<span>One tile per type (many resources). Switch Tiles to One per resource to see each.</span>" : ""}
         <span><i class="ln peer"></i>peering</span><span><i class="ln bad"></i>peering not connected</span><span><i class="ln vpn"></i>VPN / ExpressRoute</span><span><i class="ln pe"></i>private endpoint</span>
-        ${o.traffic ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports open</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>${flow && flow.loading ? "<span>Checking traffic…</span>" : ""}` : ""}
+        ${o.traffic && o.flowColor === "vm" ? `<span><i class="ln vmc"></i>traffic, in the colour of the VM it comes from (stripe on its tile)</span><span><i class="ln vmc part"></i>some ports open</span><span><i class="ln vmc no"></i>blocked or unknown</span>` : ""}
+        ${o.traffic && o.flowColor !== "vm" ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports open</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>` : ""}
+        ${o.traffic && flow && flow.loading ? "<span>Checking traffic…</span>" : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
         <span>Drag to move, wheel to zoom, click a tile for details</span>
       </div>
@@ -1017,8 +1055,9 @@
     const edgeCol = { peer: "#3987e5", "peer-bad": "#d03b3b", vpn: "#c98500", pe: "#888888", "flow-allow": "#0ca30c", "flow-part": "#c98500", "flow-deny": "#d03b3b", "flow-unknown": "#888888" };
     for (const l of m.links) {
       if (!ids.has(l.a) || !ids.has(l.b)) continue;
-      const dash = l.arrow ? (l.dash ? "dashed=1;" : "") : l.kind === "peer" ? "" : "dashed=1;";
-      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? `endArrow=block;endFill=1;${l.both ? "startArrow=block;startFill=1;" : ""}noLabel=1;` : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" ? 1 : 2};strokeColor=${edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+      const fd = l.col && FLOW_DASH[l.flow];
+      const dash = l.col ? (fd ? `dashed=1;dashPattern=${fd};` : "") : l.arrow ? (l.dash ? "dashed=1;" : "") : l.kind === "peer" ? "" : "dashed=1;";
+      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? `endArrow=block;endFill=1;${l.both ? "startArrow=block;startFill=1;" : ""}noLabel=1;` : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" ? 1 : 2};strokeColor=${l.col || edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
     }
     return `<mxfile host="azure-ops-dashboard"><diagram name="Architecture" id="arch"><mxGraphModel dx="${Math.round(d.w)}" dy="${Math.round(d.h)}" grid="0" gridSize="10" guides="1" page="0" math="0" shadow="0"><root>${cells.join("")}</root></mxGraphModel></diagram></mxfile>`;
   }
@@ -1099,7 +1138,7 @@
     }
   }, true);
   document.addEventListener("click", (e) => {
-    const el = e.target.closest("[data-arch-act],[data-arch-layout],[data-arch-cat],[data-arch-open],[data-arch-rgopen],[data-arch-dir]");
+    const el = e.target.closest("[data-arch-act],[data-arch-layout],[data-arch-cat],[data-arch-open],[data-arch-rgopen],[data-arch-dir],[data-arch-fcol]");
     if (!el || !el.closest("#page-scan")) return;
     const t = toolState(ID);
     const o = t.archOpts;
@@ -1117,6 +1156,11 @@
       else o.open.add(k);
       el.closest(".arch-sub").classList.toggle("open", o.open.has(k));
       return;
+    }
+    if (el.dataset.archFcol) {
+      o.flowColor = el.dataset.archFcol;
+      saveOpts(o);
+      return rerender();
     }
     if (el.dataset.archDir) {
       o.dir = el.dataset.archDir;
@@ -1179,6 +1223,23 @@
     },
     { passive: false }
   );
+  // Pointing at a tile lights up its traffic lines and fades the rest.
+  let hot = null;
+  const light = (key) => {
+    if (key === hot) return;
+    hot = key;
+    const svg = $("#arch-svg");
+    if (!svg) return;
+    const lines = [...svg.querySelectorAll(".arch-ln")];
+    const mine = new Set(key ? lines.filter((g) => g.dataset.on.split(" ").includes(key)) : []);
+    svg.classList.toggle("arch-hl", mine.size > 0);
+    for (const g of lines) g.classList.toggle("on", mine.has(g));
+  };
+  document.addEventListener("pointerover", (e) => {
+    if (drag && drag.moved) return;
+    const node = e.target.closest && e.target.closest("#arch-svg [data-arch-node]");
+    light(node ? node.dataset.archNode : null);
+  });
   let drag = null;
   document.addEventListener("pointerdown", (e) => {
     const svg = e.target.closest && e.target.closest("#arch-svg");

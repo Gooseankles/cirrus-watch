@@ -818,6 +818,12 @@ tr.pa-hit td { background: var(--accent-soft); }
 .arch-legend .ln.ok { border-top-color: var(--good-text); }
 .arch-legend .ln.part { border-top-color: var(--warning); }
 .arch-legend .ln.no { border-top-color: var(--critical-text); }
+.arch-legend .ln.vmc { border-top: 2px solid; border-image: linear-gradient(90deg, #4c8df6 0 33%, #f08c00 33% 66%, #12b886 66%) 1; }
+.arch-legend .ln.vmc.part { border-top: 2px dashed var(--text-2); border-image: none; }
+.arch-legend .ln.vmc.no { border-top: 2px dotted var(--text-2); border-image: none; }
+#arch-svg .arch-ln { transition: opacity 0.12s ease; }
+#arch-svg.arch-hl .arch-ln:not(.on) { opacity: 0.1; }
+#arch-svg.arch-hl .arch-ln.on path { stroke-width: 3; stroke-opacity: 1; }
 .arch-legend .ln.fwl { border-top: 2px dashed var(--text-2); }
 .arch-traffic { gap: 8px; }
 .arch-traffic .input { width: 220px; max-width: 100%; }

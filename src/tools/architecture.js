@@ -40,7 +40,7 @@ const RESOURCES_KQL = `Resources
     t == 'microsoft.compute/disks', tostring(managedBy),
     ''))
 | extend ip = iff(t == 'microsoft.network/publicipaddresses', tostring(properties.ipAddress), '')
-| project id, name, type = t, kind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip
+| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip
 | take ${MAX_RESOURCES + 1}`;
 
 const parentOf = (id) => String(id || "").toLowerCase().split("/").slice(0, 9).join("/");
@@ -57,11 +57,11 @@ async function read() {
     q(`ResourceContainers | where type =~ 'microsoft.resources/subscriptions/resourcegroups' | project name, subscriptionId, location`),
     q(`ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | project subscriptionId, name`),
     q(`Resources | where type in~ ('microsoft.network/localnetworkgateways', 'microsoft.network/expressroutecircuits')
-      | project id = tolower(id), name, type = tolower(type), resourceGroup, subscriptionId, location,
-          prefixes = properties.localNetworkAddressSpace.addressPrefixes, address = tostring(properties.gatewayIpAddress),
-          provider = tostring(properties.serviceProviderProperties.serviceProviderName), peering = tostring(properties.serviceProviderProperties.peeringLocation)`),
+      | project id = tolower(id), name, siteType = tolower(type), resourceGroup, subscriptionId, location,
+          prefixes = properties.localNetworkAddressSpace.addressPrefixes, siteAddress = tostring(properties.gatewayIpAddress),
+          siteProvider = tostring(properties.serviceProviderProperties.serviceProviderName), sitePeering = tostring(properties.serviceProviderProperties.peeringLocation)`),
     q(`Resources | where type =~ 'microsoft.network/connections'
-      | project id = tolower(id), name, kind = tostring(properties.connectionType),
+      | project id = tolower(id), name, connKind = tostring(properties.connectionType),
           gateway = tolower(tostring(properties.virtualNetworkGateway1.id)),
           site = tolower(coalesce(tostring(properties.localNetworkGateway2.id), tostring(properties.peer.id), tostring(properties.virtualNetworkGateway2.id)))`),
   ]);
@@ -75,8 +75,8 @@ function build(d) {
   const res = d.resources.slice(0, MAX_RESOURCES).map((r) => ({
     id: String(r.id).toLowerCase(),
     name: r.name,
-    type: r.type,
-    ...(r.kind && { kind: r.kind }),
+    type: r.resType,
+    ...(r.resKind && { kind: r.resKind }),
     ...(r.sku && { sku: r.sku }),
     location: r.location,
     resourceGroup: String(r.resourceGroup || "").toLowerCase(),
@@ -130,10 +130,10 @@ function build(d) {
     groups: d.groups.map((g) => ({ name: String(g.name).toLowerCase(), displayName: g.name, subscriptionId: g.subscriptionId, location: g.location })),
     subscriptions: d.subs.map((s) => ({ id: s.subscriptionId, name: s.name })),
     sites: d.sites.map((s) => ({
-      id: s.id, name: s.name, type: s.type, resourceGroup: String(s.resourceGroup || "").toLowerCase(), subscriptionId: s.subscriptionId, location: s.location,
-      prefixes: list(s.prefixes).map(String), ...(s.address && { address: s.address }), ...(s.provider && { provider: s.provider }), ...(s.peering && { peering: s.peering }),
+      id: s.id, name: s.name, type: s.siteType, resourceGroup: String(s.resourceGroup || "").toLowerCase(), subscriptionId: s.subscriptionId, location: s.location,
+      prefixes: list(s.prefixes).map(String), ...(s.siteAddress && { address: s.siteAddress }), ...(s.siteProvider && { provider: s.siteProvider }), ...(s.sitePeering && { peering: s.sitePeering }),
     })),
-    connections: d.connections.filter((c) => c.gateway && c.site).map((c) => ({ id: c.id, name: c.name, kind: c.kind, gateway: c.gateway, site: c.site })),
+    connections: d.connections.filter((c) => c.gateway && c.site).map((c) => ({ id: c.id, name: c.name, kind: c.connKind, gateway: c.gateway, site: c.site })),
   };
 }
 

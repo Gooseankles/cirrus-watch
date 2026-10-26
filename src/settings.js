@@ -115,6 +115,8 @@ const TOOL_SPNS = [
   { id: "end-of-support", label: "End of support" },
   { id: "service-retirements", label: "Service retirements" },
   { id: "backup-coverage", label: "Backup coverage" },
+  { id: "resilience", label: "Resilience" },
+  { id: "resource-settings", label: "Resource settings" },
   { id: "diagnostic-settings", label: "Diagnostic settings" },
   { id: "quotas", label: "Quotas" },
   { id: "ipam", label: "IP addresses" },

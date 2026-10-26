@@ -1,5 +1,6 @@
 // Backup coverage: VMs no Recovery Services vault protects, backups that
-// stopped, failed or have not run lately, and vaults without soft delete.
+// stopped, failed or have not run lately, backups of VMs that were deleted,
+// and vaults without soft delete.
 // Reader is enough.
 // Resource Graph's copy of a protected item is not refreshed after every
 // backup (its lastBackupTime can be months old), so items it shows as stale,
@@ -12,7 +13,7 @@ const ITEM_API = "2023-04-01";
 const MAX_LIVE_READS = 1000;
 const MAX_POINT_PAGES = 5;
 
-async function protectedItems() {
+async function protectedItems(toolId = TOOL_ID) {
   return resourceGraphQuery(
     `RecoveryServicesResources
     | where type =~ 'microsoft.recoveryservices/vaults/backupfabrics/protectioncontainers/protecteditems'
@@ -21,8 +22,8 @@ async function protectedItems() {
         source = tolower(tostring(properties.sourceResourceId)), friendly = tostring(properties.friendlyName),
         workload = tostring(properties.workloadType), state = tostring(properties.protectionState),
         lastStatus = tostring(properties.lastBackupStatus), lastTime = tostring(properties.lastBackupTime),
-        lastPoint = tostring(properties.lastRecoveryPoint)`,
-    { toolId: TOOL_ID }
+        lastPoint = tostring(properties.lastRecoveryPoint), deferredDelete = tobool(properties.isScheduledForDeferredDelete)`,
+    { toolId }
   );
 }
 
@@ -57,6 +58,24 @@ async function newestRecoveryPoint(itemId) {
   return newest;
 }
 
+// How many recovery points the vault holds for an item, and the oldest and
+// newest. capped: more pages than are read.
+async function recoveryPointSummary(itemId, toolId = TOOL_ID) {
+  let url = `https://management.azure.com${itemId}/recoveryPoints?api-version=${ITEM_API}`;
+  const times = [];
+  let page = 0;
+  for (; url && page < MAX_POINT_PAGES; page++) {
+    const body = (await armGet(url, toolId)) || {};
+    for (const rp of body.value || []) {
+      const t = (rp.properties || {}).recoveryPointTime;
+      if (t && !Number.isNaN(Date.parse(t))) times.push(t);
+    }
+    url = body.nextLink;
+  }
+  times.sort((a, b) => Date.parse(a) - Date.parse(b));
+  return { count: times.length, capped: Boolean(url), oldest: times[0] || "", newest: times[times.length - 1] || "" };
+}
+
 // Replaces the Resource Graph values of suspicious items with the vault's own.
 // Items that look overdue go first: old stopped items (often many) must not use
 // up the reads. Items left unchecked are marked so their rows say so.
@@ -86,8 +105,19 @@ async function refreshFromVault(items, maxAgeHours) {
   return errors;
 }
 
-async function itemFindings(items, vmIds) {
+// A VM item whose VM is gone. Only said when the VM's subscription was
+// scanned (the vault may back up VMs in a subscription this scan cannot see).
+// Items already scheduled for deletion need no decision. Orphaned resources
+// lists these backups with what they cost; this scan leaves them out.
+function vmGone(it, vmIds, subIds) {
+  if (!/vm/i.test(it.workload) || !it.source || it.deferredDelete) return false;
+  const sub = (it.source.match(/^\/subscriptions\/([^/]+)\//) || [])[1];
+  return Boolean(sub && subIds.has(sub) && !vmIds.has(it.source));
+}
+
+async function itemFindings(allItems, vmIds, subIds) {
   const maxAgeHours = numberSetting("BACKUP_MAX_AGE_HOURS", 48, { min: 1, max: 24 * 365 });
+  const items = allItems.filter((it) => !vmGone(it, vmIds, subIds));
   const findings = await refreshFromVault(items, maxAgeHours);
   for (const it of items) {
     const base = { name: it.friendly || nameOf(it.source) || nameOf(it.id), resourceGroup: it.resourceGroup, subscriptionId: it.subscriptionId };
@@ -103,12 +133,7 @@ async function itemFindings(items, vmIds) {
     }
     const age = it.lastTime ? (Date.now() - Date.parse(it.lastTime)) / 3600000 : null;
     if (age != null && age > maxAgeHours) {
-      // Only said of VMs in the vault's own subscription, which was scanned.
-      const sameSub = it.source && it.source.startsWith(`/subscriptions/${String(it.subscriptionId).toLowerCase()}/`);
-      const gone = /vm/i.test(it.workload) && sameSub && !vmIds.has(it.source);
-      const why = gone
-        ? ". The VM no longer exists: stop protection on this item (keep or delete its data)"
-        : it.pointsChecked
+      const why = it.pointsChecked
           ? "; the vault holds no newer recovery point"
           : it.notChecked
             ? "; not checked against the vault this run, so this date may be old"
@@ -120,12 +145,13 @@ async function itemFindings(items, vmIds) {
 }
 
 async function coverageFindings() {
-  const [vms, items] = await Promise.all([
+  const [vms, items, subs] = await Promise.all([
     resourceGraphQuery(
       `Resources | where type =~ 'microsoft.compute/virtualmachines' | project id, name, resourceGroup, subscriptionId`,
       { toolId: TOOL_ID }
     ),
     protectedItems(),
+    resourceGraphQuery(`ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | project subscriptionId`, { toolId: TOOL_ID }),
   ]);
   const covered = new Set(items.map((i) => i.source).filter(Boolean));
   const findings = vms
@@ -138,7 +164,8 @@ async function coverageFindings() {
       subscriptionId: vm.subscriptionId,
       detail: "No Recovery Services vault backs up this VM. Accept it if it holds nothing worth restoring",
     }));
-  return [...findings, ...(await itemFindings(items, new Set(vms.map((vm) => vm.id.toLowerCase()))))];
+  const subIds = new Set(subs.map((s) => String(s.subscriptionId).toLowerCase()));
+  return [...findings, ...(await itemFindings(items, new Set(vms.map((vm) => vm.id.toLowerCase())), subIds))];
 }
 
 async function vaultFindings() {
@@ -168,4 +195,9 @@ module.exports = {
   label: "Backup coverage",
   schedule: "15 7 * * *", // daily at 07:15, after the night's backups
   run,
+  // Used by Orphaned resources for backups of deleted VMs.
+  protectedItems,
+  vmGone,
+  recoveryPointSummary,
+  _test: { vmGone },
 };

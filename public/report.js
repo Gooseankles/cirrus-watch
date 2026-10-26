@@ -5,6 +5,9 @@
 const Report = (() => {
   const st = { month: null, data: {}, loading: {}, built: false };
   const LIST_ROWS = 40;
+  const redraw = () => {
+    if (state.route === "report") draw();
+  };
   const thisMonth = () => new Date().toISOString().slice(0, 7);
 
   // 100 with nothing open, falling as open findings pile up; critical ones weigh most.
@@ -115,11 +118,13 @@ const Report = (() => {
         ${statTile({ label: "Fixed this month", value: fmt.int(fixed), deltaCls: fixed ? "good" : "", delta: hadStart ? `of ${fmt.int(openStart)} open at the start` : "" })}
         ${statTile({ label: "Found this month", value: fmt.int(found), deltaCls: found ? "bad" : "", delta: found ? "new and still open" : "nothing new" })}
         ${statTile({ label: "Accepted", value: fmt.int(accepted), delta: "known and agreed" })}
+        ${savedTile(r.month)}
       </div>
       ${criticalCard(tools)}
       ${toolsCard(tools)}
       ${changeCard("Fixed this month", "good", tools, (t) => t.resolved)}
       ${changeCard("Found this month", "bad", tools, (t) => t.added)}
+      ${savingsCard(r.month)}
       ${complianceCard(tools)}
       <div class="note rp-foot">Score = 100 × 100 / (100 + 5 × critical + 2 × warning + 0.5 × other open findings); 100 means nothing open. Accepted findings are not counted. ${fmt.int(runs)} scan run${runs === 1 ? "" : "s"} this month. Made ${esc(fmt.dateTime(r.generatedAt))}.</div>`;
     for (const el of $$("#rp-body [data-spark]")) {
@@ -139,6 +144,46 @@ const Report = (() => {
     if (found) parts.push(`${fmt.int(found)} new found`);
     const second = parts.length ? ` This month: ${parts.join(", ")}.` : " Nothing was fixed or found this month.";
     return first + second + (accepted ? ` ${n(accepted, "finding")} ${accepted === 1 ? "is" : "are"} accepted as known.` : "");
+  }
+
+  // Savings done by cleaning up orphaned resources: what was deleted in the month and what it saves a month
+  // (list price). Comes from the Orphaned resources scan's cleaned-up list.
+  function savingsIn(month) {
+    const t = toolState("orphaned-resources");
+    if (!t.loaded) {
+      loadTool("orphaned-resources").then(redraw);
+      return null;
+    }
+    if (!t.data.ranAt) return null;
+    const sv = orSavings(t);
+    if (!sv || !sv.data) return null;
+    const all = sv.data.entries || [];
+    return { all, month: all.filter((e) => String(e.savedAt || "").slice(0, 7) === month && e.monthlyCost > 0) };
+  }
+  const moneyList = (pairs, k = 1) => pairs.map(([c, m]) => fmt.money(m * k, c, true)).join(" + ");
+  function savedTile(month) {
+    const s = savingsIn(month);
+    if (!s || !s.all.length) return "";
+    const pairs = orSaved(s.month);
+    const total = orSaved(s.all.filter((e) => String(e.savedAt || "").slice(0, 7) <= month));
+    return statTile({ label: "Saved by cleanup", value: pairs.length ? `${moneyList(pairs)} / mo` : "–", deltaCls: pairs.length ? "good" : "", delta: total.length ? `${moneyList(total)} a month in all` : "" });
+  }
+  function savingsCard(month) {
+    const s = savingsIn(month);
+    if (!s || !s.month.length) return "";
+    const list = s.month.slice().sort((a, b) => (b.monthlyCost || 0) - (a.monthlyCost || 0));
+    const pairs = orSaved(list);
+    const rows = list.slice(0, LIST_ROWS).map((e) => [
+      esc(savingAction(e)),
+      `<div class="name-cell"><div class="primary">${esc(e.name || "")}</div>${e.resourceGroup ? `<div class="secondary">rg ${esc(e.resourceGroup)}</div>` : ""}</div>`,
+      subCell(e),
+      `<span class="muted nowrap">${esc(fmt.date(e.savedAt))}</span>`,
+      `<span class="good">${esc(fmt.money(e.monthlyCost, e.currency))}</span>`,
+    ]);
+    return `<div class="card"><div class="card-head"><h2>${icon("trash")} <span class="good">Savings done</span></h2><span class="meta">${moneyList(pairs)} a month · ${moneyList(pairs, 12)} a year</span></div>
+      ${tableHtml([{ label: "What was done" }, { label: "Resource" }, { label: "Subscription" }, { label: "When", cls: "nowrap" }, { label: "Saves a month", cls: "num" }], rows)}
+      ${list.length > LIST_ROWS ? `<div class="note">Showing the largest ${LIST_ROWS} of ${fmt.int(list.length)}.</div>` : ""}
+      <div class="note">Leftovers the dashboard found that were cleaned up this month, at Azure list price before discounts.</div></div>`;
   }
 
   // Scans with something open or something that changed get a row; the rest are named in one line.
@@ -246,5 +291,5 @@ const Report = (() => {
     st.data = {};
   }
 
-  return { show, reset };
+  return { show, reset, redraw };
 })();

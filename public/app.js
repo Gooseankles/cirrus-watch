@@ -108,7 +108,7 @@ const fmt = {
 
 /* ---------- static knowledge about the tools ---------- */
 const TOOLS = [
-  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Leftovers that cost money or just clutter: disks, IPs, snapshots, VMs stopped but still billed, idle gateways, load balancers, endpoints and more, with what each costs a month at Azure's list price. Plus Azure Advisor's cost tips." },
+  { id: "orphaned-resources", group: "resources", label: "Orphaned resources", icon: "trash", schedule: "Daily at 03:00", sub: "Leftovers that cost money or just clutter: disks, IPs, snapshots, VMs stopped but still billed, idle gateways, load balancers, endpoints, backups of deleted VMs and more, with what each costs a month at Azure's list price. Plus Azure Advisor's cost tips." },
   { id: "tag-compliance", group: "resources", label: "Tag compliance", icon: "tag", schedule: "Daily at 04:00", sub: "Resources that are missing the tags the organisation requires." },
   { id: "cost-anomaly", group: "cost", label: "Cost anomalies", icon: "trend", schedule: "Daily at 07:00", sub: "Subscriptions whose spend jumped against their own recent baseline." },
   { id: "access-review", group: "access", label: "Access review", icon: "shield", schedule: "Weekly, Monday at 05:00", sub: "Long-standing Owner, Contributor and User Access Administrator assignments, direct and via groups, with the people behind each group." },
@@ -123,6 +123,8 @@ const TOOLS = [
   { id: "defender", group: "resources", label: "Defender for Cloud", icon: "shield", schedule: "Daily at 06:40", sub: "Microsoft Defender for Cloud in short: subscriptions whose secure score is low, unhealthy recommendations with how many resources each hits, and Defender plans that are off although they should be on." },
   { id: "safety-nets", group: "governance", label: "Safety nets", icon: "alert", schedule: "Daily at 06:50", sub: "Subscriptions with no cost budget, or a budget that alerts nobody, and key resources (key vaults, backup vaults, VNets, DNS zones) with no delete lock on them, their resource group or their subscription." },
   { id: "backup-coverage", group: "resources", label: "Backup coverage", icon: "archive", schedule: "Daily at 07:15", sub: "VMs without a backup, backups that stopped, failed or are too old, and Recovery Services vaults without soft delete or with backups in one datacenter only." },
+  { id: "resilience", group: "resources", label: "Resilience", icon: "gauge", schedule: "Daily at 03:15", sub: "What one failure would take down: single VMs, AKS, App Service, gateways and databases not spread over zones or instances, storage in one datacenter, no Service Health alert. Each finding links to its PSRule for Azure rule." },
+  { id: "resource-settings", group: "resources", label: "Resource settings", icon: "lock", schedule: "Daily at 03:45", sub: "Risky settings on common services: access keys and admin users still on, plain HTTP and FTP, open storage firewalls, AKS without Entra sign-in, remote debugging. Each finding links to its PSRule for Azure rule." },
   { id: "diagnostic-settings", group: "governance", label: "Diagnostic settings", icon: "activity", schedule: "Daily at 04:30", sub: "Resources whose logs go nowhere: no diagnostic setting, a setting that sends to a deleted workspace, storage account or event hub, or one that sends metrics but no logs. Also subscriptions whose activity log is not exported beyond Azure's 90 days." },
   { id: "azure-monitor", group: "governance", label: "Azure Monitor", icon: "activity", schedule: "Daily at 04:55", sub: "Whether Azure Monitor watches everything and works: VMs and Arc servers with no agent, the retired legacy agent, no data collection rule or no heartbeat, alert rules that are off, alert nobody or watch a deleted resource, broken action groups and workspaces at their daily cap. Switch it off per tenant in Settings (Azure Monitor) for customers who do not use it." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
@@ -166,6 +168,49 @@ const KINDS = {
   "empty-availability-set": ["Availability set, no VMs", "info"],
   "empty-elastic-pool": ["SQL elastic pool, no databases", "warn"],
   "advisor-cost": ["Azure Advisor cost tip", "info"],
+  "backup-vm-deleted": ["Backup of a deleted VM", "warn"],
+  "rel-vm-standalone": ["Single VM, no zone or availability set", "warn"],
+  "rel-aks-zones": ["AKS node pools not in zones", "warn"],
+  "rel-aks-min-nodes": ["AKS system pool under 3 nodes", "warn"],
+  "rel-aks-free-tier": ["AKS free tier (no SLA)", "warn"],
+  "rel-plan-one-instance": ["App Service plan on 1 instance", "warn"],
+  "rel-plan-no-zones": ["App Service plan not zone redundant", "warn"],
+  "rel-storage-lrs": ["Storage kept in one datacenter", "warn"],
+  "rel-pip-one-zone": ["Public IP in one zone", "warn"],
+  "rel-lb-zones": ["Load balancer not zone redundant", "warn"],
+  "rel-agw-zones": ["App gateway not zone redundant", "warn"],
+  "rel-agw-one-instance": ["App gateway on 1 instance", "warn"],
+  "rel-vpn-legacy-sku": ["Legacy VPN gateway SKU", "crit"],
+  "rel-vpn-no-zones": ["VPN gateway not zone redundant", "warn"],
+  "rel-vpn-not-active-active": ["VPN gateway not active-active", "warn"],
+  "rel-er-legacy-sku": ["Legacy ExpressRoute gateway SKU", "crit"],
+  "rel-er-no-zones": ["ExpressRoute gateway not zone redundant", "warn"],
+  "rel-no-service-health": ["No Service Health alert", "warn"],
+  "rel-pg-no-geo-backup": ["PostgreSQL without geo-backup", "warn"],
+  "rel-pg-no-zone-ha": ["PostgreSQL without zone HA", "warn"],
+  "rel-mysql-no-geo-backup": ["MySQL without geo-backup", "warn"],
+  "rel-mysql-no-zone-ha": ["MySQL without zone HA", "warn"],
+  "cfg-storage-http": ["Storage accepts HTTP", "warn"],
+  "cfg-storage-no-firewall": ["Storage open to all networks", "warn"],
+  "cfg-storage-keys": ["Storage access keys on", "warn"],
+  "cfg-sql-no-entra-admin": ["SQL server without Entra admin", "crit"],
+  "cfg-sql-sql-logins": ["SQL logins still allowed", "warn"],
+  "cfg-app-http": ["Web app answers on HTTP", "warn"],
+  "cfg-app-remote-debug": ["Remote debugging on", "warn"],
+  "cfg-app-ftp": ["Plain FTP allowed", "warn"],
+  "cfg-acr-admin": ["Registry admin user on", "crit"],
+  "cfg-acr-anonymous": ["Registry anonymous pull", "warn"],
+  "cfg-aks-local-accounts": ["AKS local accounts on", "warn"],
+  "cfg-aks-no-entra": ["AKS without Entra sign-in", "warn"],
+  "cfg-aks-k8s-rbac": ["AKS not using Azure RBAC", "warn"],
+  "cfg-aks-open-api": ["AKS API open to any IP", "warn"],
+  "cfg-aks-no-auto-upgrade": ["AKS without auto-upgrade", "warn"],
+  "cfg-redis-plain-port": ["Redis non-TLS port open", "crit"],
+  "cfg-cosmos-keys": ["Cosmos DB keys on", "crit"],
+  "cfg-cosmos-metadata": ["Cosmos DB keys can change metadata", "warn"],
+  "cfg-servicebus-keys": ["Service Bus keys on", "warn"],
+  "cfg-eventhub-keys": ["Event Hubs keys on", "warn"],
+  "cfg-appconfig-keys": ["App Configuration keys on", "warn"],
   "missing-tags": ["Missing tags", "warn"],
   "cost-jump": ["Cost jump", "crit"],
   "scan-error": ["Scan error", "warn"],
@@ -530,6 +575,12 @@ function controlTags(f) {
   const list = Compliance.of(f);
   return list.length ? `<div class="ctl-tags">${list.map((c) => `<span class="ctl ctl-${esc(c.fw)}" title="${esc(FRAMEWORKS[c.fw] + ": " + c.title)}">${esc(c.label)}</span>`).join("")}</div>` : "";
 }
+// Resilience and Resource settings findings name the PSRule for Azure rule they follow; its page says how to fix it.
+const ruleUrl = (f) => (f.rule && /^Azure\.[\w.]+$/.test(f.rule.name || "") ? `https://azure.github.io/PSRule.Rules.Azure/en/rules/${f.rule.name}/` : "");
+function ruleLink(f) {
+  const url = ruleUrl(f);
+  return url ? `<a class="rule-link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(`PSRule for Azure: ${f.rule.name} (${f.rule.severity}, ${f.rule.pillar})`)}">How to fix ${icon("arrow")}</a>` : "";
+}
 const acceptButton = (f) => (f.key && canRunFor(f) ? `<button type="button" class="btn small ghost accept-btn" data-accept="${esc(f.key)}" title="Accept or snooze this finding">${icon("check")} Accept</button>` : "");
 function moreButton(shown, total, t) {
   if (shown >= total) return "";
@@ -795,7 +846,8 @@ function renderOverview() {
     statTile({ label: "Open findings", value: fmt.int(open), delta: accepted ? `across all scans · ${fmt.int(accepted)} accepted` : "across all scans" }) +
     statTile({ label: "New in latest runs", value: fmt.int(added), deltaCls: added ? "bad" : "", delta: added ? "need a look" : "nothing new" }) +
     statTile({ label: "Resolved in latest runs", value: fmt.int(resolved), deltaCls: resolved ? "good" : "", delta: resolved ? "gone since the run before" : "no change" }) +
-    statTile({ label: "Scan health", value: `${TOOLS.length - errors - neverRan} / ${TOOLS.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" });
+    statTile({ label: "Scan health", value: `${TOOLS.length - errors - neverRan} / ${TOOLS.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" }) +
+    overviewSavedTile();
   $("#ov-tools").innerHTML = TOOLS.map(toolCard).join("");
   for (const el of $$("#ov-tools [data-spark]")) {
     const t = toolState(el.dataset.spark);
@@ -803,6 +855,30 @@ function renderOverview() {
   }
   renderOverviewCost();
   renderActivity();
+}
+// Savings done by cleaning up orphaned resources (the "Cleaned up" list of that scan).
+function overviewSavings() {
+  const t = toolState("orphaned-resources");
+  if (!t.loaded || !t.data.ranAt) return null;
+  const sv = orSavings(t);
+  return sv && sv.data ? sv.data : null;
+}
+function overviewSavedTile() {
+  const d = overviewSavings();
+  const saved = d ? orSaved(d.entries) : [];
+  return statTile({
+    label: "Saved by cleanup",
+    value: !d ? "–" : saved.length ? saved.map(([c, m]) => fmt.money(m, c, true)).join(" + ") + " / mo" : "–",
+    delta: saved.length ? `about ${saved.map(([c, , so]) => fmt.money(so, c, true)).join(" + ")} so far · ${fmt.int(d.entries.length)} cleaned up` : "deleted orphans count here",
+    deltaCls: saved.length ? "good" : "",
+  });
+}
+function overviewSavingsList() {
+  const d = overviewSavings();
+  if (!d || !d.entries.length) return "";
+  const recent = d.entries.slice().sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt))).slice(0, 5);
+  return `<div class="ov-savings"><div class="card-head"><h2>${icon("trash")} Savings done</h2><a href="#/scan/orphaned-resources">All cleanups ${icon("arrow")}</a></div>
+    <ul class="activity">${recent.map((e) => `<li><span class="dot success"></span><div><div class="act-meta"><span>${esc(fmt.date(e.savedAt))}</span><span>${esc(fmt.money(e.monthlyCost, e.currency))} a month</span></div><div class="act-msg">${esc(savingAction(e))}: ${esc(e.name || "")}</div></div></li>`).join("")}</ul></div>`;
 }
 function toolCard(tool) {
   const t = toolState(tool.id);
@@ -828,7 +904,7 @@ function renderOverviewCost() {
   const el = $("#ov-cost");
   const s = Cost.summary();
   if (!s || !s.subs.length) {
-    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${canRun() ? " Refresh it from the cost history page." : ""}</div>`;
+    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${canRun() ? " Refresh it from the cost history page." : ""}</div>` + overviewSavingsList();
     return;
   }
   el.innerHTML = `
@@ -841,7 +917,7 @@ function renderOverviewCost() {
     </div>
     ${s.currencyNote ? `<div class="note">${esc(s.currencyNote)}</div>` : ""}
     <div class="chart trend-chart" id="ov-cost-chart" style="margin-top:12px"></div>
-    <div class="chart-foot"><span>Monthly total, last 13 months</span><span>Current month is in progress</span></div>`;
+    <div class="chart-foot"><span>Monthly total, last 13 months</span><span>Current month is in progress</span></div>${overviewSavingsList()}`;
   Charts.columns($("#ov-cost-chart"), {
     data: s.months.map((m) => ({ label: fmt.monthShort(m.month), value: m.total, partial: m.partial, month: m.month })),
     yFormat: Charts.compact,
@@ -1332,6 +1408,7 @@ function scanCsv(rows, ranAt, accepted) {
   if (has("monthlyCost")) cols.push(["Cost a month (list price)", (f) => (f.monthlyCost == null ? "" : Math.round(f.monthlyCost))], ["Currency", (f) => (f.monthlyCost == null ? "" : f.currency)]);
   if (has("role")) cols.push(["Role", (f) => f.role]);
   if (has("upn")) cols.push(["User", (f) => f.upn]);
+  if (has("rule")) cols.push(["Rule", (f) => f.rule && f.rule.name], ["Pillar", (f) => f.rule && f.rule.pillar], ["How to fix", ruleUrl]);
   cols.push(["First seen", (f) => f.firstSeen], ["New this run", (f) => (isNew(f, ranAt) ? "yes" : "")]);
   cols.push(["Controls", (f) => Compliance.of(f).map((c) => c.label).join(", ")]);
   if (accepted) cols.push(["Accepted reason", (f) => f.accepted && f.accepted.reason], ["Accepted by", (f) => f.accepted && f.accepted.by], ["Accepted at", (f) => f.accepted && f.accepted.at], ["Until", (f) => f.accepted && f.accepted.until]);
@@ -1507,7 +1584,7 @@ function genericRow(f, ranAt, hasSubs, hasExpiry) {
   const row = [kindBadge(f.kind), nameCell(f, ranAt, sec)];
   if (hasSubs) row.push(subCell(f));
   if (hasExpiry) row.push(expiryCell(f));
-  row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
+  row.push(`<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
   if (canRun()) row.push(acceptButton(f));
   return row;
 }
@@ -1538,10 +1615,29 @@ function orSavings(t) {
       .finally(() => {
         t.savingsLoading = null;
         if (state.route === "scan/orphaned-resources") renderFindings("orphaned-resources");
+        else if (state.route === "overview") renderOverview();
+        else if (state.route === "report") Report.redraw();
       });
   }
   return null;
 }
+// What was done to a cleaned-up resource, in words.
+const SAVING_ACTIONS = {
+  "unattached-disk": "Deleted an unattached disk",
+  "unused-public-ip": "Deleted an unused public IP",
+  "orphaned-snapshot": "Deleted an orphaned snapshot",
+  "old-snapshot": "Deleted an old snapshot",
+  "empty-app-service-plan": "Deleted an empty App Service plan",
+  "stopped-vm": "Deallocated or deleted a stopped VM",
+  "idle-nat-gateway": "Deleted an idle NAT gateway",
+  "empty-load-balancer": "Deleted an empty load balancer",
+  "idle-app-gateway": "Deleted an idle application gateway",
+  "idle-vnet-gateway": "Deleted an idle gateway",
+  "disconnected-private-endpoint": "Deleted a disconnected private endpoint",
+  "unlinked-private-dns-zone": "Deleted an unlinked private DNS zone",
+  "backup-vm-deleted": "Deleted the backup of a deleted VM",
+};
+const savingAction = (e) => SAVING_ACTIONS[e.kind] || `Cleaned up: ${kindLabel(e.kind)}`;
 // [[currency, a month, saved so far]], biggest first
 function orSaved(entries) {
   const by = {};
@@ -1869,6 +1965,43 @@ function kvBody(shown, t) {
   return genericBody(shown, t);
 }
 
+/* Resilience and Resource settings: one tab per service area found, so a long list stays readable. */
+function areaOf(t) {
+  const all = t.data.findings;
+  if (!t.areas || t.areas.src !== all) t.areas = { src: all, set: new Set(all.map((f) => f.area).filter(Boolean)) };
+  return t.areas.set.has(t.filters.view) ? t.filters.view : "all";
+}
+function areaExtra(all, t) {
+  const v = areaOf(t);
+  const counts = {};
+  for (const f of all) if (f.area) counts[f.area] = (counts[f.area] || 0) + 1;
+  const tabs = [["all", "All", all.length], ...Object.keys(counts).sort().map((a) => [a, a, counts[a]])];
+  return tabs.length > 2 ? `<div class="seg">${tabs.map(([a, label, n]) => `<button type="button" data-view="${esc(a)}" class="${v === a ? "active" : ""}">${esc(label)} <span class="n">${fmt.int(n)}</span></button>`).join("")}</div>` : "";
+}
+function areaStats(all, t) {
+  const crit = all.filter((f) => kindSev(f.kind) === "crit").length;
+  const resources = new Set(all.map((f) => String(f.id || "").split("#")[0])).size;
+  const fresh = all.filter((f) => isNew(f, t.data.ranAt)).length;
+  const areas = new Set(all.map((f) => f.area).filter(Boolean)).size;
+  return (
+    statTile({ label: "Open findings", value: fmt.int(all.length) }) +
+    statTile({ label: "Critical", value: fmt.int(crit), deltaCls: crit ? "bad" : "good", delta: crit ? "fix these first" : "none" }) +
+    statTile({ label: "Resources affected", value: fmt.int(resources) }) +
+    statTile({ label: "Service areas", value: fmt.int(areas) }) +
+    statTile({ label: "New this run", value: fmt.int(fresh), deltaCls: fresh ? "bad" : "", delta: fresh ? "first seen in the last run" : "nothing new" })
+  );
+}
+// Critical first, then by kind, so each tab reads as a short list per problem.
+const SEV_ORDER = { crit: 0, warn: 1, info: 2, "": 3 };
+const areaBody = (shown, t) => genericBody([...shown].sort((a, b) => (SEV_ORDER[kindSev(a.kind)] ?? 3) - (SEV_ORDER[kindSev(b.kind)] ?? 3) || a.kind.localeCompare(b.kind)), t);
+const AREA_VIEW = {
+  stats: areaStats,
+  extra: areaExtra,
+  scope: (f, t) => areaOf(t) === "all" || f.area === t.filters.view,
+  showKinds: (t) => areaOf(t) !== "all",
+  body: areaBody,
+};
+
 /* licence coverage view: one tile per licence, users / licences owned */
 const LC_SHORT = { p1: "Entra ID P1", p2: "Entra ID P2", gov: "ID Governance" };
 function lcStats(all, t) {
@@ -1892,6 +2025,8 @@ const VIEWS = {
   "orphaned-resources": { stats: orStats, extra: orExtra, page: orPage, showKinds: (t) => orView(t) === "findings", body: orBody },
   "licence-coverage": { stats: lcStats, body: genericBody },
   "key-vault": { stats: kvStats, extra: kvExtra, scope: kvScope, body: kvBody },
+  resilience: AREA_VIEW,
+  "resource-settings": AREA_VIEW,
   "access-review": { stats: arStats, extra: arExtra, scope: arScope, body: arBody },
   "policy-check": { stats: pcStats, extra: pcExtra, scope: pcScope, showKinds: (t) => pcView(t) === "health", page: pcEmptyProbes, body: (shown, t) => (pcView(t) === "health" ? pcHealth(shown, t) : pcMatrix(shown, t)) },
 };

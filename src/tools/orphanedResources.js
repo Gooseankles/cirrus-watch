@@ -1,4 +1,5 @@
-const { resourceGraphQuery, subscriptionIdsToScan } = require("../armClient");
+const { resourceGraphQuery, subscriptionIdsToScan, armGet } = require("../armClient");
+const backups = require("./backupCoverage");
 const { runChecks, mapLimit, numberSetting, nameOf } = require("./util");
 const settings = require("../settings");
 const prices = require("../retailPrices");
@@ -329,6 +330,74 @@ async function stoppedVms(book) {
   return out;
 }
 
+// Backups of deleted VMs: the vault keeps the recovery points, and bills a
+// protected instance fee plus storage for them, until someone deletes them.
+// Azure does not say how much storage one item holds, so the vault's backup
+// storage is shared out evenly over its items. The fee assumes a VM of 50 to
+// 500 GB (one unit; half a unit under 50 GB). Items Azure already deletes
+// (soft-deleted) are left out.
+const MAX_BACKUP_READS = 300;
+const BACKUP_STORAGE_METER = { locallyredundant: "Standard LRS Data Stored", zoneredundant: "Standard ZRS Data Stored", georedundant: "Standard GRS Data Stored" };
+
+// Bytes of backup storage a vault uses (every "...Storage..." usage counted in bytes).
+async function vaultStorageBytes(vaultId) {
+  const body = (await armGet(`https://management.azure.com${vaultId}/usages?api-version=2016-06-01`, TOOL_ID)) || {};
+  const rows = (body.value || []).filter((u) => /^bytes$/i.test(u.unit) && /storage/i.test((u.name && u.name.value) || ""));
+  return rows.length ? rows.reduce((n, u) => n + (Number(u.currentValue) || 0), 0) : null;
+}
+
+async function deletedVmBackups(book) {
+  const [items, vms, subs, vaults] = await Promise.all([
+    backups.protectedItems(TOOL_ID),
+    resourceGraphQuery(`Resources | where type =~ 'microsoft.compute/virtualmachines' | project id = tolower(id)`, { toolId: TOOL_ID }),
+    resourceGraphQuery(`ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | project subscriptionId`, { toolId: TOOL_ID }),
+    resourceGraphQuery(
+      `Resources | where type =~ 'microsoft.recoveryservices/vaults'
+      | project id = tolower(id), location, redundancy = tolower(tostring(properties.redundancySettings.standardTierStorageRedundancy)),
+          crossRegionRestore = tostring(properties.redundancySettings.crossRegionRestore)`,
+      { toolId: TOOL_ID }
+    ),
+  ]);
+  const vmIds = new Set(vms.map((v) => v.id));
+  const subIds = new Set(subs.map((x) => String(x.subscriptionId).toLowerCase()));
+  const gone = items.filter((it) => backups.vmGone(it, vmIds, subIds));
+  if (!gone.length) return [];
+  const vaultOf = new Map(vaults.map((v) => [v.id, v]));
+  const perVault = new Map();
+  for (const it of items) perVault.set(it.vault.toLowerCase(), (perVault.get(it.vault.toLowerCase()) || 0) + 1);
+  const storage = new Map(); // vault id -> Promise<bytes|null>
+  const cur = prices.currency();
+  const out = [];
+  const checked = gone.slice(0, MAX_BACKUP_READS);
+  const failures = await mapLimit(checked, PRICE_CONCURRENCY, async (it) => {
+    const vid = it.vault.toLowerCase();
+    const v = vaultOf.get(vid) || {};
+    if (!storage.has(vid)) storage.set(vid, vaultStorageBytes(it.vault).catch(() => null));
+    const [points, bytes] = await Promise.all([backups.recoveryPointSummary(it.id, TOOL_ID), storage.get(vid)]);
+    const loc = v.location || "";
+    const fee = loc ? await meterPrice(book, `backup-pi|${loc}`, `serviceName eq 'Backup' and armRegionName eq ${prices.lit(loc)} and meterName eq 'Azure VM Protected Instance'`) : null;
+    const meter = /^enabled$/i.test(v.crossRegionRestore) ? "Standard RA-GRS Data Stored" : BACKUP_STORAGE_METER[v.redundancy];
+    const perGb = loc && meter ? await meterPrice(book, `backup-gb|${loc}|${meter}`, `serviceName eq 'Backup' and armRegionName eq ${prices.lit(loc)} and meterName eq ${prices.lit(meter)}`) : null;
+    const gb = bytes == null ? null : bytes / 1024 ** 3 / (perVault.get(vid) || 1);
+    const storageCost = gb != null && perGb != null ? gb * perGb : null;
+    const cost = !points.count ? 0 : fee == null ? null : fee + (storageCost || 0);
+    const pts = !points.count ? "no recovery points left"
+      : `${points.capped ? "over " : ""}${points.count} recovery point${points.count === 1 ? "" : "s"}, ${points.oldest.slice(0, 10)} to ${points.newest.slice(0, 10)}`;
+    const state = /ProtectionStopped|BackupsSuspended/i.test(it.state) ? "backups are stopped" : "protection is still on, so the vault keeps trying to back up a VM that is gone";
+    const price = cost == null ? costText(null, cur, "Azure VM Protected Instance")
+      : !points.count ? "nothing left to pay for; stop protection to remove the item"
+      : `${costText(cost, cur)} (protected instance fee${storageCost != null ? ` plus about ${Math.round(gb)} GB, the vault's storage shared over its ${perVault.get(vid)} item${perVault.get(vid) === 1 ? "" : "s"}` : "; storage not known"})`;
+    out.push({
+      kind: "backup-vm-deleted", id: it.id, name: it.friendly || nameOf(it.source), resourceGroup: it.resourceGroup, subscriptionId: it.subscriptionId, location: loc,
+      monthlyCost: cost, ...(cur && { currency: cur }),
+      detail: `The VM was deleted, but vault ${nameOf(it.vault)} still holds its backup (${pts}); ${state}. ${price}. Keep it (accept with a reason) or stop protection and delete the backup data`,
+    });
+  });
+  for (const f of failures) out.push({ kind: "scan-error", id: `${TOOL_ID}/scan-errors/backup-${nameOf(f.item.id)}`, name: `Backup of deleted VM ${f.item.friendly || nameOf(f.item.source)} not checked`, detail: f.message, subscriptionId: f.item.subscriptionId });
+  if (gone.length > checked.length) out.push({ kind: "scan-error", id: `${TOOL_ID}/scan-errors/backup-limit`, name: `${gone.length - checked.length} backups of deleted VMs not checked`, detail: `At most ${MAX_BACKUP_READS} are read per run` });
+  return out;
+}
+
 async function idleNatGateways(book) {
   const rows = await resourceGraphQuery(
     `Resources
@@ -608,6 +677,7 @@ const CHECK_OF_KIND = {
   "idle-vnet-gateway": "Idle VPN and ExpressRoute gateways",
   "disconnected-private-endpoint": "Disconnected private endpoints",
   "unlinked-private-dns-zone": "Unlinked private DNS zones",
+  "backup-vm-deleted": "Backups of deleted VMs",
 };
 const PENDING_DAYS = 30; // a gone finding not confirmed in this time (its subscription no longer scanned) is dropped
 const ID_BATCH = 200;
@@ -660,6 +730,17 @@ async function existingIds(ids) {
       `Resources | where tolower(id) in (${list})
       | where not(type == 'microsoft.compute/virtualmachines' and tostring(properties.extended.instanceView.powerState.code) =~ 'PowerState/deallocated')
       | project id`,
+      { toolId: TOOL_ID }
+    );
+    for (const r of rows) out.add(String(r.id).toLowerCase());
+  }
+  // Backup items (backups of deleted VMs) live in another table; one being deleted
+  // (soft delete) counts as gone.
+  const items = ids.filter((id) => /\/backupfabrics\//i.test(id));
+  for (let i = 0; i < items.length; i += ID_BATCH) {
+    const list = items.slice(i, i + ID_BATCH).map((id) => `'${String(id).toLowerCase().replace(/'/g, "")}'`).join(",");
+    const rows = await resourceGraphQuery(
+      `RecoveryServicesResources | where tolower(id) in (${list}) and tobool(properties.isScheduledForDeferredDelete) != true | project id`,
       { toolId: TOOL_ID }
     );
     for (const r of rows) out.add(String(r.id).toLowerCase());
@@ -726,6 +807,7 @@ async function run() {
       "Idle VPN and ExpressRoute gateways": () => idleVnetGateways(book),
       "Disconnected private endpoints": () => disconnectedPrivateEndpoints(book),
       "Unlinked private DNS zones": () => unlinkedPrivateDnsZones(book),
+      "Backups of deleted VMs": () => deletedVmBackups(book),
       "Unused NSGs, route tables and availability sets": unusedNetworkBits,
       "Empty SQL elastic pools": emptyElasticPools,
       "Azure Advisor cost tips": advisorCostTips,

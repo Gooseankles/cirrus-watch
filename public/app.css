@@ -316,6 +316,8 @@ table.data .secondary code { color: var(--muted); font-size: 0.74rem; }
 .activity .dot { margin: 6px 0 0; }
 .activity .act-meta { color: var(--muted); font-size: 0.72rem; display: flex; gap: 8px; }
 .activity .act-msg { color: var(--text-2); overflow-wrap: anywhere; }
+.ov-savings { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.ov-savings .card-head { margin-bottom: 4px; }
 .section-title { display: flex; align-items: baseline; justify-content: space-between; margin-top: 22px; }
 .section-title h2 { font-size: 0.95rem; }
 .section-title a { font-size: 0.8rem; }
@@ -675,3 +677,5 @@ dialog.dialog h2 { margin-bottom: 10px; }
 .pa-params td { overflow-wrap: anywhere; }
 tr.pa-hit td { background: var(--accent-soft); }
 @media (max-width: 900px) { .pa-cols { grid-template-columns: minmax(0, 1fr); } }
+.rule-link { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 0.75rem; white-space: nowrap; }
+.rule-link svg { width: 12px; height: 12px; }

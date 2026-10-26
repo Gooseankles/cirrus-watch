@@ -17,6 +17,8 @@ const NEEDS = {
   "end-of-support": { azure: READER },
   "service-retirements": { azure: READER },
   "backup-coverage": { azure: READER },
+  resilience: { azure: READER },
+  "resource-settings": { azure: READER },
   "diagnostic-settings": { azure: READER },
   quotas: { azure: READER },
   ipam: { azure: READER },

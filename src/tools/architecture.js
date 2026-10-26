@@ -7,11 +7,15 @@
 // (subscriptions, resource groups, VNets, subnets, kinds of resource). For
 // information only: no findings. Reader is enough.
 const store = require("../findingsStore");
+const flows = require("./trafficFlow");
 const tenants = require("../tenants");
 const { resourceGraphQuery } = require("../armClient");
 
 const TOOL_ID = "architecture";
 const INVENTORY_KEY = "architecture/inventory.json";
+const NETWORK_KEY = "architecture/network.json"; // NSGs, routes and addresses for the traffic lines
+const FIREWALL_KEY = "firewall/inventory.json"; // saved by the Firewall policies scan
+const MAX_PAIRS = 400;
 const MAX_RESOURCES = 20000;
 
 // The subnet a resource sits in, by type, and what it points at (a NIC's VM,
@@ -40,16 +44,18 @@ const RESOURCES_KQL = `Resources
     t == 'microsoft.compute/disks', tostring(managedBy),
     ''))
 | extend ip = iff(t == 'microsoft.network/publicipaddresses', tostring(properties.ipAddress), '')
-| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip
-| take ${MAX_RESOURCES + 1}`;
+| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip`;
 
 const parentOf = (id) => String(id || "").toLowerCase().split("/").slice(0, 9).join("/");
 const vnetOfSubnet = (id) => String(id || "").toLowerCase().split("/subnets/")[0];
 const list = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+const lc = (s) => String(s || "").toLowerCase();
 
 async function read() {
   const q = (kql, opts = {}) => resourceGraphQuery(kql, { toolId: TOOL_ID, ...opts });
-  const [resources, vnets, groups, subs, sites, connections] = await Promise.all([
+  // The traffic lines need these; a drawing still comes without them.
+  const soft = (kql) => q(kql).catch(() => null);
+  const [resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls] = await Promise.all([
     q(RESOURCES_KQL),
     q(`Resources | where type =~ 'microsoft.network/virtualnetworks'
       | project id = tolower(id), name, resourceGroup, subscriptionId, location, prefixes = properties.addressSpace.addressPrefixes,
@@ -64,8 +70,19 @@ async function read() {
       | project id = tolower(id), name, connKind = tostring(properties.connectionType),
           gateway = tolower(tostring(properties.virtualNetworkGateway1.id)),
           site = tolower(coalesce(tostring(properties.localNetworkGateway2.id), tostring(properties.peer.id), tostring(properties.virtualNetworkGateway2.id)))`),
+    soft(`Resources | where type =~ 'microsoft.network/networksecuritygroups' | project id = tolower(id), name, rules = properties.securityRules, defaults = properties.defaultSecurityRules`),
+    soft(`Resources | where type =~ 'microsoft.network/routetables' | project id = tolower(id), name, routes = properties.routes`),
+    soft(`Resources | where type =~ 'microsoft.network/networkinterfaces'
+      | project id = tolower(id), vm = tolower(tostring(properties.virtualMachine.id)), pe = tolower(tostring(properties.privateEndpoint.id)),
+          nsg = tolower(tostring(properties.networkSecurityGroup.id)), primary = tobool(properties.primary),
+          nicIp = tostring(properties.ipConfigurations[0].properties.privateIPAddress), nicSubnet = tolower(tostring(properties.ipConfigurations[0].properties.subnet.id)),
+          asgs = properties.ipConfigurations[0].properties.applicationSecurityGroups`),
+    soft(`Resources | where type =~ 'microsoft.network/azurefirewalls'
+      | project id = tolower(id), name, policy = tolower(tostring(properties.firewallPolicy.id)),
+          fwIp = tostring(coalesce(properties.ipConfigurations[0].properties.privateIPAddress, properties.hubIPAddresses.privateIPAddress)),
+          fwSubnet = tolower(tostring(properties.ipConfigurations[0].properties.subnet.id))`),
   ]);
-  return { resources, vnets, groups, subs, sites, connections };
+  return { resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls };
 }
 
 // Resources a drawing shows on their own, with their subnet and public IPs
@@ -137,10 +154,108 @@ function build(d) {
   };
 }
 
+// The network as the traffic lines need it, in short: ids in lower case, NSG rules with one-letter keys.
+function buildNetwork(d) {
+  const nsgRule = (r) => {
+    const p = r.properties || r;
+    return {
+      n: r.name, p: p.priority || 0, d: lc(p.direction) === "outbound" ? "out" : "in", a: lc(p.access) === "allow", pr: p.protocol || "*",
+      s: [...list(p.sourceAddressPrefix), ...list(p.sourceAddressPrefixes)], sa: list(p.sourceApplicationSecurityGroups).map((x) => lc(x.id)),
+      t: [...list(p.destinationAddressPrefix), ...list(p.destinationAddressPrefixes)], ta: list(p.destinationApplicationSecurityGroups).map((x) => lc(x.id)),
+      dp: [...list(p.destinationPortRange), ...list(p.destinationPortRanges)],
+    };
+  };
+  const byPrio = (a, b) => a.p - b.p;
+  const nics = new Map();
+  for (const n of d.nics || []) {
+    if (!n.nicIp || !n.nicSubnet) continue;
+    const owner = n.vm || n.pe || n.id;
+    const prev = nics.get(owner);
+    if (prev && !(n.primary && !prev.primary)) continue; // a VM uses its primary NIC
+    nics.set(owner, { owner, ip: n.nicIp, subnet: n.nicSubnet, ...(n.nsg && { nsg: n.nsg }), ...(n.pe && { pe: true }), ...(list(n.asgs).length && { asgs: list(n.asgs).map((x) => lc(x.id)) }), primary: !!n.primary });
+  }
+  for (const n of nics.values()) delete n.primary;
+  return {
+    complete: !!(d.nsgs && d.routeTables && d.nics),
+    vnets: d.vnets.map((v) => ({
+      id: v.id,
+      prefixes: list(v.prefixes).map(String),
+      peers: list(v.peerings)
+        .filter((p) => /connected/i.test((p.properties || {}).peeringState || "") && (p.properties || {}).allowVirtualNetworkAccess !== false)
+        .map((p) => lc(((p.properties || {}).remoteVirtualNetwork || {}).id))
+        .filter(Boolean),
+    })),
+    subnets: d.vnets.flatMap((v) =>
+      list(v.subnets).map((s) => {
+        const p = s.properties || {};
+        return {
+          id: lc(s.id), name: s.name, vnet: v.id,
+          prefixes: list(p.addressPrefixes).length ? list(p.addressPrefixes).map(String) : list(p.addressPrefix).map(String),
+          ...(p.networkSecurityGroup && { nsg: lc(p.networkSecurityGroup.id) }),
+          ...(p.routeTable && { rt: lc(p.routeTable.id) }),
+          ...(p.privateEndpointNetworkPolicies && { pePolicies: p.privateEndpointNetworkPolicies }),
+        };
+      })
+    ),
+    nsgs: (d.nsgs || []).map((n) => ({ id: n.id, name: n.name, rules: list(n.rules).map(nsgRule).sort(byPrio), defaults: list(n.defaults).map(nsgRule).sort(byPrio) })),
+    routeTables: (d.routeTables || []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      routes: list(t.routes).map((r) => {
+        const p = r.properties || {};
+        return { name: r.name, prefix: p.addressPrefix, hop: p.nextHopType, ...(p.nextHopIpAddress && { hopIp: p.nextHopIpAddress }) };
+      }),
+    })),
+    nics: [...nics.values()],
+    firewalls: (d.firewalls || []).filter((f) => f.fwIp).map((f) => ({ id: f.id, name: f.name, ip: f.fwIp, policy: f.policy, subnet: f.fwSubnet })),
+  };
+}
+
 async function run() {
-  const doc = build(await read());
-  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), ...doc });
+  const d = await read();
+  const updatedAt = new Date().toISOString();
+  await store.putDoc(NETWORK_KEY, { updatedAt, ...buildNetwork(d) });
+  await store.putDoc(INVENTORY_KEY, { updatedAt, ...build(d) });
+  cache.clear();
   return [];
+}
+
+// Saved networks, kept a short while: each click on the drawing asks for its lines.
+const cache = new Map();
+async function savedNetwork(key) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < 120000) return hit;
+  const [net, fw] = await Promise.all([store.getDoc(NETWORK_KEY, key), store.getDoc(FIREWALL_KEY, key).catch(() => null)]);
+  const out = { at: Date.now(), net: net ? flows.index(net) : null, complete: !!(net && net.complete), fw };
+  cache.set(key, out);
+  return out;
+}
+
+// Can each resource in `from` reach each in `to` on the picked ports?
+async function trafficLines(keys, body) {
+  const tenant = String(body.tenant || "");
+  if (!keys.includes(tenant)) return { status: 404, error: "Unknown tenant" };
+  const checks = body.preset && flows.PRESETS[body.preset] ? flows.checksOf(body.preset) : flows.customChecks(body.ports);
+  if (!checks) return { status: 400, error: "Ports look like: 443, tcp 8080-8090, udp 53" };
+  const ids = (v) => (Array.isArray(v) ? v : []).map(lc).filter(Boolean).slice(0, MAX_PAIRS);
+  const from = ids(body.from), to = ids(body.to);
+  const saved = await savedNetwork(tenant);
+  if (!saved.net) return { checks: checks.map((c) => c.label), results: [], missing: "Run the Architecture scan again: the saved drawing is older than the traffic lines" };
+  const results = [];
+  for (const a of from) {
+    for (const b of to) {
+      if (a === b || results.length >= MAX_PAIRS) continue;
+      const na = saved.net.nics.get(a), nb = saved.net.nics.get(b);
+      if (!na || !nb) results.push({ from: a, to: b, state: "none", why: "No private address known for one side" });
+      else results.push({ from: a, to: b, ...flows.evaluate(saved.net, saved.fw, na, nb, checks) });
+    }
+  }
+  return {
+    checks: checks.map((c) => c.label),
+    results,
+    ...(!saved.fw && { note: "Firewall rules are not saved: run the Firewall policies scan to follow traffic through a firewall" }),
+    ...(!saved.complete && { missing: "NSGs or routes could not be read in the last scan" }),
+  };
 }
 
 async function inventory(keys) {
@@ -171,6 +286,15 @@ function registerRoutes(app, { readKeys }) {
       res.status(500).json({ error: err.message });
     }
   });
+  app.post("/api/architecture/flows", async (req, res) => {
+    try {
+      const out = await trafficLines(readKeys(req), req.body || {});
+      if (out.error) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
 
 module.exports = {
@@ -180,5 +304,5 @@ module.exports = {
   info: true,
   run,
   registerRoutes,
-  _test: { build, parentOf },
+  _test: { build, buildNetwork, trafficLines, parentOf },
 };

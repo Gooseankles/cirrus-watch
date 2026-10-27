@@ -47,9 +47,24 @@ async function armRequest(method, url, data, toolId) {
     await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));
   }
   if (response.status >= 300) {
-    throw new Error(`ARM request failed ${method} ${url} (${response.status}): ${JSON.stringify(response.data)}`);
+    const why = errorReason(response.data);
+    throw new Error(`ARM request failed ${method} ${url} (${response.status}): ${why ? `${why} | ` : ""}${JSON.stringify(response.data)}`);
   }
   return response.data;
+}
+
+// Azure's real reason sits in error.details (Resource Graph: InvalidQuery, ParserFailure with line and token) under a
+// generic "Please provide below info when asking for support" message; put it first so a cut-off message still shows it.
+function errorReason(data) {
+  const details = data && data.error && Array.isArray(data.error.details) ? data.error.details : [];
+  return details
+    .map((d) => {
+      const at = d.token !== undefined ? ` at "${d.token}"${d.line !== undefined ? ` (line ${d.line}, char ${d.characterPositionInLine})` : ""}` : "";
+      const msg = d.message && d.message !== d.code && !/^Query is invalid\. Please refer/i.test(d.message) ? `: ${d.message}` : "";
+      return `${d.code || "error"}${msg}${at}`;
+    })
+    .join("; ")
+    .slice(0, 400);
 }
 
 function armGet(url, toolId) {

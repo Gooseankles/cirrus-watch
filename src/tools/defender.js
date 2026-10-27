@@ -45,16 +45,17 @@ async function recommendations() {
     | where tostring(properties.status.code) =~ 'Unhealthy'
     | extend severity = tolower(tostring(properties.metadata.severity)), title = tostring(properties.displayName)
     | where severity in (${wanted.map((s) => `'${s}'`).join(", ")})
-    | summarize resources = count() by subscriptionId, key = name, severity, title`,
+    | summarize unhealthy = count() by subscriptionId, assessmentKey = name, severity, title`,
     { toolId: TOOL_ID }
   );
+  // Column names stay clear of table names and keywords ("resources", "key"): Resource Graph answers those with a bare BadRequest.
   return rows.map((r) => ({
     kind: `defender-${r.severity}`,
-    id: `/subscriptions/${r.subscriptionId}/providers/Microsoft.Security/assessments/${r.key}`,
-    name: r.title || r.key,
+    id: `/subscriptions/${r.subscriptionId}/providers/Microsoft.Security/assessments/${r.assessmentKey}`,
+    name: r.title || r.assessmentKey,
     subscriptionId: r.subscriptionId,
-    resources: r.resources,
-    detail: `${r.resources} resource${r.resources === 1 ? "" : "s"} unhealthy. ${recommendationLink(r.key)}`,
+    resources: r.unhealthy,
+    detail: `${r.unhealthy} resource${r.unhealthy === 1 ? "" : "s"} unhealthy. ${recommendationLink(r.assessmentKey)}`,
   }));
 }
 

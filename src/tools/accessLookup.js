@@ -166,19 +166,45 @@ async function armAll(url) {
 
 const azureKey = (principalId, role, scope) => `${principalId}|${role}|${String(scope || "").toLowerCase()}`;
 
+// Every PIM schedule instance (eligible and active) in every subscription: two
+// paged ARM calls per subscription, the slow part of a lookup. Kept per tenant
+// for PIM_CACHE_MS and shared by lookups running at the same time; a read where
+// some subscriptions failed is not kept.
+const PIM_CACHE_MS = 5 * 60 * 1000;
+const pimCache = new Map(); // tenant key -> { at, promise }
+function pimInstances() {
+  const key = (tenantContext.current() || { key: tenantContext.HOME }).key;
+  const hit = pimCache.get(key);
+  if (hit && Date.now() - hit.at < PIM_CACHE_MS) return hit.promise;
+  const promise = (async () => {
+    const subs = await subscriptionIdsToScan(TOOL_ID);
+    const bySub = [];
+    const failures = await mapLimit(subs, 12, async (s) => {
+      const base = `https://management.azure.com/subscriptions/${s}/providers/Microsoft.Authorization`;
+      const [eligible, active] = await Promise.all([armAll(`${base}/roleEligibilityScheduleInstances?${PIM_API}`), armAll(`${base}/roleAssignmentScheduleInstances?${PIM_API}`)]);
+      bySub.push({ s, eligible, active });
+    });
+    return { subs, bySub, failures };
+  })();
+  pimCache.set(key, { at: Date.now(), promise });
+  promise.then(
+    (r) => r.failures.length && pimCache.get(key)?.promise === promise && pimCache.delete(key),
+    () => pimCache.get(key)?.promise === promise && pimCache.delete(key)
+  );
+  return promise;
+}
+
 // PIM for Azure roles: what these principals may activate (eligible), and
 // which of their active assignments are PIM ones (activated, or assigned with
 // an end date). Read per subscription with Reader. An instance on a management
 // group shows up in every subscription below it, so it is kept once; one a
 // person gets through a group (memberType Group) is listed through that group.
-async function azurePim(principalIds) {
+async function azurePim(principalIds, instances = pimInstances()) {
   const want = new Set(principalIds);
   const out = { eligible: [], active: new Map(), names: new Map(), notes: [] };
-  const subs = await subscriptionIdsToScan(TOOL_ID);
+  const { subs, bySub, failures } = await instances;
   const seen = new Set();
-  const failures = await mapLimit(subs, 6, async (s) => {
-    const base = `https://management.azure.com/subscriptions/${s}/providers/Microsoft.Authorization`;
-    const [eligible, active] = await Promise.all([armAll(`${base}/roleEligibilityScheduleInstances?${PIM_API}`), armAll(`${base}/roleAssignmentScheduleInstances?${PIM_API}`)]);
+  for (const { s, eligible, active } of bySub) {
     const read = (r) => {
       const p = r.properties || {};
       const x = p.expandedProperties || {};
@@ -199,7 +225,7 @@ async function azurePim(principalIds) {
       if (!a || (a.p.assignmentType !== "Activated" && !a.p.endDateTime)) continue;
       out.active.set(a.key, { state: a.p.assignmentType === "Activated" ? "activated" : "time-bound", end: a.p.endDateTime || null });
     }
-  });
+  }
   if (failures.length) out.notes.push(`PIM for Azure roles could not be read in ${failures.length} of ${subs.length} subscription${subs.length === 1 ? "" : "s"}: ${failures[0].message}`);
   return out;
 }
@@ -247,6 +273,9 @@ const entraScope = (s) => (!s || s === "/" ? "Whole directory" : s.startsWith("/
 // principal may join through PIM for Groups (and of the groups those sit in).
 async function accessOf(selfId, kind) {
   const base = kind === "user" ? `/users/${selfId}` : `/groups/${selfId}`;
+  // The PIM list does not depend on who is asked about: start it now, beside the group reads.
+  const pim = pimInstances();
+  pim.catch(() => {}); // awaited below; this only stops an early throw from leaving it unhandled
   const [direct, all, gpim] = await Promise.all([
     graphGetAll(`${base}/memberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
     graphGetAll(`${base}/transitiveMemberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
@@ -263,7 +292,7 @@ async function accessOf(selfId, kind) {
     for (const p of parents) if (!memberIds.has(p.id) && p.id !== selfId && !pimVia.has(p.id)) pimVia.set(p.id, { path: [e.name, p.displayName], access: e.access, end: e.end });
   });
   const principalIds = [selfId, ...memberIds, ...pimVia.keys()];
-  const [rows, entra, azure] = await Promise.all([roleRows(principalIds), entraRoles(principalIds), azurePim(principalIds)]);
+  const [rows, entra, azure] = await Promise.all([roleRows(principalIds), entraRoles(principalIds), azurePim(principalIds, pim)]);
   const groupNameById = Object.fromEntries(all.map((g) => [g.id, g.displayName]));
   const starts = new Set(direct.map((g) => g.id));
   const chain = chainFinder(starts, memberIds);
@@ -340,9 +369,12 @@ async function lookupAll(upn, keys) {
   const targets = tenants.scanTargets().filter((t) => access.inScope(keys, t.key));
   const multi = tenants.isMultiTenant();
   const out = { user: null, groups: [], assignments: [], entraRoles: [], entraNotes: [], azureNotes: [], groupNotes: [], tenants: [] };
-  for (const t of targets) {
+  // Tenants are read side by side; the results are added in tenant order.
+  const results = await Promise.allSettled(targets.map((t) => tenantContext.runIn(t, () => lookup(upn))));
+  for (const [i, t] of targets.entries()) {
     try {
-      const r = await tenantContext.runIn(t, () => lookup(upn));
+      if (results[i].status === "rejected") throw results[i].reason;
+      const r = results[i].value;
       if (!r) {
         out.tenants.push({ key: t.key, name: t.name, status: "not found" });
         continue;
@@ -390,9 +422,9 @@ async function search(kind, text, keys) {
   const s = SEARCH[kind];
   const targets = tenants.scanTargets().filter((t) => access.inScope(keys, t.key));
   const out = { [kind]: [], tenants: [] };
-  for (const t of targets) {
-    try {
-      const found = await tenantContext.runIn(t, async () => {
+  const results = await Promise.allSettled(
+    targets.map((t) =>
+      tenantContext.runIn(t, async () => {
         if (GUID.test(text)) {
           const one = await graphGet(`${s.path}/${text}?${s.fields}`, TOOL_ID).catch((err) => (/\(404\)/.test(err.message) ? null : Promise.reject(err)));
           return one ? [one] : [];
@@ -401,7 +433,13 @@ async function search(kind, text, keys) {
         const filter = s.props.map((p) => `startswith(${p},'${q}')`).join(" or ");
         const page = await graphGet(`${s.path}?$filter=${encodeURIComponent(filter)}&${s.fields}&$top=${SEARCH_TOP}`, TOOL_ID);
         return page.value || [];
-      });
+      })
+    )
+  );
+  for (const [i, t] of targets.entries()) {
+    try {
+      if (results[i].status === "rejected") throw results[i].reason;
+      const found = results[i].value;
       out[kind].push(...found.map((x) => ({ ...s.row(x), tenant: t.key, tenantName: t.name })));
       out.tenants.push({ key: t.key, name: t.name, status: "searched" });
     } catch (err) {

@@ -29,7 +29,7 @@ const Settings = (() => {
           </div>
           <div class="card" id="notify-card">
             <div class="card-head"><h2 id="notify-title">Notifications</h2></div>
-            <div class="note">Once a day this tenant's new findings and failed scans go to one link: a Teams channel (in the channel: Workflows, "Post to a channel when a webhook request is received", copy its link), a Slack incoming webhook, or any https webhook. Accepted and snoozed findings are left out, and a day with nothing new sends nothing. The send time is under Notifications on the Home tab. The link works as a password: it is kept like a secret and never shown again.</div>
+            <div class="note">Once a day this tenant's new findings and failed scans go to one place: a Teams channel (in the channel: Workflows, "Post to a channel when a webhook request is received", copy its link), a Slack incoming webhook, any https webhook, or email addresses where webhooks are blocked (a Teams channel's email address works too). Accepted and snoozed findings are left out, and a day with nothing new sends nothing. The send time and the mailbox email is sent from are under Notifications on the Home tab. A webhook link works as a password: it is kept like a secret and never shown again.</div>
             <div class="status-msg" id="notify-status"></div>
             <div id="notify-body"><div class="empty-state">Loading…</div></div>
           </div>
@@ -194,19 +194,20 @@ const Settings = (() => {
 
   function renderNotify(d) {
     $("#notify-title").textContent = showTenants() ? `Notifications for ${d.tenantName}` : "Notifications";
-    const kind = { teams: "Teams", slack: "Slack", webhook: "webhook" }[d.kind] || "";
-    const state = d.isSet ? `set${kind ? `, ${kind}` : ""} (${esc(d.where)})` : "not set";
+    const kind = { teams: "Teams", slack: "Slack", webhook: "webhook", email: "email" }[d.kind] || "";
+    const state = !d.isSet ? "not set" : d.to ? `email to ${esc(d.to.join(", "))}` : `set${kind ? `, ${kind}` : ""} (${esc(d.where)})`;
     const rows = [
-      `<div class="settings-row"><label>Link<div class="hint">Paste a new link to replace the current one.</div></label><div class="field">
-        <input class="input" type="password" id="notify-url" placeholder="https://…" autocomplete="new-password" />
+      `<div class="settings-row"><label>Link or email<div class="hint">A webhook link, or email addresses separated by commas. Enter a new one to replace the current one.</div></label><div class="field">
+        <input class="input" type="password" id="notify-url" placeholder="https://… or ops@contoso.com, alerts@contoso.com" autocomplete="new-password" />
         <span class="secret-state${d.isSet ? " is-set" : ""}">${state}</span></div></div>`,
     ];
+    if (d.to && !d.mailFrom) rows.push(`<div class="settings-row"><label></label><div class="field"><span class="bad">No mailbox to send from yet: set Send email from under Notifications on the Home tab.</span></div></div>`);
     if (d.isSet) {
       rows.push(`<div class="settings-row"><label>Status</label><div class="field"><span>Sent daily at ${esc(d.time)}. Waiting: ${d.pending}. Last sent: ${esc(when(d.lastSent))}.${d.lastError ? ` <span class="bad">Last try failed (${esc(when(d.lastErrorAt))}): ${esc(d.lastError)}</span>` : ""}</span></div></div>`);
     }
     $("#notify-body").innerHTML = `${rows.join("")}
       <div class="save-bar">
-        <button type="button" class="btn primary" data-notify="save">${icon("check")} Save link</button>
+        <button type="button" class="btn primary" data-notify="save">${icon("check")} Save</button>
         ${d.isSet ? `<button type="button" class="btn small" data-notify="test">${icon("play")} Send test</button><button type="button" class="btn small ghost" data-notify="clear">Remove</button>` : ""}
         <span class="test-result" id="notify-result"></span>
       </div>`;
@@ -220,9 +221,9 @@ const Settings = (() => {
     try {
       if (what === "save") {
         const url = $("#notify-url").value.trim();
-        if (!url) return setStatus(status, "Paste a link first.", "error");
+        if (!url) return setStatus(status, "Enter a link or email addresses first.", "error");
         renderNotify(await postJson(notifyUrl(), { url }));
-        setStatus(status, "Link saved. Send a test to check it.", "ok");
+        setStatus(status, "Saved. Send a test to check it.", "ok");
       } else if (what === "clear") {
         if (!confirm("Remove this tenant's notification link? Anything waiting to be sent is dropped.")) return;
         renderNotify(await postJson(notifyUrl(), { clear: true }));
@@ -232,7 +233,7 @@ const Settings = (() => {
         result.textContent = "Sending…";
         const r = await postJson(notifyUrl("/test"));
         result.className = `test-result ${r.ok ? "good" : "bad"}`;
-        result.textContent = r.ok ? "Sent. Check the channel." : r.error;
+        result.textContent = r.ok ? (r.kind === "email" ? "Sent. Check the inbox." : "Sent. Check the channel.") : r.error;
       }
     } catch (err) {
       setStatus(status, err.message, "error");

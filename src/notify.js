@@ -7,7 +7,10 @@
 // Each tenant has one link: a Teams channel's Workflows webhook ("Post to a
 // channel when a webhook request is received"), a Slack incoming webhook, or
 // any other https endpoint (Power Automate, Logic Apps, n8n), which gets the
-// Teams body plus `text` and a plain `summary`. The link carries its own
+// Teams body plus `text` and a plain `summary`. Or, where webhooks are
+// blocked, email addresses (a Teams channel's email address works too): the
+// mail goes out through Microsoft Graph from NOTIFY_MAIL_FROM, a mailbox in the
+// home tenant, with the dashboard's own identity (Mail.Send). The link carries its own
 // signature, so it is kept like a secret: in the key vault when
 // SECRET_VAULT_URL is set (secretStore kind "notify"), else DATA_DIR/notify.json.
 // Only tenants with a link collect anything.
@@ -15,6 +18,7 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
 const cron = require("node-cron");
+const { graphPost } = require("./graphClient");
 
 const { DATA_DIR } = require("./paths");
 const { writeAtomic } = require("./jsonFile");
@@ -23,6 +27,7 @@ const settings = require("./settings");
 const tenants = require("./tenants");
 const suppressions = require("./suppressions");
 const log = require("./log");
+const tenantContext = require("./tenantContext");
 
 const LINKS_PATH = path.join(DATA_DIR, "notify.json");
 const QUEUE_PATH = path.join(DATA_DIR, "notify-queue.json");
@@ -33,6 +38,14 @@ const MAX_QUEUED = 2000; // per tenant, so a broken link cannot grow the file wi
 const RETRY_MS = 60 * 60 * 1000; // a failed send is tried again hourly
 const TIMEOUT_MS = 20 * 1000;
 const DEFAULT_TIME = "08:30";
+const MAX_RECIPIENTS = 20;
+const EMAIL = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
+
+// "a@x.no, b@x.no" (commas or semicolons) -> the addresses; null when it is not a list of addresses.
+function emailsOf(value) {
+  const list = String(value || "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  return list.length && list.every((s) => EMAIL.test(s)) ? list : null;
+}
 
 function readJson(file) {
   try {
@@ -50,13 +63,19 @@ function linkOf(key) {
 }
 
 function checkLink(url) {
+  const mails = emailsOf(url);
+  if (mails) {
+    if (mails.length > MAX_RECIPIENTS) throw new Error(`at most ${MAX_RECIPIENTS} email addresses`);
+    return;
+  }
+  if (!/^https?:/i.test(url) && url.includes("@")) throw new Error("not a valid list of email addresses (separate them with commas)");
   let u;
   try {
     u = new URL(url);
   } catch {
     throw new Error("the link is not a valid URL");
   }
-  if (u.protocol !== "https:") throw new Error("the link must start with https://");
+  if (u.protocol !== "https:") throw new Error("the link must start with https:// (or be email addresses)");
   if (url.length > 2000) throw new Error("the link is longer than 2000 characters");
 }
 
@@ -119,6 +138,9 @@ function describe(key) {
     isSet: Boolean(url),
     where: !url ? null : secretStore.enabled() && secretStore.has(KIND, key) ? "key vault" : "file",
     kind: url ? linkKind(url) : null,
+    // Email addresses are not a secret, a webhook link is.
+    to: (url && emailsOf(url)) || null,
+    mailFrom: mailFrom() || null,
     pending: (q.items || []).length + (q.errors || []).length,
     lastSent: q.lastSent || null,
     lastError: q.lastError || null,
@@ -167,6 +189,7 @@ async function queue(tool, newByTenant, errors) {
 // --- messages ---
 
 function linkKind(url) {
+  if (emailsOf(url)) return "email";
   const host = (() => {
     try {
       return new URL(url).hostname.toLowerCase();
@@ -271,6 +294,55 @@ function bodies(msg, url) {
   };
 }
 
+function mailFrom() {
+  return String(settings.get("NOTIFY_MAIL_FROM") || "").trim();
+}
+
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// The message as a plain HTML mail body. Pure, for the tests.
+function mailHtml(msg) {
+  const site = dashboardUrl();
+  const font = "font-family:Segoe UI,Arial,sans-serif";
+  const parts = [`<h2 style="${font};font-size:18px;margin:0 0 12px">${escHtml(msg.title)}</h2>`];
+  for (const s of msg.sections) {
+    parts.push(`<h3 style="${font};font-size:15px;margin:16px 0 6px">${escHtml(s.heading)}</h3>`);
+    const items = [...s.bullets.map(escHtml), ...(s.hidden ? [`and ${s.hidden} more`] : [])];
+    parts.push(`<ul style="${font};font-size:14px;margin:0;padding-left:20px">${items.map((b) => `<li style="margin:2px 0">${b}</li>`).join("")}</ul>`);
+  }
+  if (site) parts.push(`<p style="${font};font-size:14px;margin-top:18px"><a href="${escHtml(site)}">Open the dashboard</a></p>`);
+  return parts.join("\n");
+}
+
+// Sent as the home tenant's identity from the NOTIFY_MAIL_FROM mailbox, whichever tenant the message is about.
+async function sendMail(to, msg) {
+  const from = mailFrom();
+  if (!from) throw new Error("set Send email from (Settings, Home tab, Notifications) to send email");
+  try {
+    await tenantContext.runIn(null, () =>
+      graphPost(
+        `/users/${encodeURIComponent(from)}/sendMail`,
+        {
+          message: { subject: msg.title, body: { contentType: "HTML", content: mailHtml(msg) }, toRecipients: to.map((address) => ({ emailAddress: { address } })) },
+          saveToSentItems: false,
+        },
+        TOOL
+      )
+    );
+  } catch (err) {
+    const m = String(err.message || err);
+    if (/\(403\)/.test(m)) throw new Error(`the dashboard may not send mail as ${from}: give its app the Graph permission Mail.Send (application), and if an application access policy limits it, include this mailbox`);
+    if (/\(404\)/.test(m)) throw new Error(`no mailbox ${from} in the home tenant`);
+    throw new Error(m.slice(0, 300));
+  }
+}
+
+// Webhook or email, by what the link is.
+function deliver(url, msg) {
+  const to = emailsOf(url);
+  return to ? sendMail(to, msg) : post(url, bodies(msg, url));
+}
+
 async function post(url, body) {
   const resp = await axios.post(url, body, { timeout: TIMEOUT_MS, validateStatus: () => true, maxRedirects: 0, headers: { "Content-Type": "application/json" } });
   if (resp.status < 200 || resp.status >= 300) {
@@ -296,7 +368,7 @@ async function sendTenant(key) {
   const sentErrors = (entry.errors || []).length;
   try {
     const msg = compose(key, entry);
-    await post(url, bodies(msg, url));
+    await deliver(url, msg);
     const now = readJson(QUEUE_PATH);
     const e = now[key] || {};
     now[key] = { items: (e.items || []).slice(sentItems), errors: (e.errors || []).slice(sentErrors), lastSent: new Date().toISOString(), lastError: null, lastErrorAt: null };
@@ -324,7 +396,7 @@ async function sendTest(key) {
     failedScans: 0,
   };
   try {
-    await post(url, bodies(msg, url));
+    await deliver(url, msg);
     return { ok: true, kind: linkKind(url) };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -354,4 +426,4 @@ function start() {
   cron.schedule("* * * * *", () => tick());
 }
 
-module.exports = { start, queue, setLink, drop, describe, sendTest, moveSecretsToVault, TOOL, _test: { compose, bodies, linkKind, tick } };
+module.exports = { start, queue, setLink, drop, describe, sendTest, moveSecretsToVault, TOOL, _test: { compose, bodies, linkKind, tick, emailsOf, checkLink, mailHtml } };

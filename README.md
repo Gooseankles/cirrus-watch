@@ -211,6 +211,12 @@ The link can be:
 - **Slack**: an incoming webhook (`hooks.slack.com`); it gets plain text.
 - **Any other https endpoint** (Power Automate, Logic Apps, n8n): it gets the Teams body plus `text` and a
   `summary` object with the tenant, counts and items.
+- **Email addresses** (comma-separated, up to 20), for when the organization blocks webhooks. A Teams channel's
+  email address (channel ⋯ → Get email address) works too, if the organization allows mail to channels. The mail
+  goes out through Microsoft Graph from the mailbox in **Send email from** (Settings → Notifications on the Home
+  tab, `NOTIFY_MAIL_FROM`): a mailbox in the home tenant (a shared mailbox is fine), whichever tenant the message is
+  about. The dashboard's app needs the Graph application permission `Mail.Send`; limit it to that one mailbox with an
+  Exchange Online application access policy (`New-ApplicationAccessPolicy -AccessRight RestrictAccess`).
 
 The link carries its own signature, so it is kept like a client secret (the key vault when `SECRET_VAULT_URL` is
 set, else `notify.json` under `DATA_DIR`) and never shown again. What is waiting is kept in `notify-queue.json`. A
@@ -261,7 +267,8 @@ identity (by default the web app's managed identity, or a service principal):
   needs Entra ID P1), `Policy.Read.All` (Conditional Access, consent settings) and
   `DelegatedPermissionGrant.Read.All` (app consents), `LicenseAssignment.Read.All` (licences owned) and
   `PrivilegedEligibilitySchedule.Read.AzureADGroup` + `PrivilegedAssignmentSchedule.Read.AzureADGroup` (PIM for
-  Groups, for licence coverage). All read-only.
+  Groups, for licence coverage). All read-only. Only for email notifications: `Mail.Send` in the home tenant (see
+  Notifications).
 - **Key Vault**: `Key Vault Reader` (lists item names and expiry dates, never secret values) on RBAC vaults, or an
   access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
   Vault settings, access and logging checks need only Reader.

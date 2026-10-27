@@ -49,7 +49,8 @@ const FIELDS = [
   { key: "MONITOR_LAG_WARN_MS", label: "Alarm when the dashboard stops answering for (ms)", group: "Server load", hint: "Event-loop delay; blank = 2000" },
 
   // One send time for all; each tenant's link is set in the Notifications card.
-  { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's Teams or webhook link is set in the Notifications card on its tab" },
+  { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's link or email addresses are set in the Notifications card on its tab" },
+  { key: "NOTIFY_MAIL_FROM", label: "Send email from (mailbox)", group: "Notifications", hint: "Only for tenants whose notifications go to email addresses: a mailbox in the home tenant (a shared mailbox is fine). The dashboard's app needs the Graph permission Mail.Send (application); limit it to this mailbox with an Exchange application access policy" },
 
   // Scans a tenant does not need. Unlike the other tenant fields, a customer's
   // list does not fall back to the home tenant's: blank = every scan runs.

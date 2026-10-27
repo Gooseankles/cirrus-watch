@@ -51,6 +51,10 @@ const FIELDS = [
   // One send time for all; each tenant's link is set in the Notifications card.
   { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's Teams or webhook link is set in the Notifications card on its tab" },
 
+  // Scans a tenant does not need. Unlike the other tenant fields, a customer's
+  // list does not fall back to the home tenant's: blank = every scan runs.
+  { key: "SCANS_OFF", label: "Scans that are on", group: "Scans", scanPicker: true, noInherit: true, hint: "Untick the scans this tenant does not need: they do not run here and their results are hidden" },
+
   { key: "ROLE_ASSIGNMENT_LIMIT_WARN_PCT", label: "Warn at % of the 4,000 limit", group: "Role assignments", hint: "Blank = 80" },
   { key: "POLICY_PROBES", label: "Probe tests to run", group: "Policy check", hint: "Comma-separated: storage-public-blob, storage-http, storage-old-tls, public-ip, keyvault-no-purge-protection, sql-public-network, untagged-resource, denied-region. Blank = all, none = off" },
   { key: "POLICY_PROBE_REGION", label: "Region for probes", group: "Policy check", hint: "An allowed region; blank = norwayeast" },
@@ -102,9 +106,9 @@ const FIELDS = [
   { key: "UPDATES_ASSESSMENT_MAX_AGE_DAYS", label: "Flag a machine not assessed for (days)", group: "Updates and patching", hint: "Azure keeps assessments for 7 days, so a machine with none in that time is always flagged. Blank = 7" },
   { key: "HEALTH_MAINTENANCE_DAYS", label: "Show planned maintenance starting within (days)", group: "Resource health", hint: "Blank = 14, 0 = off" },
 ];
-// Everything from "Role assignments" down is a tool option a customer tenant
-// may set differently.
-for (const f of FIELDS.slice(FIELDS.findIndex((x) => x.key === "ROLE_ASSIGNMENT_LIMIT_WARN_PCT"))) f.perTenant = true;
+// Everything from "Scans" down is a tool option a customer tenant may set
+// differently.
+for (const f of FIELDS.slice(FIELDS.findIndex((x) => x.key === "SCANS_OFF"))) f.perTenant = true;
 
 // Optional least-privilege SPN per tool. A tool uses its own SPN only when
 // its client ID is set; otherwise it uses the shared one above. These apply to
@@ -230,6 +234,13 @@ function get(key) {
   return homeValue(key);
 }
 
+// The scan ids switched off for one tenant (its own list only, see SCANS_OFF).
+function scansOff(tenantKey) {
+  const raw = isCustomer(tenantKey) ? (readTenantOverrides()[tenantKey] || {}).SCANS_OFF : homeValue("SCANS_OFF");
+  return String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+const scanOff = (toolId, tenantKey) => scansOff(tenantKey || HOME).includes(toolId);
+
 // Secret fields never round-trip their real value to the browser — only
 // whether something is currently set, and where it came from. For a customer
 // tenant: only the perTenant fields, with homeValue as what blank means.
@@ -239,7 +250,7 @@ function getAll(tenantKey) {
     return FIELDS.filter((f) => f.perTenant).map((f) => ({
       ...f,
       value: own[f.key] !== undefined && own[f.key] !== "" ? own[f.key] : "",
-      homeValue: homeValue(f.key) || "",
+      homeValue: f.noInherit ? "" : homeValue(f.key) || "",
     }));
   }
   const overrides = readOverrides();
@@ -343,4 +354,4 @@ async function moveSecretsToVault() {
   return moved;
 }
 
-module.exports = { get, getAll, setMany, dropTenant, moveSecretsToVault, FIELDS, TOOL_SPNS, spnPrefix };
+module.exports = { get, scansOff, scanOff, getAll, setMany, dropTenant, moveSecretsToVault, FIELDS, TOOL_SPNS, spnPrefix };

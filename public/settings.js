@@ -51,6 +51,11 @@ const Settings = (() => {
   function onChange(e) {
     const sel = e.target;
     if (sel.matches("select[data-auth-type]")) applyAuthType(sel);
+    if (sel.matches("[data-scan-on]")) {
+      // The setting holds the scans that are off.
+      const field = sel.closest(".field");
+      field.querySelector("[data-setting]").value = $$("[data-scan-on]", field).filter((c) => !c.checked).map((c) => c.dataset.scanOn).join(",");
+    }
   }
   async function onClick(e) {
     const t = e.target.closest("[data-tenant-new],[data-tenant-edit],[data-tenant-del],[data-tenant-test],[data-tenant-save],[data-tenant-cancel]");
@@ -75,7 +80,16 @@ const Settings = (() => {
     const rowAttrs = Array.isArray(f.authOnly) ? ` data-auth-only="${esc(f.authOnly.join(","))}"` : "";
     const labelHtml = `<label>${esc(f.label)}${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ""}</label>`;
     let control;
-    if (Array.isArray(f.options)) {
+    if (f.scanPicker) {
+      // One tick per scan, by menu group; ticked = runs for this tenant.
+      const off = new Set(String(f.value || "").split(",").map((s) => s.trim()).filter(Boolean));
+      const groups = TOOL_GROUPS.map((g) => ({ g, tools: TOOLS.filter((t) => t.group === g.id) })).filter((x) => x.tools.length);
+      control = `<input type="hidden" data-setting="${esc(f.key)}" value="${esc([...off].join(","))}" /><div class="scan-picker">${groups
+        .map(({ g, tools }) => `<div class="scan-picker-group"><div class="scan-picker-head">${esc(g.label)}</div>${tools
+          .map((t) => `<label class="check"><input type="checkbox" data-scan-on="${esc(t.id)}"${off.has(t.id) ? "" : " checked"} /> ${esc(t.label)}</label>`)
+          .join("")}</div>`)
+        .join("")}</div>`;
+    } else if (Array.isArray(f.options)) {
       // Options come as {value, label} from the server; accept plain strings too.
       const opts = f.options.map((o) => (o && typeof o === "object" ? { value: String(o.value), label: String(o.label || o.value) } : { value: String(o), label: String(o) }));
       // A customer tenant's field may follow Home (blank).
@@ -420,8 +434,19 @@ const Settings = (() => {
     btn.disabled = false;
     if (r.ok) {
       setStatus(status, "Saved.", "ok");
+      refreshScans();
       await load();
     } else setStatus(status, `Save failed: ${r.error}`, "error");
+  }
+  // Scans turned on or off change the menu and the overview.
+  async function refreshScans() {
+    try {
+      const me = await apiJson("/api/me");
+      if (me && Array.isArray(me.tenants)) state.me = me;
+      rebuildNav();
+    } catch {
+      /* the page still works; a reload shows the change */
+    }
   }
   async function clearSecret(btn) {
     const key = btn.dataset.clear;

@@ -30,18 +30,20 @@ function byKind(list) {
   return out;
 }
 
-// tools: [{ id, label }]; keys: the tenants to cover; decorate(toolId, list)
-// adds subscription and tenant names.
+// tools: [{ id, label, keys? }]; keys: the tenants to cover (a tool's own keys,
+// when given, leave out tenants where it is off); decorate(toolId, list) adds
+// subscription and tenant names.
 async function build(tools, month, keys, decorate) {
   const { start, end } = bounds(month);
   const now = new Date().toISOString();
   const until = end < now ? end : now;
   const out = [];
   for (const tool of tools) {
+    const k = tool.keys || keys;
     const [before, after, history] = await Promise.all([
-      findingsStore.stateAt(tool.id, justBefore(start), keys),
-      findingsStore.stateAt(tool.id, justBefore(until), keys),
-      findingsStore.history(tool.id, keys),
+      findingsStore.stateAt(tool.id, justBefore(start), k),
+      findingsStore.stateAt(tool.id, justBefore(until), k),
+      findingsStore.history(tool.id, k),
     ]);
     await suppressions.mark(tool.id, [...before.findings, ...after.findings]);
     const openEnd = after.findings.filter((f) => !f.accepted);

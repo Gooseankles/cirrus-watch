@@ -87,7 +87,7 @@ app.get("/api/me", (req, res) => {
     isAdmin: Boolean(user && acc.admin),
     canRun: Boolean(user && acc.canRun),
     // Tenants this person may see; the page shows a tab per tenant when there is more than one.
-    tenants: user ? access.visibleTenants(user) : [],
+    tenants: user ? access.visibleTenants(user).map((t) => ({ ...t, scansOff: settings.scansOff(t.key) })) : [],
     multiTenant: Boolean(user) && tenants.isMultiTenant(),
     version: VERSION,
   });
@@ -240,6 +240,13 @@ for (const t of registeredTools) if (!needsOf(t.id)) console.warn(`[${t.id}] has
 app.get("/api/tools", (req, res) => res.json(registeredTools.map((t) => ({ ...t, needs: needsOf(t.id) }))));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
+// The scans with the tenants (of keys) where each is on; a scan off in all of them is left out.
+const scansFor = (keys) =>
+  registeredTools
+    .filter((t) => t.kind === "scan")
+    .map((t) => ({ ...t, keys: keys.filter((k) => !settings.scanOff(t.id, k)) }))
+    .filter((t) => t.keys.length);
+
 // Monthly report over the tenants the person may see (?tenant= narrows):
 // ?month=YYYY-MM, default this month.
 app.get("/api/report", async (req, res) => {
@@ -248,7 +255,7 @@ app.get("/api/report", async (req, res) => {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month > thisMonth) return res.status(400).json({ error: "month must be YYYY-MM, not in the future" });
   try {
     const keys = readKeys(req);
-    const scans = registeredTools.filter((t) => t.kind === "scan" && !t.info); // the change log is not a problem list
+    const scans = scansFor(keys).filter((t) => !t.info); // the change log is not a problem list
     const out = await require("./src/report").build(scans, month, keys, decorate);
     res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
   } catch (err) {
@@ -261,7 +268,7 @@ app.get("/api/trends", async (req, res) => {
   const weeks = Math.min(52, Math.max(4, Math.round(Number(req.query.weeks) || 12)));
   try {
     const keys = readKeys(req);
-    const scans = registeredTools.filter((t) => t.kind === "scan" && !t.info);
+    const scans = scansFor(keys).filter((t) => !t.info);
     const out = await require("./src/trends").build(scans, keys, weeks);
     res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
   } catch (err) {

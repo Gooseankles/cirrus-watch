@@ -8,6 +8,7 @@ const suppressions = require("./suppressions");
 const { subscriptionNames } = require("./armClient");
 const monitor = require("./monitor");
 const notify = require("./notify");
+const settings = require("./settings");
 
 // A notification problem never fails the scan.
 async function notifyQueue(tool, newByTenant, errors) {
@@ -51,11 +52,13 @@ async function decorate(toolId, findings) {
 
 // The tenants whose stored results a request reads: those the person may see
 // (narrowed by ?tenant=) that still exist. A removed tenant's data stays in
-// its container but is no longer shown.
-function readKeys(req) {
+// its container but is no longer shown. With a tool: only the tenants where
+// that scan is on (results from before it was turned off stay hidden).
+function readKeys(req, toolId = null) {
   const scope = access.readScope(req);
   const known = tenants.all().map((t) => t.key);
-  return scope === null ? known : scope.filter((k) => known.includes(k));
+  const keys = scope === null ? known : scope.filter((k) => known.includes(k));
+  return toolId ? keys.filter((k) => !settings.scanOff(toolId, k)) : keys;
 }
 
 // Accept or snooze one finding (body: key, tenant, reason, until) or take
@@ -89,7 +92,8 @@ function registerScanTool(app, tool) {
   // skipped, so two runs never race over the same results.
   const busy = new Set();
   async function execute(only = null) {
-    const wanted = tenants.scanTargets().filter((t) => !only || only.includes(t.key));
+    // A tenant that turned this scan off (Settings, Scans) is left out.
+    const wanted = tenants.scanTargets().filter((t) => (!only || only.includes(t.key)) && !settings.scanOff(tool.id, t.key));
     const targets = wanted.filter((t) => !busy.has(t.key));
     if (targets.length < wanted.length) {
       log.record({ tool: tool.id, level: "info", message: `already running for ${wanted.filter((t) => busy.has(t.key)).map((t) => tenants.nameOf(t.key)).join(", ")}; not started again there` });
@@ -164,6 +168,10 @@ function registerScanTool(app, tool) {
   app.post(`/api/tools/${tool.id}/run`, access.requireRunner, (req, res) => {
     const keys = access.runScope(req);
     if (keys && !keys.length) return res.status(403).json({ error: "you cannot run scans in that tenant" });
+    const targets = tenants.scanTargets().filter((t) => !keys || keys.includes(t.key));
+    if (targets.length && targets.every((t) => settings.scanOff(tool.id, t.key))) {
+      return res.status(409).json({ error: `${tool.label} is turned off for ${targets.length > 1 ? "these tenants" : "this tenant"} (Settings, Scans)` });
+    }
     res.status(202).json({ status: "started" });
     execute(keys);
   });
@@ -212,7 +220,7 @@ function registerScanTool(app, tool) {
   // (or by an older version) still show it. Accepted ones carry `accepted`.
   app.get(`/api/tools/${tool.id}/findings`, async (req, res) => {
     try {
-      const data = await findingsStore.read(tool.id, readKeys(req));
+      const data = await findingsStore.read(tool.id, readKeys(req, tool.id));
       await decorate(tool.id, data.findings);
       await suppressions.mark(tool.id, data.findings);
       for (const [k, e] of Object.entries(data.tenantErrors)) e.tenantName = tenants.nameOf(k);
@@ -225,7 +233,7 @@ function registerScanTool(app, tool) {
   // Per-run counts for the trend chart, oldest first.
   app.get(`/api/tools/${tool.id}/history`, async (req, res) => {
     try {
-      res.json(await findingsStore.history(tool.id, readKeys(req)));
+      res.json(await findingsStore.history(tool.id, readKeys(req, tool.id)));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -234,7 +242,7 @@ function registerScanTool(app, tool) {
   // One past run: its findings plus what was new and what was resolved.
   app.get(`/api/tools/${tool.id}/history/:ranAt`, async (req, res) => {
     try {
-      const run = await findingsStore.readRun(tool.id, req.params.ranAt, readKeys(req));
+      const run = await findingsStore.readRun(tool.id, req.params.ranAt, readKeys(req, tool.id));
       if (!run) return res.status(404).json({ error: "no such run" });
       await decorate(tool.id, [...run.findings, ...run.added, ...run.resolved]);
       res.json(run);
@@ -244,7 +252,7 @@ function registerScanTool(app, tool) {
   });
 
   // A scan with its own pages (like the IPAM inventory) adds read routes here.
-  if (tool.registerRoutes) tool.registerRoutes(app, { readKeys, decorate });
+  if (tool.registerRoutes) tool.registerRoutes(app, { readKeys: (req) => readKeys(req, tool.id), decorate });
 
   if (tool.schedule) {
     cron.schedule(tool.schedule, () => execute());

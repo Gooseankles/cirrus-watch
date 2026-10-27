@@ -500,6 +500,21 @@ function canRunFor(f) {
   const t = tenantList().find((x) => (f.tenant ? x.key === f.tenant : x.home));
   return Boolean((state.me && state.me.isAdmin) || (t && t.canRun));
 }
+// A scan is hidden when it is off (Settings, Scans) in every tenant the page shows.
+function toolOff(id) {
+  const list = state.tenant ? tenantList().filter((t) => t.key === state.tenant) : tenantList();
+  return list.length > 0 && list.every((t) => Array.isArray(t.scansOff) && t.scansOff.includes(id));
+}
+const shownTools = () => TOOLS.filter((t) => !toolOff(t.id));
+// After scans were turned on or off: a new menu that keeps the current page and the counts.
+function rebuildNav() {
+  buildNav();
+  $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.route === state.route));
+  for (const t of shownTools()) {
+    const ts = toolState(t.id);
+    if (ts.loaded && ts.data && Array.isArray(ts.data.findings)) setNavCount(t.id, ts.data.findings.length);
+  }
+}
 function initTenant() {
   let saved = "";
   try {
@@ -536,8 +551,9 @@ function setTenant(key) {
   delete $("#page-scan").dataset.tool;
   renderTenantTabs();
   renderMe();
+  buildNav();
   render();
-  for (const t of TOOLS) if (!toolState(t.id).loaded) loadTool(t.id);
+  for (const t of shownTools()) if (!toolState(t.id).loaded) loadTool(t.id);
 }
 // The tenant tab goes on every data request (the server also limits it to
 // what the person may see).
@@ -811,7 +827,7 @@ function buildNav() {
       label: g.label,
       items: [
         ...(g.id === "access" ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
-        ...TOOLS.filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
+        ...shownTools().filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
         ...(g.id === "cost" ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
       ],
     })),
@@ -896,14 +912,15 @@ function showOverview() {
     page.dataset.built = "1";
   }
   renderOverview();
-  Promise.all([...TOOLS.map((t) => loadTool(t.id)), loadLogs(), Cost.loadIndex().catch(() => null)]).then(() => {
+  Promise.all([...shownTools().map((t) => loadTool(t.id)), loadLogs(), Cost.loadIndex().catch(() => null)]).then(() => {
     if (state.route === "overview") renderOverview();
   });
 }
 function renderOverview() {
-  const loaded = TOOLS.filter((t) => toolState(t.id).loaded);
+  const tools = shownTools();
+  const loaded = tools.filter((t) => toolState(t.id).loaded);
   let open = 0, added = 0, resolved = 0, errors = 0, neverRan = 0, accepted = 0;
-  for (const tool of TOOLS) {
+  for (const tool of tools) {
     const t = toolState(tool.id);
     if (t.error) errors++;
     else if (t.loaded && !t.data.ranAt) neverRan++;
@@ -916,14 +933,14 @@ function renderOverview() {
       resolved += last.resolved || 0;
     }
   }
-  $("#ov-updated").innerHTML = loaded.length ? `<b>${loaded.length} of ${TOOLS.length}</b> scans loaded` : "Loading…";
+  $("#ov-updated").innerHTML = loaded.length ? `<b>${loaded.length} of ${tools.length}</b> scans loaded` : "Loading…";
   $("#ov-stats").innerHTML =
     statTile({ label: "Open findings", value: fmt.int(open), delta: accepted ? `across all scans · ${fmt.int(accepted)} accepted` : "across all scans" }) +
     statTile({ label: "New in latest runs", value: fmt.int(added), deltaCls: added ? "bad" : "", delta: added ? "need a look" : "nothing new" }) +
     statTile({ label: "Resolved in latest runs", value: fmt.int(resolved), deltaCls: resolved ? "good" : "", delta: resolved ? "gone since the run before" : "no change" }) +
-    statTile({ label: "Scan health", value: `${TOOLS.length - errors - neverRan} / ${TOOLS.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" }) +
+    statTile({ label: "Scan health", value: `${tools.length - errors - neverRan} / ${tools.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" }) +
     overviewSavedTile();
-  $("#ov-tools").innerHTML = TOOLS.map(toolCard).join("");
+  $("#ov-tools").innerHTML = tools.map(toolCard).join("");
   for (const el of $$("#ov-tools [data-spark]")) {
     const t = toolState(el.dataset.spark);
     Charts.sparkline(el, t.history.slice(-12).map((h) => h.count));
@@ -2474,6 +2491,6 @@ async function init() {
   window.addEventListener("hashchange", render);
   render();
   setInterval(tickRunning, 1000);
-  for (const t of TOOLS) if (!toolState(t.id).loaded) loadTool(t.id);
+  for (const t of shownTools()) if (!toolState(t.id).loaded) loadTool(t.id);
 }
 document.addEventListener("DOMContentLoaded", init);

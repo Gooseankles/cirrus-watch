@@ -547,6 +547,10 @@ table.data .secondary.bad { color: var(--critical-text); }
 .tenant-actions .test-result { flex-basis: 100%; text-align: right; }
 .tenant-form { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
 label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--text-2); }
+.scan-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 18px; width: 100%; }
+.scan-picker-group { display: flex; flex-direction: column; gap: 3px; }
+.scan-picker-head { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.settings-row .scan-picker label.check { padding-top: 0; font-size: 0.84rem; }
 .lookup-tenants { margin: 10px 0 4px; }
 
 /* --- Compliance tags, accept and snooze --- */

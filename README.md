@@ -54,6 +54,10 @@ are needed.
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.
 
+Scans a tenant does not need can be turned off in Settings → Scans, on that tenant's tab: they no longer run there,
+their results are hidden (also in the report, trends and compliance), and a scan off in every tenant you look at
+leaves the menu. A customer tenant's list does not follow Home: there, all scans are on until you untick some.
+
 ### Accepting findings, monthly report, compliance tags
 
 - **Accept or snooze**: a finding that is known and fine (the public IP is the VPN gateway) can be accepted with a

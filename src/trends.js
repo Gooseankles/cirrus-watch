@@ -68,7 +68,7 @@ const CACHE_MS = 5 * 60000;
 const cache = new Map();
 
 async function build(tools, keys, count = 12) {
-  const id = `${count}|${keys.join(",")}|${tools.map((t) => t.id).join(",")}`;
+  const id = `${count}|${keys.join(",")}|${tools.map((t) => `${t.id}${t.keys ? `:${t.keys.join("+")}` : ""}`).join(",")}`;
   const hit = cache.get(id);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.result;
   const weeks = weeksBack(count);
@@ -78,7 +78,7 @@ async function build(tools, keys, count = 12) {
   const worker = async () => {
     while (next < tools.length) {
       const i = next++;
-      found[i] = await toolWeeks(tools[i].id, keys, weeks);
+      found[i] = await toolWeeks(tools[i].id, tools[i].keys || keys, weeks);
     }
   };
   await Promise.all(Array.from({ length: Math.min(6, tools.length) }, worker));

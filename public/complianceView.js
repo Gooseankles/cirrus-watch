@@ -1,7 +1,7 @@
 "use strict";
 /* Compliance page: every control of one framework (NIS2, NSM or CIS) with what the latest scans say about it, for
    the tenant tab in view. Built from the same tool data as the scan pages (state.tools), so a tenant switch needs no
-   reset of its own. Uses esc(), fmt, icon, statTile, tableHtml, kindSev, loadTool, toolState, TOOLS, TOOL_BY_ID and
+   reset of its own. Uses esc(), fmt, icon, statTile, tableHtml, kindSev, loadTool, toolState, TOOLS, shownTools, TOOL_BY_ID and
    state from app.js and Compliance / FRAMEWORKS from compliance.js. */
 const ComplianceView = (() => {
   const st = { fw: "nis2", built: false };
@@ -34,7 +34,7 @@ const ComplianceView = (() => {
       st.built = true;
     }
     draw();
-    Promise.all(TOOLS.map((t) => loadTool(t.id))).then(() => {
+    Promise.all(shownTools().map((t) => loadTool(t.id))).then(() => {
       if (state.route === "compliance") draw();
     });
   }

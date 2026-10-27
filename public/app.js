@@ -1000,6 +1000,9 @@ function wireLookup() {
     if (found && found.length === 1) (lookupState.mode === "user" ? openUser : openGroup)(found[0]);
   });
   out.addEventListener("click", (e) => {
+    // The names are links for the keyboard and the look; they must not follow "#" (that is the overview). The CSP
+    // blocks inline onclick, so it is stopped here.
+    if (e.target.closest(".group-pick")) e.preventDefault();
     const g = e.target.closest("[data-group]");
     if (g) return openGroup({ id: g.dataset.group, tenant: g.dataset.tenant, name: g.dataset.name });
     const u = e.target.closest("[data-user]");
@@ -1181,7 +1184,7 @@ function groupListHtml(r) {
         groups.map((g) => ({
           attrs: `class="clickable" data-group="${esc(g.id)}" data-tenant="${esc(g.tenant || "")}" data-name="${esc(g.name)}"`,
           cells: [
-            `<a href="#" class="group-pick" onclick="return false">${esc(g.name)}</a>`,
+            `<a href="#" class="group-pick">${esc(g.name)}</a>`,
             `<span class="detail-cell">${esc(g.description || g.mail || "")}</span>`,
             ...(multi ? [esc(g.tenantName || "")] : []),
           ],
@@ -1202,7 +1205,7 @@ function userListHtml(r) {
         users.map((u) => ({
           attrs: `class="clickable" data-user="${esc(u.guest && u.mail ? u.mail : u.upn)}" data-name="${esc(u.name)}"`,
           cells: [
-            `<a href="#" class="group-pick" onclick="return false">${esc(u.name)}</a>${u.guest ? ' <span class="tag">guest</span>' : ""}`,
+            `<a href="#" class="group-pick">${esc(u.name)}</a>${u.guest ? ' <span class="tag">guest</span>' : ""}`,
             `<span class="text-2">${esc(u.upn)}</span>`,
             `<span class="detail-cell">${esc([u.jobTitle, u.department].filter(Boolean).join(" · "))}</span>`,
             ...(multi ? [esc(u.tenantName || "")] : []),

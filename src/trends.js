@@ -40,8 +40,8 @@ async function toolWeeks(toolId, keys, weeks) {
   const byKind = weeks.map(() => ({}));
   const known = weeks.map(() => false); // some tenant had run this tool by the end of the week
   let seen = false;
-  for (const k of keys) {
-    const index = await findingsStore.history(toolId, [k]);
+  const indexes = await Promise.all(keys.map((k) => findingsStore.history(toolId, [k])));
+  for (const index of indexes) {
     if (!index.length) continue;
     seen = true;
     weeks.forEach((w, i) => {
@@ -63,14 +63,30 @@ async function toolWeeks(toolId, keys, weeks) {
   return seen ? { open, added, resolved, byKind, known } : null;
 }
 
+// Run indexes only change when a scan finishes, so a result is kept a few minutes.
+const CACHE_MS = 5 * 60000;
+const cache = new Map();
+
 async function build(tools, keys, count = 12) {
+  const id = `${count}|${keys.join(",")}|${tools.map((t) => t.id).join(",")}`;
+  const hit = cache.get(id);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.result;
   const weeks = weeksBack(count);
-  const out = [];
-  for (const t of tools) {
-    const w = await toolWeeks(t.id, keys, weeks);
-    if (w) out.push({ id: t.id, label: t.label, ...w });
-  }
-  return { generatedAt: new Date().toISOString(), weeks, tools: out };
+  // A few tools at a time (each reads one index per tenant), not one after another.
+  const found = new Array(tools.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tools.length) {
+      const i = next++;
+      found[i] = await toolWeeks(tools[i].id, keys, weeks);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, tools.length) }, worker));
+  const out = tools.map((t, i) => found[i] && { id: t.id, label: t.label, ...found[i] }).filter(Boolean);
+  const result = { generatedAt: new Date().toISOString(), weeks, tools: out };
+  if (cache.size > 50) cache.clear();
+  cache.set(id, { at: Date.now(), result });
+  return result;
 }
 
 module.exports = { build, isoWeek, weekStart, weeksBack };

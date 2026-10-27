@@ -25,6 +25,8 @@ const tenantContext = require("./tenantContext");
 
 const STORAGE_TOOL_ID = "history-storage"; // its own identity override in Settings
 const BLOB_API_VERSION = "2021-08-06";
+// A storage call that hangs must not hold a page (or a scan) forever.
+const BLOB_TIMEOUT_MS = 30000;
 
 function retentionDays() {
   return Number(settings.get("HISTORY_RETENTION_DAYS")) || 365;
@@ -97,6 +99,7 @@ function blobBackend(accountUrl, container) {
     if (containerChecked) return;
     const resp = await axios.put(`${base}?restype=container`, null, {
       headers: await headers(),
+      timeout: BLOB_TIMEOUT_MS,
       validateStatus: () => true,
     });
     if (resp.status >= 300 && resp.status !== 409) throw fail("create container", container, resp);
@@ -109,6 +112,7 @@ function blobBackend(accountUrl, container) {
       checkKey(key);
       const resp = await axios.get(`${base}/${key}`, {
         headers: await headers(),
+        timeout: BLOB_TIMEOUT_MS,
         validateStatus: () => true,
         responseType: "text",
         transformResponse: (d) => d,
@@ -127,6 +131,7 @@ function blobBackend(accountUrl, container) {
       const send = async () =>
         axios.put(`${base}/${key}`, body, {
           headers: await headers({ "x-ms-blob-type": "BlockBlob", "Content-Type": "application/json" }),
+          timeout: BLOB_TIMEOUT_MS * 2,
           validateStatus: () => true,
           maxBodyLength: Infinity,
         });
@@ -139,7 +144,7 @@ function blobBackend(accountUrl, container) {
     },
     async del(key) {
       checkKey(key);
-      const resp = await axios.delete(`${base}/${key}`, { headers: await headers(), validateStatus: () => true });
+      const resp = await axios.delete(`${base}/${key}`, { headers: await headers(), timeout: BLOB_TIMEOUT_MS, validateStatus: () => true });
       if (resp.status >= 300 && resp.status !== 404) throw fail("delete", key, resp);
     },
   };

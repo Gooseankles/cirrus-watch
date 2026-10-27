@@ -235,6 +235,148 @@
       <div class="fw-card-rule"><span class="fw-order">${LETTER[r.type]}${r.order}</span> ${esc(r.name)} ${actionTag(action)}${dead ? ` ${tag(r.mark.kind, r.mark.kind === "never hit" ? "bad" : "", r.mark.text)}` : ""}</div>
     </div>`;
   }
+  function reachOf(rows, pick, ipGroups) {
+    const holds = (entries, groups) => sideHolds(pick.q, entries, groups, ipGroups);
+    return {
+      inbound: rows.filter(({ r }) => r.type !== "Application" && (holds(r.dst, r.dstGroups) || (r.type === "Nat" && String(r.translated || "").split(":")[0] === pick.ip))),
+      outbound: rows.filter(({ r }) => r.type !== "Nat" && holds(r.src, r.srcGroups)),
+    };
+  }
+
+  /* The VM or IP picker: a list under the box that narrows as you type (name, address or resource group), with the
+     arrow keys, Enter and Escape. Picking draws the map. */
+  const PICK_MAX = 200;
+  function comboItems(t, text) {
+    const x = t.reachPick;
+    const s = String(text || "").trim().toLowerCase();
+    // The box still shows the current pick: list everything, with the pick marked.
+    const cur = t.filters.fwHost && s === String(t.filters.fwHost).trim().toLowerCase();
+    const words = cur ? [] : s.split(/[\s·]+/).filter(Boolean);
+    const hits = x.vms.filter((h) => {
+      const hay = `${h.name} ${h.ip} ${h.resourceGroup || ""}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    // A typed address or range that is not a listed VM can be used as it is.
+    const asIp = !cur && s && ipNum(s);
+    const items = asIp && !hits.some((h) => h.ip === s) ? [{ address: s }] : [];
+    return { items: items.concat(hits.slice(0, PICK_MAX)), more: Math.max(0, hits.length - PICK_MAX), total: x.vms.length };
+  }
+  function countsOf(t, h) {
+    const x = t.reachPick;
+    if (!x.counts.has(h.ip)) {
+      const q = ipNum(h.ip);
+      const { inbound, outbound } = q ? reachOf(x.rows, { ip: h.ip, q }, x.ipGroups) : { inbound: [], outbound: [] };
+      x.counts.set(h.ip, [inbound.length, outbound.length]);
+    }
+    return x.counts.get(h.ip);
+  }
+  // The typed words in bold in a name, address or resource group.
+  function mark(v, words) {
+    const low = String(v).toLowerCase();
+    const on = new Array(low.length).fill(false);
+    for (const w of words) for (let k = low.indexOf(w); k >= 0; k = low.indexOf(w, k + 1)) on.fill(true, k, k + w.length);
+    let out = "";
+    for (let k = 0; k < low.length; ) {
+      let e = k;
+      while (e < low.length && on[e] === on[k]) e++;
+      out += on[k] ? `<mark>${esc(String(v).slice(k, e))}</mark>` : esc(String(v).slice(k, e));
+      k = e;
+    }
+    return out;
+  }
+  function comboOpen(inp, keepActive) {
+    const t = toolState(ID);
+    if (!t.reachPick) return;
+    const list = inp.parentElement.querySelector(".fw-combo-list");
+    const { items, more, total } = comboItems(t, inp.value);
+    const s = inp.value.trim().toLowerCase();
+    const cur = String(t.filters.fwHost || "").trim().toLowerCase();
+    const words = s === cur ? [] : s.split(/[\s·]+/).filter(Boolean);
+    const prev = keepActive ? Number(list.dataset.active || 0) : -1;
+    let active = Math.min(Math.max(prev, 0), items.length - 1);
+    if (!keepActive) {
+      const i = items.findIndex((h) => h.name && `${h.name} · ${h.ip}`.toLowerCase() === cur);
+      active = i >= 0 ? i : 0;
+    }
+    list.dataset.active = active;
+    list._items = items;
+    const row = (h, i) => {
+      const value = h.address || `${h.name} · ${h.ip}`;
+      const on = i === active ? " active" : "";
+      const picked = value.toLowerCase() === cur ? " picked" : "";
+      if (h.address) return `<div class="fw-opt${on}" role="option" data-i="${i}"><span class="fw-opt-ico">${icon("globe")}</span><span class="fw-opt-main"><b>Use the address ${esc(h.address)}</b><span class="muted small">Not a VM the scan found; the map shows the rules that hold it</span></span></div>`;
+      const [nin, nout] = countsOf(t, h);
+      const kind = h.kind === "vm" ? "Virtual machine" : "Network interface";
+      return `<div class="fw-opt${on}${picked}" role="option" data-i="${i}" title="${esc(`${kind} ${h.name}, ${h.ip}`)}">
+        <span class="fw-opt-ico">${icon(h.kind === "vm" ? "cpu" : "network")}</span>
+        <span class="fw-opt-main"><b>${mark(h.name, words)}</b><span class="muted small">${h.resourceGroup ? mark(h.resourceGroup, words) : esc(kind)}</span></span>
+        <span class="fw-opt-ip mono">${mark(h.ip, words)}</span>
+        <span class="fw-opt-n" title="Rules in this policy that let traffic in to it, and out from it">${nin || nout ? `<span class="${nin ? "" : "muted"}">${nin} in</span><span class="${nout ? "" : "muted"}">${nout} out</span>` : '<span class="muted">no rules</span>'}</span>
+      </div>`;
+    };
+    const head = `<div class="fw-combo-head muted small">${words.length ? `${fmt.int(items.filter((h) => !h.address).length + more)} of ${fmt.int(total)} VMs` : `${fmt.int(total)} VMs`} · type a name, address or resource group</div>`;
+    list.innerHTML = items.length
+      ? head + items.map(row).join("") + (more ? `<div class="fw-combo-more muted small">${fmt.int(more)} more: type to narrow the list</div>` : "")
+      : `<div class="fw-combo-empty muted small">${total ? "No VM matches. Type an address such as 10.20.2.4 or a range such as 10.20.2.0/24." : "No VMs in the scan. Type an address such as 10.20.2.4."}</div>`;
+    list.classList.remove("hidden");
+    inp.setAttribute("aria-expanded", "true");
+    const a = list.querySelector(".fw-opt.active");
+    if (a) a.scrollIntoView({ block: "nearest" });
+  }
+  function comboClose(inp) {
+    const list = inp && inp.parentElement.querySelector(".fw-combo-list");
+    if (!list) return;
+    list.classList.add("hidden");
+    inp.setAttribute("aria-expanded", "false");
+  }
+  function comboPick(inp, i) {
+    const list = inp.parentElement.querySelector(".fw-combo-list");
+    const h = (list._items || [])[i];
+    const value = h ? h.address || `${h.name} · ${h.ip}` : inp.value;
+    comboClose(inp);
+    inp.value = value;
+    toolState(ID).filters.fwHost = value;
+    rerender();
+  }
+  const comboInput = (e) => e.target.matches && e.target.matches("#page-scan [data-fw-host]");
+  document.addEventListener("focusin", (e) => comboInput(e) && (e.target.select(), comboOpen(e.target)));
+  document.addEventListener("input", (e) => comboInput(e) && comboOpen(e.target));
+  document.addEventListener("focusout", (e) => comboInput(e) && comboClose(e.target));
+  document.addEventListener("keydown", (e) => {
+    if (!comboInput(e)) return;
+    const inp = e.target, list = inp.parentElement.querySelector(".fw-combo-list");
+    const open = !list.classList.contains("hidden");
+    const n = (list._items || []).length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) return comboOpen(inp);
+      list.dataset.active = (Number(list.dataset.active || 0) + (e.key === "ArrowDown" ? 1 : n - 1)) % Math.max(n, 1);
+      comboOpen(inp, true);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && n) comboPick(inp, Number(list.dataset.active || 0));
+      else comboPick(inp, -1);
+    } else if (e.key === "Escape" && open) {
+      e.stopPropagation();
+      comboClose(inp);
+    }
+  });
+  // mousedown, not click: the box keeps the focus until the pick is made.
+  document.addEventListener("mousedown", (e) => {
+    const o = e.target.closest && e.target.closest("#page-scan .fw-combo-list .fw-opt");
+    const caret = e.target.closest && e.target.closest("#page-scan .fw-combo-caret");
+    if (caret) {
+      e.preventDefault();
+      const inp = caret.parentElement.querySelector("[data-fw-host]");
+      if (document.activeElement === inp) comboClose(inp), inp.blur();
+      else inp.focus();
+      return;
+    }
+    if (!o) return;
+    e.preventDefault();
+    comboPick(o.closest(".fw-combo").querySelector("[data-fw-host]"), Number(o.dataset.i));
+  });
+
   function reachView(t) {
     const inv = inventory(t);
     if (!inv) return loading();
@@ -246,18 +388,18 @@
     const p = pickPolicy(t, ps);
     const pick = hostOf(d, t.filters.fwHost);
     const vms = [...d.hosts].sort((a, b) => a.name.localeCompare(b.name));
-    const input = `<label class="fw-pick">VM or IP <input class="input fw-host" list="fw-hosts" data-fw-host value="${esc(t.filters.fwHost || "")}" placeholder="Pick a VM or type 10.20.2.4" autocomplete="off"></label><datalist id="fw-hosts">${vms.slice(0, 5000).map((h) => `<option value="${esc(`${h.name} · ${h.ip}`)}"></option>`).join("")}</datalist>`;
+    const input = `<label class="fw-pick">VM or IP <span class="fw-combo"><input class="input fw-host" data-fw-host value="${esc(t.filters.fwHost || "")}" placeholder="Pick a VM or type 10.20.2.4" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="fw-host-list"><span class="fw-combo-caret">${icon("chevron")}</span><div class="fw-combo-list hidden" id="fw-host-list" role="listbox"></div></span></label>`;
     const top = `<div class="fw-top">${policySelect(d, ps, p)}${input}</div>`;
-    t.reach = null;
-    if (!pick) return `${top}<div class="empty-state big"><h3>Pick a VM or type an address</h3><p class="muted">The map shows every rule in the policy that lets traffic reach it or lets it reach something, in the order the firewall checks them.${d.hosts.length ? "" : " Run the scan again to get the list of VMs."}</p></div>`;
-    if (pick.error) return `${top}<div class="empty-state">${esc(pick.error)}</div>`;
     const rows = p.view.flatMap((g) => g.collections.flatMap((c) => c.rules.map((r) => ({ r, c, g }))));
     const rank = { Nat: 0, Network: 1, Application: 2 };
     rows.sort((a, b) => rank[a.r.type] - rank[b.r.type] || a.r.order - b.r.order);
     const ipGroups = d.ipGroups;
-    const holds = (entries, groups) => sideHolds(pick.q, entries, groups, ipGroups);
-    const inbound = rows.filter(({ r }) => r.type !== "Application" && (holds(r.dst, r.dstGroups) || (r.type === "Nat" && String(r.translated || "").split(":")[0] === pick.ip)));
-    const outbound = rows.filter(({ r }) => r.type !== "Nat" && holds(r.src, r.srcGroups));
+    t.reach = null;
+    // For the picker list: every VM, and how many rules of this policy reach it and let it out.
+    t.reachPick = { vms, rows, ipGroups, counts: new Map() };
+    if (!pick) return `${top}<div class="empty-state big"><h3>Pick a VM or type an address</h3><p class="muted">The map shows every rule in the policy that lets traffic reach it or lets it reach something, in the order the firewall checks them.${d.hosts.length ? "" : " Run the scan again to get the list of VMs."}</p></div>`;
+    if (pick.error) return `${top}<div class="empty-state">${esc(pick.error)}</div>`;
+    const { inbound, outbound } = reachOf(rows, pick, ipGroups);
     const col = (list, dir, title, empty) => `<div class="fw-col"><div class="fw-col-head">${esc(title)} <span class="muted">${fmt.int(list.length)}</span></div>${list.length ? list.map(({ r, c, g }) => reachCard(r, c, g, dir, ipGroups)).join("") : `<div class="muted small fw-col-empty">${esc(empty)}</div>`}</div>`;
     const h = pick.host;
     const center = `<div class="fw-center"><div class="fw-host-card"><span class="muted small">${h ? (h.kind === "vm" ? "Virtual machine" : "Network interface") : "Address"}</span><b>${esc(h ? h.name : pick.ip)}</b><span class="mono">${esc(pick.ip)}</span>${h && h.resourceGroup ? `<span class="muted small">rg ${esc(h.resourceGroup)}</span>` : ""}</div></div>`;
@@ -445,13 +587,6 @@
     rerender();
   });
 
-  // The VM or IP box: picking from the list or pressing Enter draws the map.
-  document.addEventListener("change", (e) => {
-    const el = e.target;
-    if (!el.matches || !el.matches("#page-scan [data-fw-host]")) return;
-    toolState(ID).filters.fwHost = el.value;
-    rerender();
-  });
 
   function page(all, t) {
     const v = viewOf(t);

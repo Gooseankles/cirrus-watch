@@ -13,15 +13,17 @@ const { numberSetting, runChecks, nameOf } = require("./util");
 const TOOL_ID = "resource-health";
 const DAY_MS = 86400000;
 
-// Resource Graph gives times as ISO strings or as epoch milliseconds (number or string).
+// Resource Graph gives times as ISO strings or as epoch milliseconds (number or string). A value a date cannot
+// hold (Service Health puts far-future placeholders in for "no end yet") counts as unknown.
+const MAX_MS = 8.64e15;
 function toMs(v) {
   if (v === null || v === undefined || v === "") return NaN;
-  if (typeof v === "number") return v;
-  if (/^\d{10,}$/.test(String(v).trim())) return Number(v);
-  return Date.parse(v);
+  const ms = typeof v === "number" ? v : /^\d{10,}$/.test(String(v).trim()) ? Number(v) : Date.parse(v);
+  return Number.isFinite(ms) && Math.abs(ms) <= MAX_MS ? ms : NaN;
 }
-const day = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : "unknown date");
-const when = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "an unknown time");
+const valid = (ms) => Number.isFinite(ms) && Math.abs(ms) <= MAX_MS;
+const day = (ms) => (valid(ms) ? new Date(ms).toISOString().slice(0, 10) : "unknown date");
+const when = (ms) => (valid(ms) ? new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "an unknown time");
 const rgOf = (id) => (String(id).match(/\/resourceGroups\/([^/]+)/i) || [])[1] || null;
 const subOf = (id) => (String(id).match(/^\/subscriptions\/([^/]+)/i) || [])[1] || null;
 

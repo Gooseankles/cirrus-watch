@@ -248,6 +248,7 @@
     const vms = [...d.hosts].sort((a, b) => a.name.localeCompare(b.name));
     const input = `<label class="fw-pick">VM or IP <input class="input fw-host" list="fw-hosts" data-fw-host value="${esc(t.filters.fwHost || "")}" placeholder="Pick a VM or type 10.20.2.4" autocomplete="off"></label><datalist id="fw-hosts">${vms.slice(0, 5000).map((h) => `<option value="${esc(`${h.name} · ${h.ip}`)}"></option>`).join("")}</datalist>`;
     const top = `<div class="fw-top">${policySelect(d, ps, p)}${input}</div>`;
+    t.reach = null;
     if (!pick) return `${top}<div class="empty-state big"><h3>Pick a VM or type an address</h3><p class="muted">The map shows every rule in the policy that lets traffic reach it or lets it reach something, in the order the firewall checks them.${d.hosts.length ? "" : " Run the scan again to get the list of VMs."}</p></div>`;
     if (pick.error) return `${top}<div class="empty-state">${esc(pick.error)}</div>`;
     const rows = p.view.flatMap((g) => g.collections.flatMap((c) => c.rules.map((r) => ({ r, c, g }))));
@@ -261,7 +262,124 @@
     const h = pick.host;
     const center = `<div class="fw-center"><div class="fw-host-card"><span class="muted small">${h ? (h.kind === "vm" ? "Virtual machine" : "Network interface") : "Address"}</span><b>${esc(h ? h.name : pick.ip)}</b><span class="mono">${esc(pick.ip)}</span>${h && h.resourceGroup ? `<span class="muted small">rg ${esc(h.resourceGroup)}</span>` : ""}</div></div>`;
     const map = `<div class="fw-map">${col(inbound, "in", "Can reach it", "No rule lets traffic in to this address")}${center}${col(outbound, "out", "It can reach", "No rule lets this address out")}</div>`;
-    return `${top}${map}<p class="muted small fw-note">Cards are in the order the firewall checks them; the first rule that matches a connection decides it, and anything no rule allows is denied. Struck-out cards never apply (an earlier rule takes all their traffic). Only rules in ${esc(p.name)} are shown, and only traffic a route sends through the firewall meets them.</p>`;
+    // Kept for the downloads.
+    t.reach = { p, pick, inbound, outbound, ipGroups, ranAt: t.data.ranAt };
+    const dl = (k, label, title) => `<button type="button" class="btn" data-fw-export="${k}" title="${esc(title)}">${icon("download")} ${label}</button>`;
+    const bar = `<div class="fw-top">${policySelect(d, ps, p)}${input}<div class="fw-export">${dl("csv", "CSV", "Every rule on the map, one row each, for Excel")}${dl("png", "PNG", "The map as a picture")}${dl("svg", "SVG", "The map as a drawing that scales (Visio, Word, draw.io)")}</div></div>`;
+    return `${bar}${map}<p class="muted small fw-note">Cards are in the order the firewall checks them; the first rule that matches a connection decides it, and anything no rule allows is denied. Struck-out cards never apply (an earlier rule takes all their traffic). Only rules in ${esc(p.name)} are shown, and only traffic a route sends through the firewall meets them.</p>`;
+  }
+
+  /* Reach map downloads: a CSV with one row per rule, and the map drawn in light colours for documents */
+  const peerOf = (r, dir, ipGroups) =>
+    r.type === "Application"
+      ? [...(r.targets || []).map((v) => (v === "*" ? "every FQDN" : v)), ...(r.urls || []), ...(r.tags || []), ...(r.categories || [])]
+      : dir === "in" ? peerText(r.src, r.srcGroups, null, ipGroups) : peerText(r.dst, r.dstGroups, r.fqdns, ipGroups);
+  function reachRows(x) {
+    const { p, pick, inbound, outbound, ipGroups } = x;
+    const host = pick.host ? pick.host.name : "";
+    const cols = ["VM or address", "IP", "Policy", "Direction", "Order", "Type", "Rule", "Rule collection group", "Rule collection", "Action", "Source", "Destination", "Ports", "Protocols", "Translated to", "Status"];
+    const row = (dir, label) => ({ r, c, g }) => [
+      host, pick.ip, p.name, label, `${LETTER[r.type]}${r.order}`, TYPE_NAME[r.type], r.name, g.name, c.name, c.action,
+      peerText(r.src, r.srcGroups, null, ipGroups).join(", "),
+      (r.type === "Application" ? peerOf(r, "out", ipGroups) : peerText(r.dst, r.dstGroups, r.fqdns, ipGroups)).join(", "),
+      r.type === "Application" ? "" : (r.ports || []).map((v) => (v === "*" ? "all" : v)).join(", "),
+      (r.protocols || []).join(", "),
+      r.translated || "",
+      r.mark ? r.mark.text : "",
+    ];
+    return [cols, ...inbound.map(row("in", "In: can reach it")), ...outbound.map(row("out", "Out: it can reach"))];
+  }
+  function reachSvg(x) {
+    const { p, pick, inbound, outbound, ipGroups } = x;
+    const C = { bg: "#ffffff", text: "#1f2328", text2: "#57606a", muted: "#6e7781", border: "#d0d7de", card: "#f6f8fa", Allow: "#1a7f37", Deny: "#cf222e", DNAT: "#0969da", any: "#9a6700", host: "#ddf4ff" };
+    const FONT = "Segoe UI, system-ui, -apple-system, sans-serif", MONO = "Consolas, Menlo, monospace";
+    const CW = 380, MW = 220, GAP = 48, CH = 60, CG = 8, M = 24, HEAD = 70, COLH = 24;
+    const xl = M, xm = xl + CW + GAP, xr = xm + MW + GAP, W = xr + CW + M;
+    const rows = Math.max(inbound.length, outbound.length, 2);
+    const top = HEAD + COLH;
+    const H = top + rows * (CH + CG) + 44;
+    const cut = (v, n) => { const s = String(v || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+    const out = [];
+    const text = (x0, y0, v, o = {}) => out.push(`<text x="${x0}" y="${y0}" font-size="${o.size || 12}"${o.weight ? ` font-weight="${o.weight}"` : ""}${o.mono ? ` font-family="${MONO}"` : ""}${o.anchor ? ` text-anchor="${o.anchor}"` : ""}${o.strike ? ' text-decoration="line-through"' : ""} fill="${o.fill || C.text}">${esc(v)}</text>`);
+    const h = pick.host;
+    text(M, 32, `Reach map: ${h ? `${h.name} (${pick.ip})` : pick.ip}`, { size: 18, weight: 600 });
+    text(M, 52, `Firewall policy ${p.name}${x.ranAt ? ` · scan of ${fmt.dateTime(x.ranAt)}` : ""}`, { fill: C.text2 });
+    const hostY = top + 20, hostH = 96;
+    const card = (x0, y0, { r, c, g }, dir) => {
+      const peer = peerOf(r, dir, ipGroups);
+      const ports = r.type === "Application"
+        ? (r.protocols || []).map((v) => v.replace(":", " ")).join(", ")
+        : `${(r.ports || []).map((v) => (v === "*" ? "all ports" : v)).join(", ")} ${(r.protocols || []).map((v) => (/^any$/i.test(v) ? "any" : v)).join("/")}`;
+      const dead = r.mark && ["never hit", "covered", "duplicate"].includes(r.mark.kind);
+      const any = peer.includes("any") || peer.includes("every FQDN");
+      // The line to the host card: into it from the left, out of it to the right.
+      const cy = y0 + CH / 2, hy = hostY + hostH / 2;
+      const [x1, x2] = dir === "in" ? [x0 + CW, xm] : [xm + MW, x0];
+      const mid = (x1 + x2) / 2;
+      out.push(`<path d="M${x1},${dir === "in" ? cy : hy} C${mid},${dir === "in" ? cy : hy} ${mid},${dir === "in" ? hy : cy} ${x2 - 6},${dir === "in" ? hy : cy}" fill="none" stroke="${C[c.action] || C.muted}" stroke-opacity="${dead ? 0.25 : 0.55}" stroke-width="1.3" marker-end="url(#ah)"/>`);
+      out.push(`<g${dead ? ' opacity="0.55"' : ""}><title>${esc(`${r.name} in ${g.name} › ${c.name}${r.mark ? ": " + r.mark.text : ""}`)}</title>`);
+      out.push(`<rect x="${x0}" y="${y0}" width="${CW}" height="${CH}" rx="6" fill="${C.card}" stroke="${C.border}"/><rect x="${x0}" y="${y0}" width="4" height="${CH}" fill="${C[c.action] || C.muted}"/>`);
+      text(x0 + 14, y0 + 20, cut(short(peer), 50), { weight: 600, fill: any ? C.any : C.text, strike: dead });
+      text(x0 + 14, y0 + 36, cut((ports.trim() || "–") + (r.type === "Nat" ? ` → ${r.translated || ""}` : ""), 52), { size: 11, mono: true, fill: C.text2 });
+      text(x0 + 14, y0 + 52, cut(`${LETTER[r.type]}${r.order}  ${r.name} · ${c.action}${dead ? ` · ${r.mark.kind}` : ""}`, 62), { size: 10.5, fill: C.muted });
+      out.push("</g>");
+    };
+    const column = (x0, list, dir, title, empty) => {
+      text(x0, HEAD + 10, `${title.toUpperCase()}  ${list.length}`, { size: 11, weight: 600, fill: C.text2 });
+      if (!list.length) {
+        out.push(`<rect x="${x0}" y="${top}" width="${CW}" height="40" rx="6" fill="none" stroke="${C.border}" stroke-dasharray="4 3"/>`);
+        text(x0 + 12, top + 25, empty, { size: 11, fill: C.muted });
+      }
+      list.forEach((e, i) => card(x0, top + i * (CH + CG), e, dir));
+    };
+    column(xl, inbound, "in", "Can reach it", "No rule lets traffic in to this address");
+    column(xr, outbound, "out", "It can reach", "No rule lets this address out");
+    out.push(`<rect x="${xm}" y="${hostY}" width="${MW}" height="${hostH}" rx="9" fill="${C.host}" stroke="${C.DNAT}"/>`);
+    text(xm + MW / 2, hostY + 22, h ? (h.kind === "vm" ? "Virtual machine" : "Network interface") : "Address", { size: 11, fill: C.muted, anchor: "middle" });
+    text(xm + MW / 2, hostY + 44, cut(h ? h.name : pick.ip, 28), { size: 14, weight: 600, anchor: "middle" });
+    text(xm + MW / 2, hostY + 64, pick.ip, { size: 12, mono: true, fill: C.text2, anchor: "middle" });
+    if (h && h.resourceGroup) text(xm + MW / 2, hostY + 82, cut(`rg ${h.resourceGroup}`, 32), { size: 11, fill: C.muted, anchor: "middle" });
+    text(M, H - 18, "In the order the firewall checks them (D DNAT, N network, A application). The first rule that matches decides; what no rule allows is denied. Faded cards never apply.", { size: 10.5, fill: C.muted });
+    const defs = `<defs><marker id="ah" viewBox="0 0 8 8" refX="1" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${C.muted}"/></marker></defs>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">${defs}<rect width="${W}" height="${H}" fill="${C.bg}"/>${out.join("")}</svg>`;
+  }
+  function saveFile(name, blob) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 1000);
+  }
+  function exportReach(kind) {
+    const x = toolState(ID).reach;
+    if (!x) return;
+    const base = `reach-${String((x.pick.host && x.pick.host.name) || x.pick.ip).replace(/[^\w.-]+/g, "_")}-${new Date().toISOString().slice(0, 10)}`;
+    if (kind === "csv") {
+      // The BOM makes Excel read the file as UTF-8.
+      const csv = "\ufeff" + reachRows(x).map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+      return saveFile(`${base}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    }
+    const svg = reachSvg(x);
+    if (kind === "svg") return saveFile(`${base}.svg`, new Blob([svg], { type: "image/svg+xml" }));
+    const [, W, H] = /width="(\d+)" height="(\d+)"/.exec(svg).map(Number);
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    img.onload = () => {
+      const k = Math.min(2, 16000 / Math.max(W, H), Math.sqrt(200e6 / (W * H)));
+      const c = document.createElement("canvas");
+      c.width = Math.round(W * k);
+      c.height = Math.round(H * k);
+      const ctx = c.getContext("2d");
+      ctx.scale(k, k);
+      ctx.drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => b && saveFile(`${base}.png`, b), "image/png");
+    };
+    img.src = url;
   }
 
   function rulesView(t) {
@@ -317,6 +435,8 @@
   }
 
   document.addEventListener("click", (e) => {
+    const ex = e.target.closest && e.target.closest("#page-scan [data-fw-export]");
+    if (ex) return exportReach(ex.dataset.fwExport);
     const el = e.target.closest && e.target.closest("[data-fw-mark],[data-fw-layout]");
     if (!el || !el.closest("#page-scan")) return;
     const t = toolState(ID);

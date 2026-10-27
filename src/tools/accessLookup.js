@@ -1,5 +1,7 @@
 const { graphGet, graphGetAll } = require("../graphClient");
-const { resourceGraphQuery, subscriptionNames, armGet, subscriptionIdsToScan } = require("../armClient");
+const { resourceGraphQuery, subscriptionNames } = require("../armClient");
+const settings = require("../settings");
+const store = require("../findingsStore");
 const { mapLimit } = require("./util");
 const tenants = require("../tenants");
 const tenantContext = require("../tenantContext");
@@ -7,7 +9,6 @@ const access = require("../access");
 
 const TOOL_ID = "access-lookup";
 const ID_BATCH = 200; // principal ids per Resource Graph query
-const PIM_API = "api-version=2020-10-01";
 const guid = (rid) => String(rid || "").toLowerCase().split("/").pop();
 
 const KNOWN_ROLES = {
@@ -116,7 +117,7 @@ function viaOf(principalId, selfId, groupNameById, chains) {
 const ENTRA_BATCH = 15; // principal ids per "in" filter
 const ENTRA_EXPAND = "$expand=roleDefinition($select=displayName,isBuiltIn,templateId)";
 const ENTRA_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId&${ENTRA_EXPAND}`;
-const ENTRA_SCHEDULE_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId,assignmentType,endDateTime&${ENTRA_EXPAND}`;
+const ENTRA_ELIGIBLE_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId,endDateTime&${ENTRA_EXPAND}`;
 
 async function entraPages(path, principalIds, select = ENTRA_SELECT) {
   const out = [];
@@ -129,131 +130,72 @@ async function entraPages(path, principalIds, select = ENTRA_SELECT) {
 
 const entraKey = (r) => `${r.principalId}|${r.roleDefinitionId}|${r.directoryScopeId}`;
 
-// Entra ID (directory) roles held by these principals: active ones, and the
-// ones PIM lets them activate. The PIM parts need Entra ID P2; without it they
-// are skipped (eligible ones with a note). Only role-assignable groups can hold
-// Entra roles. `pim` tells which active ones are PIM ones: activated, or
-// assigned with an end date.
+// Entra ID (directory) roles held by these principals, and the ones PIM lets
+// them activate (eligible; needs Entra ID P2, without it a note). Only
+// role-assignable groups can hold Entra roles.
 async function entraRoles(principalIds) {
-  const out = { active: [], eligible: [], pim: new Map(), notes: [] };
+  const out = { active: [], eligible: [], notes: [] };
   try {
     out.active = await entraPages("/roleManagement/directory/roleAssignments", principalIds);
   } catch (err) {
     out.notes.push(/\(403\)/.test(err.message) ? "Entra roles could not be read: the access lookup needs RoleManagement.Read.Directory" : `Entra roles could not be read: ${err.message.slice(0, 200)}`);
     return out;
   }
-  const [eligible, schedules] = await Promise.all([
-    entraPages("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds, ENTRA_SCHEDULE_SELECT).catch(() => null),
-    entraPages("/roleManagement/directory/roleAssignmentScheduleInstances", principalIds, ENTRA_SCHEDULE_SELECT).catch(() => []),
-  ]);
+  const eligible = await entraPages("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds, ENTRA_ELIGIBLE_SELECT).catch(() => null);
   if (eligible) out.eligible = eligible;
   else out.notes.push("Eligible (PIM) roles could not be read; that needs Entra ID P2");
-  for (const r of schedules) {
-    if (r.assignmentType === "Activated" || r.endDateTime) out.pim.set(entraKey(r), { state: r.assignmentType === "Activated" ? "activated" : "time-bound", end: r.endDateTime || null });
-  }
   return out;
 }
 
-async function armAll(url) {
-  const rows = [];
-  while (url) {
-    const page = await armGet(url, TOOL_ID);
-    rows.push(...(page.value || []));
-    url = page.nextLink;
-  }
-  return rows;
-}
-
-const azureKey = (principalId, role, scope) => `${principalId}|${role}|${String(scope || "").toLowerCase()}`;
-
-// Every PIM schedule instance (eligible and active) in every subscription: two
-// paged ARM calls per subscription, the slow part of a lookup. Kept per tenant
-// for PIM_CACHE_MS and shared by lookups running at the same time; a read where
-// some subscriptions failed is not kept.
-const PIM_CACHE_MS = 5 * 60 * 1000;
-const pimCache = new Map(); // tenant key -> { at, promise }
-function pimInstances() {
+// Eligible Azure roles come from the PIM scan's last access list (pim/inventory.json),
+// not from Azure: reading PIM live means two calls per subscription, far too slow in a
+// tenant with hundreds of them. Rows of that list (one per person, role, scope and way in)
+// that concern this principal: its own, and those of the groups it sits in.
+async function azureEligible(selfId, memberIds) {
   const key = (tenantContext.current() || { key: tenantContext.HOME }).key;
-  const hit = pimCache.get(key);
-  if (hit && Date.now() - hit.at < PIM_CACHE_MS) return hit.promise;
-  const promise = (async () => {
-    const subs = await subscriptionIdsToScan(TOOL_ID);
-    const bySub = [];
-    const failures = await mapLimit(subs, 12, async (s) => {
-      const base = `https://management.azure.com/subscriptions/${s}/providers/Microsoft.Authorization`;
-      const [eligible, active] = await Promise.all([armAll(`${base}/roleEligibilityScheduleInstances?${PIM_API}`), armAll(`${base}/roleAssignmentScheduleInstances?${PIM_API}`)]);
-      bySub.push({ s, eligible, active });
-    });
-    return { subs, bySub, failures };
-  })();
-  pimCache.set(key, { at: Date.now(), promise });
-  promise.then(
-    (r) => r.failures.length && pimCache.get(key)?.promise === promise && pimCache.delete(key),
-    () => pimCache.get(key)?.promise === promise && pimCache.delete(key)
-  );
-  return promise;
-}
-
-// PIM for Azure roles: what these principals may activate (eligible), and
-// which of their active assignments are PIM ones (activated, or assigned with
-// an end date). Read per subscription with Reader. An instance on a management
-// group shows up in every subscription below it, so it is kept once; one a
-// person gets through a group (memberType Group) is listed through that group.
-async function azurePim(principalIds, instances = pimInstances()) {
-  const want = new Set(principalIds);
-  const out = { eligible: [], active: new Map(), names: new Map(), notes: [] };
-  const { subs, bySub, failures } = await instances;
-  const seen = new Set();
-  for (const { s, eligible, active } of bySub) {
-    const read = (r) => {
-      const p = r.properties || {};
-      const x = p.expandedProperties || {};
-      const role = guid(p.roleDefinitionId);
-      if (x.roleDefinition && x.roleDefinition.displayName) out.names.set(role, x.roleDefinition.displayName);
-      const scope = p.scope || (x.scope && x.scope.id) || `/subscriptions/${s}`;
-      return want.has(p.principalId) && p.memberType !== "Group" ? { p, role, scope, key: azureKey(p.principalId, role, scope) } : null;
-    };
-    for (const r of eligible) {
-      const e = read(r);
-      if (!e || seen.has(e.key)) continue;
-      seen.add(e.key);
-      const inSub = e.scope.toLowerCase().startsWith(`/subscriptions/${s}`.toLowerCase());
-      out.eligible.push({ principalId: e.p.principalId, role: e.role, scope: e.scope, key: e.key, subscriptionId: inSub ? s : null, end: e.p.endDateTime || null });
-    }
-    for (const r of active) {
-      const a = read(r);
-      if (!a || (a.p.assignmentType !== "Activated" && !a.p.endDateTime)) continue;
-      out.active.set(a.key, { state: a.p.assignmentType === "Activated" ? "activated" : "time-bound", end: a.p.endDateTime || null });
-    }
+  if (settings.scanOff("pim", key)) return { rows: [], names: new Map(), notes: ["Eligible Azure roles (PIM) are not shown: the PIM scan is off for this tenant"] };
+  let doc;
+  try {
+    doc = await store.getDoc("pim/inventory.json", key);
+  } catch (err) {
+    return { rows: [], names: new Map(), notes: [`Eligible Azure roles (PIM) could not be read from the PIM scan: ${err.message.slice(0, 200)}`] };
   }
-  if (failures.length) out.notes.push(`PIM for Azure roles could not be read in ${failures.length} of ${subs.length} subscription${subs.length === 1 ? "" : "s"}: ${failures[0].message}`);
-  return out;
+  if (!doc) return { rows: [], names: new Map(), notes: ["Eligible Azure roles (PIM) are not shown: the PIM scan has not run for this tenant yet"] };
+  const seen = new Set();
+  const rows = [];
+  const names = new Map();
+  for (const r of doc.rows || []) {
+    if (r.plane === "azure" && r.role) names.set(String(r.roleKey).split("|").pop(), r.role);
+    if (r.plane !== "azure" || !String(r.state).startsWith("eligible")) continue;
+    // The group's own eligibility once (the list has a row per member); direct and PIM-group rows of this principal.
+    const viaGroup = r.via === "group" && (memberIds.has(r.groupId) || r.groupId === selfId);
+    if (!viaGroup && r.personId !== selfId) continue;
+    const holder = viaGroup ? r.groupId : selfId;
+    const k = `${holder}|${r.via}|${r.groupId || ""}|${r.roleKey}|${String(r.scope).toLowerCase()}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    rows.push({ ...r, holder });
+  }
+  const when = doc.updatedAt ? new Date(doc.updatedAt).toISOString().slice(0, 16).replace("T", " ") : "the last run";
+  return { rows, names, notes: [`Eligible Azure roles are from the PIM scan of ${when} UTC`] };
 }
 
 // PIM for Groups: groups the principal may join or own by activating
-// (eligible), and memberships that are activated or end on a date. Needs
-// Entra ID P2 and PrivilegedEligibilitySchedule.Read.AzureADGroup and
-// PrivilegedAssignmentSchedule.Read.AzureADGroup; without them it is skipped
-// with a note.
+// (eligible). Needs Entra ID P2 and PrivilegedEligibilitySchedule.Read.AzureADGroup;
+// without them it is skipped with a note.
 async function groupPim(principalId) {
-  const out = { eligible: [], active: new Map(), notes: [] };
+  const out = { eligible: [], notes: [] };
   const filter = `$filter=${encodeURIComponent(`principalId eq '${principalId}'`)}`;
-  let eligible, active;
+  let eligible;
   try {
-    [eligible, active] = await Promise.all([
-      graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?${filter}`, TOOL_ID),
-      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleInstances?${filter}`, TOOL_ID),
-    ]);
+    eligible = await graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?${filter}`, TOOL_ID);
   } catch (err) {
     out.notes.push(
       /\(403\)/.test(err.message)
-        ? "Eligible group memberships (PIM for Groups) could not be read: that needs PrivilegedEligibilitySchedule.Read.AzureADGroup and PrivilegedAssignmentSchedule.Read.AzureADGroup"
+        ? "Eligible group memberships (PIM for Groups) could not be read: that needs PrivilegedEligibilitySchedule.Read.AzureADGroup"
         : "Eligible group memberships (PIM for Groups) could not be read; that needs Entra ID P2"
     );
     return out;
-  }
-  for (const a of active) {
-    if (a.accessId === "member" && (a.assignmentType === "Activated" || a.endDateTime)) out.active.set(a.groupId, { state: a.assignmentType === "Activated" ? "activated" : "time-bound", end: a.endDateTime || null });
   }
   const names = new Map();
   await mapLimit([...new Set(eligible.map((e) => e.groupId))], 6, async (id) => {
@@ -268,22 +210,19 @@ const entraScope = (s) => (!s || s === "/" ? "Whole directory" : s.startsWith("/
 
 // The access of one principal (a user or a group): its own Azure and Entra
 // role assignments and those of every group it sits in, with the chain of
-// groups for each. PIM is included: eligible Azure and Entra roles, which
-// active ones were activated or end on a date, and the roles of groups the
-// principal may join through PIM for Groups (and of the groups those sit in).
+// groups for each. PIM shows only what the principal can activate (eligible),
+// not what is activated now: eligible Entra roles, eligible Azure roles (from
+// the PIM scan), and the roles of groups the principal may join through PIM
+// for Groups (and of the groups those sit in).
 async function accessOf(selfId, kind) {
   const base = kind === "user" ? `/users/${selfId}` : `/groups/${selfId}`;
-  // The PIM list does not depend on who is asked about: start it now, beside the group reads.
-  const pim = pimInstances();
-  pim.catch(() => {}); // awaited below; this only stops an early throw from leaving it unhandled
   const [direct, all, gpim] = await Promise.all([
     graphGetAll(`${base}/memberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
     graphGetAll(`${base}/transitiveMemberOf?$select=id,displayName`, TOOL_ID).then(groupOnly),
     groupPim(selfId),
   ]);
   const memberIds = new Set(all.map((g) => g.id));
-  // An activation makes the principal a real member; only groups it is not in
-  // yet add access. An eligible owner can add themselves, so that counts too.
+  // Only groups the principal is not in yet add access. An eligible owner can add themselves, so that counts too.
   const pimGroups = gpim.eligible.filter((e) => !memberIds.has(e.groupId));
   const pimVia = new Map(); // principal id -> { path, access, end }
   await mapLimit(pimGroups, 4, async (e) => {
@@ -292,12 +231,17 @@ async function accessOf(selfId, kind) {
     for (const p of parents) if (!memberIds.has(p.id) && p.id !== selfId && !pimVia.has(p.id)) pimVia.set(p.id, { path: [e.name, p.displayName], access: e.access, end: e.end });
   });
   const principalIds = [selfId, ...memberIds, ...pimVia.keys()];
-  const [rows, entra, azure] = await Promise.all([roleRows(principalIds), entraRoles(principalIds), azurePim(principalIds, pim)]);
+  const [rows, entra, azure, subNames] = await Promise.all([
+    roleRows(principalIds),
+    entraRoles(principalIds),
+    azureEligible(selfId, memberIds),
+    subscriptionNames(TOOL_ID).catch(() => new Map()),
+  ]);
   const groupNameById = Object.fromEntries(all.map((g) => [g.id, g.displayName]));
   const starts = new Set(direct.map((g) => g.id));
   const chain = chainFinder(starts, memberIds);
   const chains = new Map();
-  const holders = [...rows, ...entra.active, ...entra.eligible, ...azure.eligible].map((r) => r.principalId).filter((id) => id !== selfId && !pimVia.has(id));
+  const holders = [...rows, ...entra.active, ...entra.eligible].map((r) => r.principalId).concat(azure.rows.map((r) => r.holder)).filter((id) => id !== selfId && !pimVia.has(id));
   for (const id of new Set(holders)) {
     const c = await chain(id);
     if (c) chains.set(id, c);
@@ -311,12 +255,10 @@ async function accessOf(selfId, kind) {
   };
   // Eligible twice over (a role eligible to a group the principal may join): the earlier end counts.
   const earliest = (x, y) => (!x ? y || null : !y ? x : x < y ? x : y);
-  const stateOf = (principalId, pim, end = null) => {
+  const stateOf = (principalId, end = null) => {
     const p = pimVia.get(principalId);
-    if (p) return { state: "eligible", end: earliest(p.end, end) };
-    return pim ? { state: pim.state, end: pim.end } : { state: "active", end: null };
+    return p ? { state: "eligible", end: earliest(p.end, end) } : { state: "active", end: null };
   };
-  const subNames = await subscriptionNames(TOOL_ID).catch(() => new Map());
   const roleName = (g) => KNOWN_ROLES[g] || azure.names.get(g) || g;
   const subRow = (subscriptionId) => ({ subscriptionId, subscriptionName: subNames.get(subscriptionId) || null });
   const entraRow = (r, s) => ({
@@ -326,31 +268,38 @@ async function accessOf(selfId, kind) {
     ...s,
     scope: entraScope(r.directoryScopeId),
   });
-  // An activated PIM role also shows as an assignment; keep it once, as activated.
+  // A row from the PIM scan: through a group the principal is in, through PIM for Groups, or its own.
+  const azureEligibleRow = (r) => {
+    const how =
+      r.via === "pim-group" || r.via === "pim-group-owner"
+        ? { via: `PIM group: ${r.group}`, path: [r.group], nested: false, pimGroup: r.access || "member" }
+        : r.holder === selfId
+          ? viaOf(selfId, selfId, groupNameById, chains)
+          : viaOf(r.holder, selfId, { ...groupNameById, [r.holder]: groupNameById[r.holder] || r.group }, chains);
+    return { ...how, role: r.role, scope: r.scope, ...subRow(r.subscriptionId), state: "eligible", end: r.end || null };
+  };
+  // A role that is both assigned and eligible (activated now) shows once, as assigned.
   const activeEntra = new Set(entra.active.map(entraKey));
-  const activeAzure = new Set(rows.map((r) => azureKey(r.principalId, guid(r.roleDefinitionId), r.scope)));
+  const activeAzure = new Set(rows.map((r) => `${r.principalId}|${guid(r.roleDefinitionId)}|${String(r.scope).toLowerCase()}`));
+  const roleOfKey = (k) => String(k || "").split("|").pop();
   return {
     groups: [
       ...all.map((g) => ({
         name: g.displayName,
         direct: starts.has(g.id),
         ...(chains.has(g.id) && chains.get(g.id).length > 1 && { through: chains.get(g.id).slice(0, -1).map((id) => groupNameById[id] || id) }),
-        ...(gpim.active.has(g.id) && { pim: gpim.active.get(g.id).state, end: gpim.active.get(g.id).end }),
       })),
       ...pimGroups.map((e) => ({ name: e.name, direct: true, pim: "eligible", access: e.access, end: e.end })),
     ],
     assignments: [
-      ...rows.map((r) => {
-        const role = guid(r.roleDefinitionId);
-        return { ...via(r.principalId), role: roleName(role), scope: r.scope, ...subRow(r.subscriptionId), ...stateOf(r.principalId, azure.active.get(azureKey(r.principalId, role, r.scope))) };
-      }),
-      ...azure.eligible
-        .filter((e) => !activeAzure.has(e.key))
-        .map((e) => ({ ...via(e.principalId), role: roleName(e.role), scope: e.scope, ...subRow(e.subscriptionId), state: "eligible", end: pimVia.has(e.principalId) ? stateOf(e.principalId, null, e.end).end : e.end })),
+      ...rows.map((r) => ({ ...via(r.principalId), role: roleName(guid(r.roleDefinitionId)), scope: r.scope, ...subRow(r.subscriptionId), ...stateOf(r.principalId) })),
+      ...azure.rows
+        .filter((r) => !activeAzure.has(`${r.holder}|${roleOfKey(r.roleKey)}|${String(r.scope).toLowerCase()}`))
+        .map(azureEligibleRow),
     ],
     entraRoles: [
-      ...entra.active.map((r) => entraRow(r, stateOf(r.principalId, entra.pim.get(entraKey(r))))),
-      ...entra.eligible.filter((r) => !activeEntra.has(entraKey(r))).map((r) => entraRow(r, { state: "eligible", end: pimVia.has(r.principalId) ? stateOf(r.principalId, null, r.endDateTime).end : r.endDateTime || null })),
+      ...entra.active.map((r) => entraRow(r, stateOf(r.principalId))),
+      ...entra.eligible.filter((r) => !activeEntra.has(entraKey(r))).map((r) => entraRow(r, { state: "eligible", end: pimVia.has(r.principalId) ? stateOf(r.principalId, r.endDateTime).end : r.endDateTime || null })),
     ],
     entraNotes: entra.notes,
     azureNotes: azure.notes,

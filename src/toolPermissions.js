@@ -56,8 +56,8 @@ const NEEDS = {
   "network-hygiene": { azure: READER },
   "access-lookup": {
     azure: READER,
-    graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup", "PrivilegedAssignmentSchedule.Read.AzureADGroup"],
-    licence: "Entra ID P2 to see PIM (eligible and activated roles, PIM for Groups)",
+    graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup"],
+    licence: "Entra ID P2 to see who can activate roles with PIM (eligible Azure roles come from the PIM scan)",
   },
 };
 

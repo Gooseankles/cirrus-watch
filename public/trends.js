@@ -64,7 +64,8 @@ const Trends = (() => {
     const out = { crit: Array(n).fill(0), warn: Array(n).fill(0), other: Array(n).fill(0) };
     for (const t of tools) {
       t.byKind.forEach((byKind, i) => {
-        for (const [k, c] of Object.entries(byKind || {})) out[kindSev(k) || "other"][i] += c;
+        // Info and anything else counts as Other.
+        for (const [k, c] of Object.entries(byKind || {})) (out[kindSev(k)] || out.other)[i] += c;
       });
     }
     return out;

@@ -20,7 +20,7 @@ const Report = (() => {
   const score = (w) => Math.round((100 * 100) / (100 + w));
   function sevCounts(byKind) {
     const out = { crit: 0, warn: 0, other: 0 };
-    for (const [k, n] of Object.entries(byKind || {})) out[kindSev(k) || "other"] += n;
+    for (const [k, n] of Object.entries(byKind || {})) out[kindSev(k) in out ? kindSev(k) : "other"] += n;
     return out;
   }
   function merge(list) {

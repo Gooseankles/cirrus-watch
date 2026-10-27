@@ -61,11 +61,13 @@ const readInstalls = () => q(`patchinstallationresources
       installed = toint(properties.installedPatchCount), pending = toint(properties.pendingPatchCount), error = tostring(properties.errorDetails.message)`);
 
 // Maintenance configuration assignments: on one machine (resourceId) or dynamic scopes on a subscription (filter).
-// "filter" is a KQL operator, so the column name is quoted (unquoted, Resource Graph answers a bare BadRequest).
-const readAssignments = () => q(`maintenanceresources
+// "filter" is a KQL operator: Resource Graph refuses it as a column name and after a dot (ParserFailure at "."), so the
+// property is read with brackets under another name and renamed here.
+const readAssignments = () =>
+  q(`maintenanceresources
   | where type =~ 'microsoft.maintenance/configurationassignments'
   | project id = tolower(id), subscriptionId, resourceId = tolower(tostring(properties.resourceId)),
-      configId = tostring(properties.maintenanceConfigurationId), ['filter'] = properties.filter`);
+      configId = tostring(properties.maintenanceConfigurationId), scopeFilter = properties['filter']`).then((rows) => rows.map(({ scopeFilter, ...r }) => ({ ...r, filter: scopeFilter })));
 
 /* ---------- judging (pure, for the tests) ---------- */
 

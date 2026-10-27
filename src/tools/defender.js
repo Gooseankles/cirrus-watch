@@ -43,19 +43,20 @@ async function recommendations() {
     `securityresources
     | where type =~ 'microsoft.security/assessments'
     | where tostring(properties.status.code) =~ 'Unhealthy'
-    | extend severity = tolower(tostring(properties.metadata.severity)), title = tostring(properties.displayName)
-    | where severity in (${wanted.map((s) => `'${s}'`).join(", ")})
-    | summarize unhealthy = count() by subscriptionId, assessmentKey = name, severity, title`,
+    | extend sev = tolower(tostring(properties.metadata.severity)), recTitle = tostring(properties.displayName), recKey = tostring(name)
+    | where sev in (${wanted.map((s) => `'${s}'`).join(", ")})
+    | summarize hits = count() by subscriptionId, recKey, sev, recTitle`,
     { toolId: TOOL_ID }
   );
-  // Column names stay clear of table names and keywords ("resources", "key"): Resource Graph answers those with a bare BadRequest.
+  // Column names stay clear of table names and KQL words ("resources", "key", "title", "severity"): Resource Graph
+  // fails to parse those (ParserFailure at <EOF> with "severity, title" ending the summarize).
   return rows.map((r) => ({
-    kind: `defender-${r.severity}`,
-    id: `/subscriptions/${r.subscriptionId}/providers/Microsoft.Security/assessments/${r.assessmentKey}`,
-    name: r.title || r.assessmentKey,
+    kind: `defender-${r.sev}`,
+    id: `/subscriptions/${r.subscriptionId}/providers/Microsoft.Security/assessments/${r.recKey}`,
+    name: r.recTitle || r.recKey,
     subscriptionId: r.subscriptionId,
-    resources: r.unhealthy,
-    detail: `${r.unhealthy} resource${r.unhealthy === 1 ? "" : "s"} unhealthy. ${recommendationLink(r.assessmentKey)}`,
+    resources: r.hits,
+    detail: `${r.hits} resource${r.hits === 1 ? "" : "s"} unhealthy. ${recommendationLink(r.recKey)}`,
   }));
 }
 

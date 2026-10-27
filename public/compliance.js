@@ -84,6 +84,7 @@ const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6"];
 const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6"];
 const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1"];
 const CONTINUITY = ["nis2:c", "nsm:2.2"];
+const PATCHING = ["cis:7.1", "nis2:e", "nsm:3.1"];
 const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
@@ -291,6 +292,35 @@ const KIND_CONTROLS = {
   "path-pivot-takeover": ADMINS,
   "path-pivot-data": DATA_OPEN,
   "seg-flat-vnet": ["cis:12.2", "nis2:i", "nsm:2.2", "nsm:2.4"],
+  "storage-no-lifecycle": ASSETS,
+  "workspace-no-cap": LOGS,
+  "tenant-users-create-apps": APPS,
+  "tenant-users-create-tenants": ["cis:4.1", "nis2:i", "nsm:2.3"],
+  "tenant-users-create-groups": ["cis:6.8", "nis2:i", "nsm:2.6"],
+  "tenant-guest-invite-open": ["cis:6.1", "nis2:i", "nsm:2.6"],
+  "tenant-guest-invite-members": ["cis:6.1", "nis2:i", "nsm:2.6"],
+  "tenant-guest-access-member": ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6"],
+  "tenant-email-signup": ["cis:6.1", "nis2:i", "nsm:2.6"],
+  "tenant-direct-connect-open": ["cis:6.1", "nis2:d", "nis2:i", "nsm:2.6"],
+  "app-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3"],
+  "app-secret-only": KEYS,
+  "app-secret-long-lived": ["cis:5.5", "nis2:h", "nsm:2.6"],
+  ...Object.fromEntries(["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"].map((k) => [k, PATCHING])),
+  "health-unavailable": ["nis2:c", "nsm:3.2"],
+  "health-degraded": ["nis2:c", "nsm:3.2"],
+  "service-issue": ["nis2:b", "nis2:c", "nsm:4.2"],
+  "service-advisory": ["nis2:e", "nsm:3.1"],
+  "service-maintenance": ["nis2:c", "nsm:2.10"],
+  "sub-in-root-mg": POLICY,
+  "sub-no-owner": ["cis:6.8", "nis2:i", "nsm:2.6"],
+  "sub-state": CONTINUITY,
+  "sub-disabled": ASSETS,
+  "waf-detection": EXPOSED,
+  "waf-disabled": EXPOSED,
+  "agw-no-waf": EXPOSED,
+  "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4"],
+  "dns-alias-missing": ASSETS,
+  "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -305,10 +335,10 @@ const PROBE_CONTROLS = {
 // The kinds each scan can report, so the Compliance page knows which scans look at a control (a scan that ran and
 // found nothing counts as "no findings" for every control its kinds map to).
 const TOOL_KINDS = {
-  "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group", "orphaned-snapshot", "empty-app-service-plan", "old-snapshot", "stopped-vm", "idle-nat-gateway", "empty-load-balancer", "idle-app-gateway", "idle-vnet-gateway", "disconnected-private-endpoint", "unlinked-private-dns-zone", "unused-nsg", "unused-route-table", "empty-availability-set", "empty-elastic-pool", "backup-vm-deleted", "advisor-cost"],
+  "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group", "orphaned-snapshot", "empty-app-service-plan", "old-snapshot", "stopped-vm", "idle-nat-gateway", "empty-load-balancer", "idle-app-gateway", "idle-vnet-gateway", "disconnected-private-endpoint", "unlinked-private-dns-zone", "unused-nsg", "unused-route-table", "empty-availability-set", "empty-elastic-pool", "backup-vm-deleted", "advisor-cost", "storage-no-lifecycle", "workspace-no-cap"],
   "tag-compliance": ["missing-tags"],
   "access-review": ["stale-direct-assignment", "stale-group-assignment"],
-  "secret-expiry": ["app-credential-expiring"],
+  "secret-expiry": ["app-credential-expiring", "app-no-owner", "app-secret-only", "app-secret-long-lived"],
   "key-vault": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("kv-")),
   "access-packages": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("access-package-")),
   "role-assignments": ["orphaned-assignment", "privileged-direct-user", "guest-azure-admin", "guest-azure-role", "custom-role-broad"],
@@ -338,6 +368,11 @@ const TOOL_KINDS = {
   "conditional-access": ["ca-none", "ca-no-mfa-all-users", "ca-no-admin-mfa", "ca-legacy-auth-not-blocked", "ca-report-only", "ca-many-exclusions", "security-defaults-only"],
   "safety-nets": ["no-budget", "budget-no-alerts", "no-delete-lock"],
   defender: ["defender-low-score", "defender-high", "defender-medium", "defender-low", "defender-plan-off", "defender-plan-uneven"],
+  "tenant-settings": ["tenant-users-create-apps", "tenant-users-create-tenants", "tenant-users-create-groups", "tenant-guest-invite-open", "tenant-guest-invite-members", "tenant-guest-access-member", "tenant-email-signup", "tenant-direct-connect-open"],
+  updates: ["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"],
+  "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
+  subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
+  "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".

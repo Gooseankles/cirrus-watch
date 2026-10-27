@@ -49,6 +49,11 @@ const NEEDS = {
   defender: { azure: READER },
   "safety-nets": { azure: READER },
   "azure-monitor": { azure: ["Reader", "Log Analytics Reader on the workspaces, if Reader alone cannot query them (heartbeat check)"] },
+  updates: { azure: READER },
+  "tenant-settings": { graph: ["Policy.Read.All"] },
+  "resource-health": { azure: READER },
+  subscriptions: { azure: ["Reader", "Reader at the Tenant Root Group, to see Owners given on management groups"] },
+  "network-hygiene": { azure: READER },
   "access-lookup": {
     azure: READER,
     graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup", "PrivilegedAssignmentSchedule.Read.AzureADGroup"],

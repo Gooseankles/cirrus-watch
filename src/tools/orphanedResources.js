@@ -1,6 +1,6 @@
 const { resourceGraphQuery, subscriptionIdsToScan, armGet } = require("../armClient");
 const backups = require("./backupCoverage");
-const { runChecks, mapLimit, numberSetting, nameOf } = require("./util");
+const { runChecks, mapLimit, numberSetting, nameOf, itemErrors, scanError } = require("./util");
 const settings = require("../settings");
 const prices = require("../retailPrices");
 const log = require("../log");
@@ -618,6 +618,53 @@ function dropAdvisorRepeats(findings) {
   return findings.filter((f) => f.kind !== "advisor-cost" || !f.target || !listed.has(String(f.target).toLowerCase()));
 }
 
+// Standard general-purpose v2 and blob storage accounts with no lifecycle rule: hot data never moves to cool, cold or
+// archive and old data is never deleted. One ARM read per account (Reader); 404 = no policy. What it would save
+// depends on how much data the account holds and how often it is read, so it is not estimated.
+const MAX_LIFECYCLE_READS = 300;
+const isOn = (v) => /^(on|yes|true|1)$/i.test(String(v || "").trim());
+
+// The management policy body (null when there is none) -> true when at least one rule is turned on.
+function hasLifecycleRule(policy) {
+  const rules = (policy && policy.properties && policy.properties.policy && policy.properties.policy.rules) || [];
+  return rules.some((r) => r && r.enabled !== false && r.definition && r.definition.actions);
+}
+
+async function storageWithoutLifecycle() {
+  if (isOff(settings.get("STORAGE_LIFECYCLE_CHECK"))) return [];
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.storage/storageaccounts' and kind in~ ('StorageV2', 'BlobStorage') and tostring(sku.tier) =~ 'Standard'
+    | project id, name, resourceGroup, subscriptionId, location, kind, sku = tostring(sku.name), accessTier = tostring(properties.accessTier)`,
+    { toolId: TOOL_ID }
+  );
+  const checked = rows.slice(0, MAX_LIFECYCLE_READS);
+  const out = [];
+  const failures = await mapLimit(checked, PRICE_CONCURRENCY, async (r) => {
+    const policy = await armGet(`https://management.azure.com${r.id}/managementPolicies/default?api-version=2023-05-01`, TOOL_ID).catch((err) =>
+      /\(404\)/.test(err.message) ? null : Promise.reject(err)
+    );
+    if (hasLifecycleRule(policy)) return;
+    out.push(finding("storage-no-lifecycle", r, null, null, `${r.kind} ${r.sku}${r.accessTier ? `, default tier ${r.accessTier}` : ""}, ${r.location}; ${policy ? "lifecycle policy has no rule turned on" : "no lifecycle management policy"}, so hot data never moves to cool or archive and old data is never deleted (saving not estimated). Add a lifecycle rule, or accept it if the data is small or always in use`));
+  });
+  out.push(...itemErrors(TOOL_ID, "lifecycle", "storage accounts", failures, checked.length));
+  if (rows.length > checked.length) out.push(scanError(TOOL_ID, "lifecycle-limit", `${rows.length - checked.length} storage accounts not checked for a lifecycle policy`, `At most ${MAX_LIFECYCLE_READS} are read per run`));
+  return out;
+}
+
+// Log Analytics workspaces with no daily cap: a noisy source can bill without limit. Many want no cap (a cap drops
+// logs), so this is off unless LAW_DAILY_CAP_CHECK is on.
+async function uncappedWorkspaces() {
+  if (!isOn(settings.get("LAW_DAILY_CAP_CHECK"))) return [];
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type == 'microsoft.operationalinsights/workspaces' and todouble(properties.workspaceCapping.dailyQuotaGb) < 0
+    | project id, name, resourceGroup, subscriptionId, location, sku = tostring(properties.sku.name), retention = toint(properties.retentionInDays)`,
+    { toolId: TOOL_ID }
+  );
+  return rows.map((r) => finding("workspace-no-cap", r, null, null, `${r.sku || "?"} plan, ${r.retention || "?"} days retention, ${r.location}; no daily cap, so a noisy source can run up the ingestion bill without limit (not estimated). Set a daily cap with an alert, or accept it if logs must never be dropped`));
+}
+
 // App Service plans with no apps still bill every instance. Free, shared and consumption plans cost nothing.
 function appServiceSkuName(sku) {
   return String(sku || "").replace(/^([A-Z]+\d+)(v\d)$/i, "$1 $2");
@@ -810,6 +857,8 @@ async function run() {
       "Backups of deleted VMs": () => deletedVmBackups(book),
       "Unused NSGs, route tables and availability sets": unusedNetworkBits,
       "Empty SQL elastic pools": emptyElasticPools,
+      "Storage lifecycle policies": storageWithoutLifecycle,
+      "Workspace daily caps": uncappedWorkspaces,
       "Azure Advisor cost tips": advisorCostTips,
     })
   );
@@ -828,5 +877,5 @@ module.exports = {
   schedule: "0 3 * * *", // nightly at 03:00
   run,
   registerRoutes,
-  _test: { diskTier, diskSku, appServiceSkuName, diskDescription, updateSavings, poolSize, dropAdvisorRepeats, advisorFinding },
+  _test: { diskTier, diskSku, appServiceSkuName, diskDescription, updateSavings, poolSize, dropAdvisorRepeats, advisorFinding, hasLifecycleRule },
 };

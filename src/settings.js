@@ -59,12 +59,15 @@ const FIELDS = [
   { key: "PRICE_CURRENCY", label: "Currency for cost estimates", group: "Orphaned resources", hint: "Three-letter code, e.g. NOK, EUR, USD; Azure list prices for each region, tier and size. Blank = NOK" },
   { key: "OLD_SNAPSHOT_DAYS", label: "Old snapshot age (days)", group: "Orphaned resources", hint: "Snapshots older than this are listed with what they cost; blank = 180, 0 = off" },
   { key: "ADVISOR_COST_TIPS", label: "Azure Advisor cost tips", group: "Orphaned resources", hint: "on or off; blank = on. Advisor's own savings estimates for resizing or shutting down resources" },
+  { key: "STORAGE_LIFECYCLE_CHECK", label: "Storage lifecycle policy check", group: "Orphaned resources", hint: "on or off; blank = on. Standard v2 and blob storage accounts with no lifecycle rule (one read per account, at most 300)" },
+  { key: "LAW_DAILY_CAP_CHECK", label: "Log Analytics daily cap check", group: "Orphaned resources", hint: "on or off; blank = off. Lists workspaces with no daily cap (a cap drops logs once reached, so many want none)" },
   { key: "AZURE_REQUIRED_TAGS", label: "Required tags", group: "Tag compliance", hint: "Comma-separated tag names" },
   { key: "AZURE_SENSITIVE_TAGS", label: "Sensitive-data tags", group: "Exposure paths", hint: "Comma-separated tag names; a resource whose tag says confidential, restricted, sensitive, secret, high or PII counts as sensitive (default DataClassification,Sensitivity,Confidentiality,Sensitive)" },
   { key: "AZURE_COST_ANOMALY_THRESHOLD_PCT", label: "Cost jump threshold (%)", group: "Cost anomalies" },
   { key: "COST_HISTORY_MONTHS", label: "Cost history to pull on first run (months)", group: "Cost anomalies", hint: "Blank = 13; after that it keeps growing from storage" },
   { key: "AZURE_ACCESS_REVIEW_STALE_DAYS", label: "Stale direct-assignment age (days)", group: "Access review" },
   { key: "SECRET_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Expiring app credentials" },
+  { key: "APP_SECRET_MAX_DAYS", label: "Longest allowed client secret (days)", group: "Expiring app credentials", hint: "Blank = 365" },
   { key: "KEYVAULT_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Key Vault", hint: "Blank = 30" },
   { key: "KEYVAULT_MAX_READERS", label: "Most identities that may read secrets", group: "Key Vault", hint: "Per vault; blank = 10" },
   { key: "KEYVAULT_UNUSED_DAYS", label: "Unused after (days)", group: "Key Vault", hint: "No reads or writes for this long; blank = 30, at most 90" },
@@ -95,6 +98,9 @@ const FIELDS = [
   { key: "AZURE_MONITOR_IN_USE", label: "Uses Azure Monitor", group: "Azure Monitor", options: [{ value: "off", label: "No: skip the check, no findings" }, { value: "on", label: "Yes: check agents, alerts and workspaces" }], defaultValue: "off", hint: "Off = the Azure Monitor scan makes no requests and reports nothing for this tenant" },
   { key: "AZURE_MONITOR_HEARTBEAT_HOURS", label: "Flag a running machine with no heartbeat for (hours)", group: "Azure Monitor", hint: "Blank = 2" },
   { key: "DEFENDER_REQUIRED_PLANS", label: "Plans that must be on", group: "Defender for Cloud", hint: "Comma-separated plan names, e.g. VirtualMachines, StorageAccounts, KeyVaults, SqlServers, Arm, Containers. all = every plan; blank = no plan check" },
+  { key: "UPDATES_MAX_PENDING_DAYS", label: "Critical when a pending update is older than (days)", group: "Updates and patching", hint: "Age of the oldest pending Critical or Security update, from its release date (Windows only; Linux gives none). Blank = 30" },
+  { key: "UPDATES_ASSESSMENT_MAX_AGE_DAYS", label: "Flag a machine not assessed for (days)", group: "Updates and patching", hint: "Azure keeps assessments for 7 days, so a machine with none in that time is always flagged. Blank = 7" },
+  { key: "HEALTH_MAINTENANCE_DAYS", label: "Show planned maintenance starting within (days)", group: "Resource health", hint: "Blank = 14, 0 = off" },
 ];
 // Everything from "Role assignments" down is a tool option a customer tenant
 // may set differently.
@@ -137,6 +143,11 @@ const TOOL_SPNS = [
   { id: "defender", label: "Defender for Cloud" },
   { id: "safety-nets", label: "Safety nets" },
   { id: "azure-monitor", label: "Azure Monitor" },
+  { id: "updates", label: "Updates and patching" },
+  { id: "tenant-settings", label: "Entra tenant settings" },
+  { id: "resource-health", label: "Resource health" },
+  { id: "subscriptions", label: "Subscriptions" },
+  { id: "network-hygiene", label: "Network hygiene" },
   { id: "history-storage", label: "History storage" },
 ];
 

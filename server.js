@@ -228,6 +228,11 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/defender")),
   registerScanTool(app, require("./src/tools/safetyNets")),
   registerScanTool(app, require("./src/tools/azureMonitor")),
+  registerScanTool(app, require("./src/tools/updates")),
+  registerScanTool(app, require("./src/tools/tenantSettings")),
+  registerScanTool(app, require("./src/tools/resourceHealth")),
+  registerScanTool(app, require("./src/tools/subscriptions")),
+  registerScanTool(app, require("./src/tools/networkHygiene")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

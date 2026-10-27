@@ -61,10 +61,11 @@ const readInstalls = () => q(`patchinstallationresources
       installed = toint(properties.installedPatchCount), pending = toint(properties.pendingPatchCount), error = tostring(properties.errorDetails.message)`);
 
 // Maintenance configuration assignments: on one machine (resourceId) or dynamic scopes on a subscription (filter).
+// "filter" is a KQL operator, so the column name is quoted (unquoted, Resource Graph answers a bare BadRequest).
 const readAssignments = () => q(`maintenanceresources
   | where type =~ 'microsoft.maintenance/configurationassignments'
   | project id = tolower(id), subscriptionId, resourceId = tolower(tostring(properties.resourceId)),
-      configId = tostring(properties.maintenanceConfigurationId), filter = properties.filter`);
+      configId = tostring(properties.maintenanceConfigurationId), ['filter'] = properties.filter`);
 
 /* ---------- judging (pure, for the tests) ---------- */
 

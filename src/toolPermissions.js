@@ -27,8 +27,8 @@ const NEEDS = {
   "firewall-policies": { azure: READER },
   "change-log": { azure: READER },
   "privileged-roles": {
-    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All"],
-    licence: "Entra ID P1 for the MFA check, P2 for PIM",
+    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All", "Policy.Read.All"],
+    licence: "Entra ID P1 for the MFA and emergency access checks, P2 for PIM",
   },
   pim: {
     azure: READER,

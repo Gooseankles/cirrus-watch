@@ -1,8 +1,11 @@
 // Who holds the powerful Entra roles: too many or too few Global
 // Administrators, guests, apps and disabled accounts in privileged roles,
-// standing (non-PIM) admin rights where PIM is in use, and admins without MFA.
-// Graph: RoleManagement.Read.Directory (roles), User.Read.All and
-// Application.Read.All (names), AuditLog.Read.All (MFA registration, P1).
+// standing (non-PIM) admin rights where PIM is in use, admins without MFA, and
+// emergency access (break-glass) accounts. Graph: RoleManagement.Read.Directory
+// (roles), User.Read.All and Application.Read.All (names), GroupMember.Read.All
+// (role groups, policy exclusions), AuditLog.Read.All (MFA registration, P1),
+// Policy.Read.All (Conditional Access, for the emergency access check).
+const settings = require("../settings");
 const { graphGet, graphGetAll } = require("../graphClient");
 const { mapLimit, runChecks, scanError, itemErrors, graphHint } = require("./util");
 
@@ -81,7 +84,7 @@ async function enrichUsers(assignments) {
   const ids = [...new Set(assignments.filter((a) => a.principal && kindOf(a.principal) === "user").map((a) => a.principal.id))];
   const users = new Map();
   const failures = await mapLimit(ids.slice(0, MAX_USERS), 6, async (id) => {
-    users.set(id, await graphGet(`/users/${id}?$select=id,displayName,userPrincipalName,userType,accountEnabled`, TOOL_ID));
+    users.set(id, await graphGet(`/users/${id}?$select=id,displayName,userPrincipalName,userType,accountEnabled,onPremisesSyncEnabled`, TOOL_ID));
   });
   for (const a of assignments) if (a.principal && users.has(a.principal.id)) a.principal = { ...a.principal, ...users.get(a.principal.id) };
   return itemErrors(TOOL_ID, "users", "privileged users looked up", failures, Math.min(ids.length, MAX_USERS));
@@ -107,12 +110,16 @@ async function roleFindings() {
   const groups = await groupMembers(assignments);
   findings.push(...groups.errors);
   const globalAdmins = new Set();
+  const standingGlobalAdmins = new Map(); // user id -> user, Global Administrator assigned to the user permanently
   const privilegedUsers = new Map(); // user id -> { user, roles }
   for (const a of assignments) {
     const role = roleById.get(a.roleDefinitionId);
     const p = a.principal || { id: a.principalId };
     if (!role || !role.privileged) continue;
-    if (role.template === GLOBAL_ADMIN && kindOf(p) === "user" && p.accountEnabled !== false) globalAdmins.add(p.id);
+    if (role.template === GLOBAL_ADMIN && kindOf(p) === "user" && p.accountEnabled !== false) {
+      globalAdmins.add(p.id);
+      if (!pim.activated.has(`${p.id}|${a.roleDefinitionId}`) && (!a.directoryScopeId || a.directoryScopeId === "/")) standingGlobalAdmins.set(p.id, p);
+    }
     const base = { name: labelOf(p), resourceGroup: null, subscriptionId: null, principalId: p.id };
     const scope = a.directoryScopeId && a.directoryScopeId !== "/" ? ` (scope ${a.directoryScopeId})` : "";
     if (kindOf(p) === "user") {
@@ -140,7 +147,82 @@ async function roleFindings() {
   const n = globalAdmins.size;
   if (n > 4) findings.push({ kind: "too-many-global-admins", id: `${TOOL_ID}/global-admins`, name: "Global Administrators", resourceGroup: null, subscriptionId: null, detail: `${n} enabled users are Global Administrator; Microsoft advises fewer than five. Use narrower roles for day-to-day work` });
   if (n < 2) findings.push({ kind: "too-few-global-admins", id: `${TOOL_ID}/global-admins`, name: "Global Administrators", resourceGroup: null, subscriptionId: null, detail: `${n} enabled user${n === 1 ? " is" : "s are"} Global Administrator. Keep at least two (one an emergency access account) so a lost account does not lock you out` });
-  return { findings, privilegedUsers };
+  return { findings, privilegedUsers, standingGlobalAdmins };
+}
+
+// Emergency access (break-glass) accounts, as Microsoft advises: at least two cloud-only accounts that hold Global
+// Administrator permanently and that no enabled Conditional Access policy for all users applies to (so a broken
+// policy or a lost MFA provider cannot lock everyone out). named = UPNs from BREAK_GLASS_ACCOUNTS (lower case; empty
+// = find them). admins: Map id -> user (standing Global Admins); policies: CA policies; groupsOf: Map user id -> Set of
+// group ids. Pure, for the tests.
+const BREAK_GLASS_MIN = 2;
+function judgeEmergencyAccess({ admins, policies, groupsOf, named }) {
+  const allUsers = policies.filter((p) => p.state === "enabled" && ((p.conditions || {}).users || {}).includeUsers?.includes("All"));
+  const excludedFrom = (u, p) => {
+    const c = (p.conditions || {}).users || {};
+    const groups = groupsOf.get(u.id) || new Set();
+    return (c.excludeUsers || []).includes(u.id) || (c.excludeGroups || []).some((g) => groups.has(g)) || (c.excludeRoles || []).includes(GLOBAL_ADMIN);
+  };
+  // Why one account would not work in an emergency; empty = fine.
+  const problems = (u) => {
+    const out = [];
+    if (u.onPremisesSyncEnabled === true) out.push("it is synced from on-premises (it fails when the sync or the domain does)");
+    const caught = allUsers.filter((p) => !excludedFrom(u, p));
+    if (caught.length) out.push(`Conditional Access for all users applies to it (${caught.slice(0, 3).map((p) => p.displayName).join(", ")}${caught.length > 3 ? ", ..." : ""})`);
+    return out;
+  };
+  const base = { resourceGroup: null, subscriptionId: null };
+  const findings = [];
+  if (named.length) {
+    const byUpn = new Map([...admins.values()].map((u) => [String(u.userPrincipalName || "").toLowerCase(), u]));
+    for (const upn of named) {
+      const u = byUpn.get(upn);
+      if (!u) {
+        findings.push({ ...base, kind: "break-glass-not-admin", id: `${TOOL_ID}/break-glass/${upn}`, name: upn, detail: "Listed as an emergency access account, but it is not an enabled user with Global Administrator assigned permanently (missing, disabled, PIM-eligible only or role via a group)" });
+        continue;
+      }
+      const why = problems(u);
+      if (why.length) findings.push({ ...base, kind: "break-glass-weak", id: `${u.id}#break-glass`, name: upn, principalId: u.id, detail: `Emergency access account may not work when needed: ${why.join("; ")}` });
+    }
+    const good = named.filter((upn) => byUpn.has(upn) && !problems(byUpn.get(upn)).length).length;
+    if (good < BREAK_GLASS_MIN && good === named.length) {
+      findings.push({ ...base, kind: "break-glass-too-few", id: `${TOOL_ID}/break-glass`, name: "Emergency access accounts", detail: `${good} emergency access account${good === 1 ? "" : "s"}; keep at least ${BREAK_GLASS_MIN} so one lost or locked account is not the end` });
+    }
+    return findings;
+  }
+  const ready = [...admins.values()].filter((u) => !problems(u).length);
+  if (ready.length < BREAK_GLASS_MIN) {
+    const near = [...admins.values()].filter((u) => u.onPremisesSyncEnabled !== true && !ready.includes(u));
+    findings.push({
+      ...base,
+      kind: "break-glass-too-few",
+      id: `${TOOL_ID}/break-glass`,
+      name: "Emergency access accounts",
+      detail:
+        `${ready.length ? `Only ${ready.length} account (${ready.map(labelOf).join(", ")}) looks like` : "No account looks like"} an emergency access account: cloud-only, Global Administrator permanently ` +
+        `and outside every Conditional Access policy for all users. Keep ${BREAK_GLASS_MIN}, excluded through a group, with a passkey or FIDO2 key, and name them in Settings` +
+        (near.length ? `. Closest: ${near.slice(0, 3).map(labelOf).join(", ")}` : ""),
+    });
+  }
+  return findings;
+}
+
+async function emergencyFindings(admins) {
+  const named = String(settings.get("BREAK_GLASS_ACCOUNTS") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  let policies;
+  try {
+    policies = await graphGetAll("/identity/conditionalAccess/policies?$select=id,displayName,state,conditions", TOOL_ID);
+  } catch (err) {
+    return [scanError(TOOL_ID, "break-glass", "Emergency access accounts not checked", graphHint(err, "Policy.Read.All"))];
+  }
+  const groupsOf = new Map();
+  const failures = await mapLimit([...admins.keys()].slice(0, MAX_USERS), 6, async (id) => {
+    const groups = await graphGetAll(`/users/${id}/transitiveMemberOf/microsoft.graph.group?$select=id`, TOOL_ID);
+    groupsOf.set(id, new Set(groups.map((g) => g.id)));
+  });
+  const errors = itemErrors(TOOL_ID, "break-glass-groups", "Global Administrators' groups read", failures, Math.min(admins.size, MAX_USERS));
+  for (const e of errors) e.detail = graphHint({ message: e.detail }, "GroupMember.Read.All");
+  return [...judgeEmergencyAccess({ admins, policies, groupsOf, named }), ...errors];
 }
 
 // Admins with no MFA method registered (needs AuditLog.Read.All and P1).
@@ -177,7 +259,7 @@ async function run() {
   } catch (err) {
     throw new Error(graphHint(err, "RoleManagement.Read.Directory"));
   }
-  const extra = await runChecks(TOOL_ID, { MFA: () => mfaFindings(state.privilegedUsers) });
+  const extra = await runChecks(TOOL_ID, { MFA: () => mfaFindings(state.privilegedUsers), "Emergency access": () => emergencyFindings(state.standingGlobalAdmins) });
   return [...state.findings, ...extra];
 }
 
@@ -186,4 +268,5 @@ module.exports = {
   label: "Privileged roles",
   schedule: "0 5 * * *", // daily at 05:00
   run,
+  _test: { judgeEmergencyAccess },
 };

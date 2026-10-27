@@ -39,7 +39,7 @@ instead of Key Vault Reader. A vault whose firewall keeps the dashboard out show
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings, eligibility and activation history; access lookup: a person's or group's Entra roles |
 | `AuditLog.Read.All` | Stale accounts (last sign-in), MFA coverage and admins' MFA registration; all need Entra ID P1 or P2 |
-| `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1) |
+| `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1); privileged roles: which Global Administrators the policies leave out (emergency access accounts) |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
 | `LicenseAssignment.Read.All` | Licence coverage: the licences the tenant owns |
 | `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup` | Licence coverage: who is eligible or time-bound in PIM for Groups; PIM: who can activate a group membership, and when they last did; access lookup: groups a person or group may join with PIM, and the roles that come with them |

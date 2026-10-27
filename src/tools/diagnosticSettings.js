@@ -2,7 +2,9 @@
 // anywhere, settings that send to a workspace, storage account or event hub
 // that was deleted, settings that send metrics but no log category, and
 // subscriptions whose activity log is not exported (Azure keeps it 90 days
-// only). Key Vaults are left to the Key Vault scan. Reader is enough.
+// only). Flow logs: NSG flow logs (retiring), flow logs whose storage account
+// was deleted, and VNets with no flow log at all. Key Vaults are left to the
+// Key Vault scan. Reader is enough.
 const settings = require("../settings");
 const { resourceGraphQuery, armGet, subscriptionIdsToScan } = require("../armClient");
 const { mapLimit, runChecks, itemErrors, scanError } = require("./util");
@@ -150,13 +152,80 @@ async function activityLogFindings(dest) {
   return [...findings, ...itemErrors(TOOL_ID, "subscriptions", "subscriptions", failures.map((f) => ({ ...f, item: { subscriptionId: f.item } })), subs.length)];
 }
 
+// NSG flow logs: no new ones since 30 June 2025, and they stop on 30 September 2027.
+const NSG_FLOW_LOGS_END = "30 September 2027";
+const flowLogsWanted = () => String(settings.get("FLOW_LOGS_REQUIRED") || "on").trim().toLowerCase() !== "off";
+
+// logs: [{ id, name, target, enabled, storageId, resourceGroup, subscriptionId }], vnets: [{ id, name, resourceGroup,
+// subscriptionId, subnets: [subnet id], nsgs: [NSG id on its subnets] }]; IDs lower-case.
+function judgeFlowLogs(logs, vnets, dest, { requireVnet = true } = {}) {
+  const findings = [];
+  const covered = new Set(); // VNets, subnets and NSGs with an enabled flow log
+  for (const l of logs) {
+    const target = l.target.split("/").pop();
+    const base = { id: `${l.id}#flow-log`, name: l.name, resourceGroup: l.resourceGroup, subscriptionId: l.subscriptionId };
+    const storageSub = (l.storageId.match(/^\/subscriptions\/([^/]+)/) || [])[1];
+    if (l.enabled && l.storageId && storageSub && dest.subs.has(storageSub) && !dest.ids.has(l.storageId)) {
+      findings.push({ ...base, kind: "flow-log-storage-missing", detail: `Flow log for ${target} writes to storage account ${l.storageId.split("/").pop()}, which was deleted, so nothing is kept` });
+      continue;
+    }
+    if (l.enabled) covered.add(l.target);
+    if (/\/microsoft\.network\/networksecuritygroups\//.test(l.target)) {
+      findings.push({ ...base, kind: "nsg-flow-log", detail: `NSG flow log for ${target}${l.enabled ? "" : " (disabled)"}. NSG flow logs stop on ${NSG_FLOW_LOGS_END}: replace it with a VNet flow log on the VNet or subnet` });
+    }
+  }
+  if (!requireVnet) return findings;
+  for (const v of vnets) {
+    if ([v.id, ...v.subnets, ...v.nsgs].some((id) => covered.has(id))) continue;
+    findings.push({
+      kind: "vnet-no-flow-log",
+      id: `${v.id}#flow-log`,
+      name: v.name,
+      resourceGroup: v.resourceGroup,
+      subscriptionId: v.subscriptionId,
+      detail: "No flow log on this VNet, its subnets or their NSGs, so there is no record of which addresses talked to what. Add a VNet flow log (Network Watcher, Flow logs)",
+    });
+  }
+  return findings;
+}
+
+async function flowLogFindings(dest) {
+  const requireVnet = flowLogsWanted();
+  const [logs, vnets] = await Promise.all([
+    resourceGraphQuery(
+      `Resources
+      | where type =~ 'microsoft.network/networkwatchers/flowlogs'
+      | project id, name, resourceGroup, subscriptionId, target = tolower(tostring(properties.targetResourceId)),
+        enabled = tobool(properties.enabled), storageId = tolower(tostring(properties.storageId))`,
+      { toolId: TOOL_ID }
+    ),
+    requireVnet
+      ? resourceGraphQuery(
+          `Resources
+          | where type =~ 'microsoft.network/virtualnetworks'
+          | mv-expand subnet = properties.subnets
+          | summarize subnets = make_set(tolower(tostring(subnet.id))), nsgs = make_set(tolower(tostring(subnet.properties.networkSecurityGroup.id)))
+            by id = tolower(id), name, resourceGroup, subscriptionId`,
+          { toolId: TOOL_ID }
+        )
+      : [],
+  ]);
+  const clean = (a) => (Array.isArray(a) ? a : []).filter(Boolean);
+  return judgeFlowLogs(
+    logs.map((l) => ({ ...l, enabled: l.enabled !== false, storageId: l.storageId || "" })),
+    vnets.map((v) => ({ ...v, subnets: clean(v.subnets), nsgs: clean(v.nsgs) })),
+    dest,
+    { requireVnet }
+  );
+}
+
 async function run() {
   let destError = null;
   const dest = await destinations().catch((err) => {
     destError = err;
     return { ids: new Set(), subs: new Set() }; // nothing judged as deleted
   });
-  const findings = await runChecks(TOOL_ID, { Resources: () => resourceFindings(dest), "Activity log": () => activityLogFindings(dest) });
+  const findings = await runChecks(TOOL_ID, { Resources: () => resourceFindings(dest), "Activity log": () => activityLogFindings(dest), "Flow logs": () => flowLogFindings(dest) });
   if (destError) findings.push(scanError(TOOL_ID, "destinations", "Deleted destinations not checked", String(destError.message || destError).slice(0, 300)));
   return findings;
 }
@@ -167,5 +236,5 @@ module.exports = {
   schedule: "30 4 * * *", // daily at 04:30
   run,
   DEFAULT_TYPES,
-  _test: { judgeSettings, missingDestinations },
+  _test: { judgeSettings, missingDestinations, judgeFlowLogs },
 };

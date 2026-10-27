@@ -66,6 +66,7 @@ const MAP = {
   DNSR: ["02882", "networking/DNS_Private_Resolver.svg"],
   TM: ["10065", "networking/Traffic_Manager_Profiles.svg"],
   HUB: ["00860", "networking/Virtual_WAN_Hub.svg"],
+  ARS: ["02496", "networking/Virtual_Router.svg"], // Route Server
   VWAN: ["10353", "networking/Virtual_WANs.svg"],
   DDOS: ["10072", "networking/DDoS_Protection_Plans.svg"],
   PIPP: ["10069", "networking/Public_IP_Prefixes.svg"], // its own icon (10372) embeds a picture

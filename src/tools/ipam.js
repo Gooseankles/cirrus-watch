@@ -60,6 +60,7 @@ async function readNetworks() {
     resourceGraphQuery(
       `Resources
       | where type in~ ('microsoft.network/localnetworkgateways', 'microsoft.network/virtualhubs')
+      | where not(type =~ 'microsoft.network/virtualhubs' and isempty(tostring(properties.virtualWan.id))) // Route Server
       | project id, name, subscriptionId, resourceGroup, location, type = tolower(type),
           prefixes = iff(type =~ 'microsoft.network/virtualhubs', pack_array(properties.addressPrefix), properties.localNetworkAddressSpace.addressPrefixes)`,
       { toolId: TOOL_ID }

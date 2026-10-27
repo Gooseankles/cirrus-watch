@@ -129,6 +129,7 @@
   ];
   const TYPE_BY = new Map(TYPES.map(([t, abbr, label, cat]) => [`microsoft.${t}`, { abbr, label, cat }]));
   function typeOf(r) {
+    if (r.routeServer) return { abbr: "ARS", label: "Route Server", cat: "network" };
     const hit = TYPE_BY.get(r.type);
     if (hit) {
       if (r.type === "microsoft.web/sites" && /functionapp/i.test(r.kind || "")) return { ...hit, abbr: "FN", label: "Function app" };
@@ -1141,6 +1142,7 @@
       at ? ["Network", `${esc(at.v.name)} › ${esc(at.s.name)} <span class="mono">${esc(at.s.prefixes.join(", "))}</span>`] : null,
       r.subnetOutside ? ["Network", `a subnet this scan cannot read: <span class="mono">${esc(r.subnet)}</span>`] : null,
       r.publicIps ? ["Public IP", r.publicIps.map((x) => `<span class="mono">${esc(x)}</span>`).join(", ")] : null,
+      r.mgmtIps ? ["Management IP", `${r.mgmtIps.map((x) => `<span class="mono">${esc(x)}</span>`).join(", ")} <span class="muted">(Azure manages it through this; it takes no traffic)</span>`] : null,
       r.link && r.type === "microsoft.network/privateendpoints" ? ["Opens", target ? `${esc(target.name)} <span class="muted">${esc(target.t.label)}</span>` : `<span class="mono">${esc(r.link.split("/").slice(0, 9).join("/"))}</span>`] : null,
     ].filter(Boolean);
     return `<div class="arch-detail"><div class="arch-detail-head"><b>${esc(r.name)}</b><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">Open in the Azure portal</a></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>`;

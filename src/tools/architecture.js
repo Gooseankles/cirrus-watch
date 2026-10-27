@@ -45,7 +45,8 @@ const RESOURCES_KQL = `Resources
     t == 'microsoft.compute/disks', tostring(managedBy),
     ''))
 | extend ip = iff(t == 'microsoft.network/publicipaddresses', tostring(properties.ipAddress), '')
-| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip`;
+| extend rs = t == 'microsoft.network/virtualhubs' and isempty(tostring(properties.virtualWan.id))
+| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip, rs`;
 
 const parentOf = (id) => String(id || "").toLowerCase().split("/").slice(0, 9).join("/");
 const vnetOfSubnet = (id) => String(id || "").toLowerCase().split("/subnets/")[0];
@@ -102,12 +103,23 @@ function build(d) {
     ...(r.subnet && { subnet: r.subnet }),
     ...(r.link && { link: r.link }),
     ...(r.ip && { ip: r.ip }),
+    // Route Server is a virtual hub without a Virtual WAN.
+    ...(r.rs && { routeServer: true }),
   }));
   const byId = new Map(res.map((r) => [r.id, r]));
   // A VM sits where its first NIC sits.
   for (const nic of res.filter((r) => r.type === "microsoft.network/networkinterfaces" && r.link && r.subnet)) {
     const vm = byId.get(nic.link);
     if (vm && !vm.subnet) vm.subnet = nic.subnet;
+  }
+  // Others (Route Server) have their IP configurations as child resources: the subnet lists them.
+  for (const v of d.vnets) {
+    for (const sn of list(v.subnets)) {
+      for (const c of list((sn.properties || {}).ipConfigurations)) {
+        const r = byId.get(parentOf(c.id));
+        if (r && !r.subnet && r.type !== "microsoft.network/networkinterfaces") r.subnet = lc(sn.id);
+      }
+    }
   }
   // A firewall VM (Palo Alto, Fortinet...): IP forwarding on one of its NICs, or a route sends traffic to it.
   const hops = new Set(list(d.routeTables).flatMap((t) => list(t.routes).map((r) => (r.properties || {}).nextHopIpAddress)).filter(Boolean));
@@ -119,7 +131,8 @@ function build(d) {
   for (const pip of res.filter((r) => r.type === "microsoft.network/publicipaddresses" && r.link)) {
     let owner = byId.get(parentOf(pip.link));
     if (owner && owner.type === "microsoft.network/networkinterfaces" && owner.link) owner = byId.get(owner.link) || owner;
-    if (owner) (owner.publicIps = owner.publicIps || []).push(pip.ip || pip.name);
+    // Route Server's public IP is only for Azure to manage it: it takes no traffic.
+    if (owner) (owner[owner.routeServer ? "mgmtIps" : "publicIps"] = owner[owner.routeServer ? "mgmtIps" : "publicIps"] || []).push(pip.ip || pip.name);
   }
   const vnets = d.vnets.map((v) => ({
     id: v.id,

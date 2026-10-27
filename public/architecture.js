@@ -191,7 +191,7 @@
     const scope = new Set(Array.isArray(savedScope) ? savedScope.filter((k) => inv.groups.has(k)) : total <= 300 ? all.filter((g) => g.count).map((g) => g.key) : []);
     t.archOpts = {
       scope,
-      layout: saved.layout === "groups" ? "groups" : "network",
+      layout: saved.layout === "groups" || saved.layout === "network" ? saved.layout : "hubs",
       cats: new Set(Array.isArray(saved.cats) ? saved.cats : CATS.map(([c]) => c).filter((c) => c !== "support")),
       subs: saved.subs !== false,
       peerings: saved.peerings !== false,
@@ -507,6 +507,7 @@
           }
         }
       }
+      if (o.layout === "hubs") for (const t of roots.values()) findHubs(t);
       // On-premises: sites connected to a gateway that is on the drawing.
       if (o.onprem) {
         const drawnIds = new Set(placed.map((r) => r.id));
@@ -569,6 +570,102 @@
     n.children = keep;
   }
 
+  // Hub and spoke: a hub is a VNet peered with two or more drawn VNets (one holding a gateway or firewall subnet
+  // counts with one), most peerings first; its peers not yet taken are its spokes. Spoke-to-spoke peerings stay
+  // lines. Kept on the box that holds the VNets, for measure().
+  const CORE_SUBNET = /^(GatewaySubnet|AzureFirewallSubnet|RouteServerSubnet)$/i;
+  function findHubs(t) {
+    const vnets = t.children.filter((c) => c.kind === "vnet");
+    const byId = new Map(vnets.map((b) => [b.key, b]));
+    const peers = new Map(vnets.map((b) => [b.key, [...new Set(b.v.peerings.map((p) => p.remote))].filter((id) => byId.has(id) && id !== b.key)]));
+    const core = (b) => (b.v.subnets.some((s) => CORE_SUBNET.test(s.name)) ? 0.5 : 0);
+    const rank = (b) => peers.get(b.key).length + core(b);
+    const taken = new Set(), hubs = [];
+    for (const h of [...vnets].sort((a, b) => rank(b) - rank(a) || String(a.label).localeCompare(String(b.label)))) {
+      if (taken.has(h.key)) continue;
+      const spokes = peers.get(h.key).map((id) => byId.get(id)).filter((b) => !taken.has(b.key));
+      if (spokes.length < 2 && !(spokes.length && core(h))) continue;
+      taken.add(h.key);
+      for (const b of spokes) taken.add(b.key);
+      h.tags.unshift(["hub", "", `Hub: peered with ${spokes.length} spoke${spokes.length === 1 ? "" : "s"} on the drawing`]);
+      hubs.push({ hub: h, spokes: spokes.sort((a, b) => String(a.label).localeCompare(String(b.label))) });
+    }
+    if (hubs.length) t.hubs = hubs;
+  }
+  // Each hub in the middle with rows of spokes above and below, on-premises on its left; hubs side by side, and
+  // everything else (other VNets, resource groups) in rows underneath. False when there is nothing to do.
+  function hubLayout(n) {
+    if (!n.hubs || n.children.some((c) => c.leaf)) return false;
+    const BAND = GAP * 4;
+    const used = new Set();
+    const side = n.children.find((c) => c.kind === "onprem");
+    const clusters = n.hubs.map(({ hub, spokes }, i) => {
+      const items = [];
+      const left = i === 0 && side;
+      used.add(hub);
+      // Rows of spokes about as wide as the hub row, but roughly square overall when there are many.
+      const area = spokes.reduce((s, b) => s + (b.w + BAND) * (b.h + BAND), 0);
+      const T = Math.max(hub.w + (left ? left.w + BAND : 0), Math.sqrt(area) * 1.6);
+      const rows = [];
+      for (const b of spokes) {
+        used.add(b);
+        const row = rows[rows.length - 1];
+        if (row && row.w + 2 * GAP + b.w <= T) (row.items.push(b), (row.w += 2 * GAP + b.w), (row.h = Math.max(row.h, b.h)));
+        else rows.push({ items: [b], w: b.w, h: b.h });
+      }
+      // Rows go above and below in turn, the first ones nearest the hub; x is measured from the hub's centre.
+      let up = 0, down = hub.h;
+      rows.forEach((row, j) => {
+        let x = -row.w / 2;
+        const above = j % 2 === 0;
+        const y = above ? up - BAND - row.h : down + BAND;
+        for (const b of row.items) {
+          items.push([b, x, above ? y + row.h - b.h : y]);
+          x += b.w + 2 * GAP;
+        }
+        if (above) up = y;
+        else down = y + row.h;
+      });
+      items.push([hub, -hub.w / 2, 0]);
+      if (left) {
+        used.add(left);
+        items.push([left, -hub.w / 2 - BAND - left.w, (hub.h - left.h) / 2]);
+      }
+      const x0 = Math.min(...items.map(([, x]) => x)), y0 = Math.min(...items.map(([, , y]) => y));
+      const w = Math.max(...items.map(([b, x]) => x + b.w)) - x0, h = Math.max(...items.map(([b, , y]) => y + b.h)) - y0;
+      return { items: items.map(([b, x, y]) => [b, x - x0, y - y0]), w, h, hubY: -y0 };
+    });
+    // Hubs on one line.
+    const hubY = Math.max(...clusters.map((c) => c.hubY));
+    let x = 0, bottom = 0;
+    for (const c of clusters) {
+      for (const [b, bx, by] of c.items) (b.x = x + bx), (b.y = hubY - c.hubY + by);
+      bottom = Math.max(bottom, hubY - c.hubY + c.h);
+      x += c.w + BAND * 2;
+    }
+    const clW = x - BAND * 2;
+    const rest = n.children.filter((c) => !used.has(c)).sort((a, b) => (a.prio || 0) - (b.prio || 0) || b.h - a.h || String(a.label).localeCompare(String(b.label)));
+    const area = rest.reduce((s, b) => s + (b.w + GAP) * (b.h + GAP), 0);
+    // A tall hub group has the rest on its right (screens are wide), a wide one has it underneath.
+    const beside = rest.length && bottom > clW * 0.9;
+    const T = beside ? Math.max(Math.sqrt(area) * 1.2, ...rest.map((b) => b.w)) : Math.max(clW, Math.sqrt(area) * 1.9, ...rest.map((b) => b.w));
+    const ox = beside ? clW + BAND * 2 : 0;
+    let rx = 0, ry = beside ? 0 : bottom + (rest.length ? BAND : 0), rowH = 0, packW = clW;
+    for (const b of rest) {
+      if (rx > 0 && rx + b.w > T) (rx = 0), (ry += rowH + GAP), (rowH = 0);
+      b.x = ox + rx;
+      b.y = ry;
+      rx += b.w + GAP;
+      rowH = Math.max(rowH, b.h);
+      packW = Math.max(packW, b.x + b.w);
+    }
+    const pad = n.kind === "root" ? 0 : PAD, head = headH(n);
+    for (const b of n.children) (b.x += pad), (b.y += head + pad);
+    n.w = Math.max(packW, n.kind === "root" ? 0 : headW(n), 120) + pad * 2;
+    n.h = head + pad + Math.max(bottom, ry + rowH) + pad;
+    return true;
+  }
+
   /* --- layout: boxes sized from the inside out, children in rows --- */
   const textW = (s, px = 7) => String(s || "").length * px;
   const headH = (n) => (n.kind === "root" ? 0 : n.sub ? 42 : 28);
@@ -583,6 +680,7 @@
       return;
     }
     n.children.forEach(measure);
+    if (hubLayout(n)) return;
     const leaves = n.children.filter((c) => c.leaf);
     const boxes = n.children.filter((c) => !c.leaf).sort((a, b) => (a.prio || 0) - (b.prio || 0) || b.h - a.h || String(a.label).localeCompare(String(b.label)));
     const area = boxes.reduce((s, b) => s + (b.w + GAP) * (b.h + GAP), 0);
@@ -766,6 +864,9 @@
       });
     }
     const traffic = m.links.some((l) => l.on);
+    // Where a pill or chevron may not sit: box titles and tiles.
+    const busy = [...at.values()].filter((n) => n.kind !== "root").map((n) => (n.leaf ? [n.ax, n.ay, n.w, n.h] : [n.ax, n.ay, n.w, headH(n)]));
+    const free = (x, y) => !busy.some(([bx, by, bw, bh]) => x > bx - 10 && x < bx + bw + 10 && y > by - 10 && y < by + bh + 10);
     for (const { l, s, e } of segs) {
       // Ends that face each other across a narrow gap (two VNets side by side) would make the curve loop back: keep it inside the gap.
       const gap = s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
@@ -794,8 +895,13 @@
       };
       out.push(l.both ? head(s, c1) : `<circle cx="${s.x}" cy="${s.y}" r="3" fill="${col}"/>`);
       out.push(head(e, c2));
-      // Halfway: the number of pairs on a line to a firewall, or an arrow on a long one-way line.
-      const mx = (s.x + 3 * c1.x + 3 * c2.x + e.x) / 8, my = (s.y + 3 * c1.y + 3 * c2.y + e.y) / 8;
+      // About halfway (moved along the line off titles and tiles): the number of pairs on a line to a firewall, or an
+      // arrow on a long one-way line.
+      const pt = (t) => {
+        const u = 1 - t;
+        return [u * u * u * s.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * e.x, u * u * u * s.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * e.y];
+      };
+      const [mx, my] = pt([0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74].find((t) => free(...pt(t))) ?? 0.5);
       if (l.trunk > 1) {
         const r = l.trunk > 9 ? 9 : 7.5;
         out.push(`<g><title>${esc(l.title)}</title><circle cx="${f(mx)}" cy="${f(my)}" r="${r}" fill="${p["--surface"]}" stroke="${col}" stroke-width="1.5"/><text x="${f(mx)}" y="${f(my + 3.3)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${p["--text"]}">${l.trunk}</text></g>`);
@@ -893,9 +999,10 @@
   }
   function toolbar(o, m) {
     const chk = (k, label, title) => `<label class="arch-opt" title="${esc(title)}"><input type="checkbox" data-arch-opt="${k}"${o[k] ? " checked" : ""}/> ${esc(label)}</label>`;
-    const net = o.layout === "network";
+    const net = o.layout !== "groups";
+    const lay = (k, label, title) => `<button type="button" data-arch-layout="${k}" class="${o.layout === k ? "active" : ""}" title="${esc(title)}">${label}</button>`;
     return `<div class="arch-bar">
-      <div class="seg"><button type="button" data-arch-layout="network" class="${net ? "active" : ""}">Network</button><button type="button" data-arch-layout="groups" class="${net ? "" : "active"}">Resource groups</button></div>
+      <div class="seg">${lay("hubs", "Hub and spoke", "Each hub VNet in the middle, its peered spokes around it, on-premises on the left")}${lay("network", "Network", "VNets with their subnets, packed in rows")}${lay("groups", "Resource groups", "Subscription, resource group, resource")}</div>
       <div class="arch-opts">
         ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}

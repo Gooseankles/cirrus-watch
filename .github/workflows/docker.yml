@@ -11,9 +11,9 @@ on:
 env:
   DOCKERHUB_USERNAME: trozity
   IMAGE: trozity/azure-ops-dashboard
-  # Trivy runs from its official image pinned by digest (0.56.2), not from
+  # Trivy runs from its official image pinned by digest (0.76.1), not from
   # trivy-action: that action's tags were hijacked in March 2026.
-  TRIVY: aquasec/trivy@sha256:26245f364b6f5d223003dc344ec1eb5eb8439052bfecb31d79aeba0c74344b3a
+  TRIVY: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
 
 permissions:
   contents: read

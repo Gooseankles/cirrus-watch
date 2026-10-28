@@ -1,12 +1,12 @@
-# Node 24 is LTS until April 2028 (Node 20 left support in April 2026).
-FROM node:24-alpine AS deps
+# Node 26 is LTS until April 2029 (Node 24 until April 2028).
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # The image that runs: no npm, npx, corepack or yarn. The app never uses them
 # and their bundled packages were most of what the security scan reported.
-FROM node:24-alpine
+FROM node:26-alpine
 RUN apk upgrade --no-cache \
   && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
      /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*

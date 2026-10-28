@@ -355,6 +355,10 @@ findings; register it with `registerScanTool` in `server.js` and add it to the `
 identity needs in `src/toolPermissions.js` (the server warns at start-up when a tool has no entry).
 An on-demand tool exports `{ id, label, registerRoutes(app) }` and uses `registerActionTool`.
 
+## Security
+
+How to report a security problem and how to run Cirrus Watch safely: [SECURITY.md](SECURITY.md).
+
 ## License
 
 Copyright (C) 2026 Gooseankles.

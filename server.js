@@ -12,6 +12,7 @@ const access = require("./src/access");
 const audit = require("./src/audit");
 const { needsOf } = require("./src/toolPermissions");
 const { FileSessionStore } = require("./src/sessionStore");
+const { sessionSecret } = require("./src/sessionSecret");
 const { registerScanTool, registerActionTool, readKeys, areaKeys, visibleKeys, decorate } = require("./src/toolRegistry");
 
 const app = express();
@@ -50,7 +51,7 @@ if (httpsSite) app.set("trust proxy", 1);
 app.use(
   session({
     store: sessionStore(),
-    secret: process.env.SESSION_SECRET || "dev-only-change-me",
+    secret: sessionSecret(),
     resave: false,
     saveUninitialized: false,
     // rolling: every request moves the end 8 hours on, so a sign-in ends after 8 idle hours, not 8 hours after

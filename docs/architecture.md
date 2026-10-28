@@ -81,7 +81,7 @@ flowchart TB
     scopes["Scan scopes<br/>management groups / subscriptions"]
   end
   subgraph entra["Entra ID (home tenant)"]
-    sso["App registration<br/>Azure tools dashboard (&lt;name&gt;)<br/>app roles Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;,<br/>&lt;Area&gt;.Read/Run(-&lt;key&gt;)"]
+    sso["App registration<br/>Cirrus Watch (&lt;name&gt;)<br/>app roles Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;,<br/>&lt;Area&gt;.Read/Run(-&lt;key&gt;)"]
     fic["Federated credential<br/>trusts id-&lt;name&gt;-sso"]
     groups["Security groups<br/>one per app role"]
     graphperm["Graph app role assignments<br/>to the web app's identity"]

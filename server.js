@@ -358,5 +358,5 @@ secretStore.onLoad(async () => {
 secretStore.load();
 
 app.listen(PORT, () => {
-  console.log(`Azure tools dashboard: http://localhost:${PORT}`);
+  console.log(`Cirrus Watch: http://localhost:${PORT}`);
 });

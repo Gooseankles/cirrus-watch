@@ -276,7 +276,7 @@ function bodies(msg, url) {
         },
       ]),
     ],
-    ...(site && { actions: [{ type: "Action.OpenUrl", title: "Open the dashboard", url: site }] }),
+    ...(site && { actions: [{ type: "Action.OpenUrl", title: "Open Cirrus Watch", url: site }] }),
   };
   return {
     type: "message",
@@ -310,7 +310,7 @@ function mailHtml(msg) {
     const items = [...s.bullets.map(escHtml), ...(s.hidden ? [`and ${s.hidden} more`] : [])];
     parts.push(`<ul style="${font};font-size:14px;margin:0;padding-left:20px">${items.map((b) => `<li style="margin:2px 0">${b}</li>`).join("")}</ul>`);
   }
-  if (site) parts.push(`<p style="${font};font-size:14px;margin-top:18px"><a href="${escHtml(site)}">Open the dashboard</a></p>`);
+  if (site) parts.push(`<p style="${font};font-size:14px;margin-top:18px"><a href="${escHtml(site)}">Open Cirrus Watch</a></p>`);
   return parts.join("\n");
 }
 

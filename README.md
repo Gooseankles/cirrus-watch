@@ -1,4 +1,4 @@
-# Azure ops dashboard
+# Cirrus Watch
 
 A self-hosted dashboard for the everyday checks and chores of running an Azure tenant: nightly scans for waste,
 risky access and broken policy, cost history per subscription and a "who has access to what" lookup.
@@ -237,7 +237,7 @@ The link can be:
   ```powershell
   Connect-ExchangeOnline
   New-DistributionGroup -Name "Dashboard Mailer Scope" -Type Security -Members alerts@contoso.com
-  New-ServicePrincipal -AppId <app id> -ObjectId <enterprise app object id> -DisplayName "Ops dashboard mailer"
+  New-ServicePrincipal -AppId <app id> -ObjectId <enterprise app object id> -DisplayName "Cirrus Watch mailer"
   $dn = (Get-DistributionGroup "Dashboard Mailer Scope").DistinguishedName
   New-ManagementScope -Name "Dashboard Mailer Mailboxes" -RecipientRestrictionFilter "MemberOfGroup -eq '$dn'"
   New-ManagementRoleAssignment -App <app id> -Role "Application Mail.Send" -CustomResourceScope "Dashboard Mailer Mailboxes"

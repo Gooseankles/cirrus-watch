@@ -1,5 +1,5 @@
 "use strict";
-/* Azure ops dashboard front end: shell, routing, overview, logs, lookup, scan pages and run history.
+/* Cirrus Watch front end: shell, routing, overview, logs, lookup, scan pages and run history.
    Every string that comes from the API goes through esc() before it is put into HTML. */
 
 /* ---------- helpers ---------- */

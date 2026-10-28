@@ -2,6 +2,7 @@
   "name": "azure-ops-dashboard",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Dashboard of home-grown Azure automation tools (subscription automation, housekeeping scans, lookups)",
   "main": "server.js",
   "scripts": {

@@ -354,3 +354,11 @@ findings; register it with `registerScanTool` in `server.js` and add it to the `
 (each new finding kind gets a `KINDS` entry there and its controls in `public/compliance.js`). List what its
 identity needs in `src/toolPermissions.js` (the server warns at start-up when a tool has no entry).
 An on-demand tool exports `{ id, label, registerRoutes(app) }` and uses `registerActionTool`.
+
+## License
+
+Copyright (C) 2026 Gooseankles.
+
+Cirrus Watch is free software under the [GNU Affero General Public License, version 3](LICENSE) (AGPL-3.0-only).
+You may use, change and share it; if you change it and let others use your version, also over a network, you must
+offer them its source code under the same license. It comes with no warranty.

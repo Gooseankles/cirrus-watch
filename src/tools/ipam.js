@@ -6,7 +6,8 @@
 // firewall IP groups: their entries, what uses them, when they last changed,
 // and findings for empty, unused, failed, nearly full or untidy groups. Each
 // run also saves the address inventory (ipam/inventory.json in the tenant's
-// history storage) for the Networks, IP groups and Free ranges views. IPv4
+// history storage) for the IPAM page and the IP groups view, with the
+// addresses known to be taken in each subnet. IPv4
 // only. Overlaps are found within one tenant. Reader is enough.
 const settings = require("../settings");
 const store = require("../findingsStore");
@@ -26,6 +27,8 @@ const IPGROUP_LIMIT = 5000; // entries Azure allows in one IP group
 const IPGROUP_WARN_PCT = 80;
 const WIDE_SIZE = 2 ** 24; // an entry wider than a /8
 const MAX_CHANGE_LIST = 100; // added or removed entries kept per group
+const MAX_LISTED = 4096; // taken addresses kept per subnet
+const MAX_FREE_RUNS = 500; // free runs sent for one subnet
 
 // IPAM_POOLS: the ranges the organisation hands out, e.g. "10.0.0.0/8, 172.16.0.0/12".
 function pools() {
@@ -99,6 +102,73 @@ async function readNetworks() {
       prefixes: prefixList(o.prefixes),
     })),
   };
+}
+
+// The private addresses Azure resources hold, by subnet id (lower case):
+// [address, name, kind, static (1/0)]. Network interfaces (VMs, private
+// endpoints, private link services) and the front ends of load balancers,
+// application gateways and firewalls. Uniform scale-set NICs (AKS nodes among
+// them) and services that take addresses without a NIC (App Service
+// integration, SQL managed instance) are not in Resource Graph; the subnet's
+// usage count from Azure still includes them.
+async function readAddresses() {
+  const [nics, fronts] = await Promise.all([
+    resourceGraphQuery(
+      `Resources
+      | where type =~ 'microsoft.network/networkinterfaces'
+      | extend vm = tostring(properties.virtualMachine.id), pe = tostring(properties.privateEndpoint.id), pls = tostring(properties.privateLinkService.id)
+      | mv-expand c = properties.ipConfigurations
+      | extend addr = tostring(c.properties.privateIPAddress), subnetId = tolower(tostring(c.properties.subnet.id)), alloc = tostring(c.properties.privateIPAllocationMethod)
+      | where isnotempty(addr) and isnotempty(subnetId)
+      | project addr, subnetId, alloc, nic = name, vm, pe, pls`,
+      { toolId: TOOL_ID }
+    ),
+    resourceGraphQuery(
+      `Resources
+      | where type in~ ('microsoft.network/loadbalancers', 'microsoft.network/applicationgateways', 'microsoft.network/azurefirewalls')
+      | extend cfgs = iff(type =~ 'microsoft.network/azurefirewalls', properties.ipConfigurations, properties.frontendIPConfigurations)
+      | mv-expand c = cfgs
+      | extend addr = tostring(c.properties.privateIPAddress), subnetId = tolower(tostring(c.properties.subnet.id)), alloc = tostring(c.properties.privateIPAllocationMethod)
+      | where isnotempty(addr) and isnotempty(subnetId)
+      | project addr, subnetId, alloc, owner = name, rtype = tolower(type)`,
+      { toolId: TOOL_ID }
+    ),
+  ]);
+  return addressRows(nics, fronts);
+}
+
+const FRONT_KINDS = { "microsoft.network/loadbalancers": "load balancer", "microsoft.network/applicationgateways": "application gateway", "microsoft.network/azurefirewalls": "firewall" };
+
+// Resource Graph rows -> Map(subnet id -> rows). Pure, for the tests.
+function addressRows(nics, fronts) {
+  const last = (id) => String(id).split("/").pop();
+  const out = new Map();
+  const add = (subnetId, row) => {
+    if (!out.has(subnetId)) out.set(subnetId, []);
+    out.get(subnetId).push(row);
+  };
+  for (const n of nics) {
+    const [name, kind] = n.vm ? [last(n.vm), "VM"] : n.pe ? [last(n.pe), "private endpoint"] : n.pls ? [last(n.pls), "private link service"] : [n.nic, "network interface"];
+    add(n.subnetId, [n.addr, name, kind, /static/i.test(n.alloc) ? 1 : 0]);
+  }
+  for (const f of fronts) add(f.subnetId, [f.addr, f.owner, FRONT_KINDS[f.rtype] || f.rtype, /static/i.test(f.alloc) ? 1 : 0]);
+  return out;
+}
+
+// Puts each subnet's taken addresses on it (s.ips, sorted) with the count (s.listed).
+function addAddresses(vnets, bySubnet) {
+  for (const v of vnets) {
+    for (const s of v.subnets) {
+      const seen = new Set();
+      const rows = (bySubnet.get(`${String(v.id).toLowerCase()}/subnets/${s.name.toLowerCase()}`) || [])
+        .map((r) => ({ r, n: ip.parse(r[0]) }))
+        .filter((x) => x.n && x.n.bits === 32 && !seen.has(x.n.start) && seen.add(x.n.start))
+        .sort((a, b) => a.n.start - b.n.start)
+        .map((x) => x.r);
+      s.listed = rows.length;
+      s.ips = rows.slice(0, MAX_LISTED);
+    }
+  }
 }
 
 // Firewall IP groups with their entries and the firewalls and firewall
@@ -400,6 +470,11 @@ async function run() {
   const now = new Date().toISOString();
   trackIpGroupChanges(ipGroups, previous && previous.ipGroups, now);
   const usageErrors = await addUsage(vnets);
+  try {
+    addAddresses(vnets, await readAddresses());
+  } catch (err) {
+    usageErrors.push(scanError(TOOL_ID, "addresses", "Taken addresses could not be read", `The IPAM page shows counts only: ${String(err.message).slice(0, 300)}`));
+  }
   vnets.forEach(summarize);
   const findings = await runChecks(TOOL_ID, {
     Subnets: async () => subnetFindings(vnets, warnPct),
@@ -464,12 +539,64 @@ function findFree(inv, { pool, size, vnetId }) {
   };
 }
 
+// One subnet's addresses: the ones known to be taken and the free runs in
+// between, leaving out the five Azure keeps (the first four and the last).
+// Pure, for the tests.
+function subnetAddresses(v, s) {
+  const taken = (s.ips || []).map((r) => ip.parse(r[0]).start);
+  const ranges = s.prefixes.map(ip.parse).filter(Boolean);
+  const free = [];
+  let freeCount = 0;
+  for (const r of ranges) {
+    const first = r.size >= 8 ? r.start + 4 : r.start;
+    const end = r.size >= 8 ? r.end - 1 : r.end;
+    let at = first;
+    for (const n of taken) {
+      if (n < at || n > end) continue;
+      if (n > at) free.push({ from: at, to: n - 1 });
+      at = n + 1;
+    }
+    if (at <= end) free.push({ from: at, to: end });
+  }
+  for (const f of free) freeCount += f.to - f.from + 1;
+  return {
+    vnet: { id: v.id, name: v.name, subscriptionId: v.subscriptionId, subscriptionName: v.subscriptionName, resourceGroup: v.resourceGroup, tenant: v.tenant, tenantName: v.tenantName, prefixes: v.prefixes },
+    subnet: { name: s.name, prefixes: s.prefixes, delegation: s.delegation, used: s.used, usable: s.usable, listed: s.listed || 0, listKnown: Array.isArray(s.ips) },
+    ranges: ranges.map((r) => ({ cidr: r.cidr, start: ip.toIp(r.start), size: r.size })),
+    taken: (s.ips || []).map(([addr, name, kind, fixed]) => ({ ip: addr, name, kind, static: !!fixed })),
+    // Azure counts more in use than are listed: something Resource Graph does not show (AKS nodes, App Service) holds the rest.
+    unlisted: Math.max(0, (s.used || 0) - (s.listed || 0)),
+    freeCount,
+    free: free.slice(0, MAX_FREE_RUNS).map((f) => ({ from: ip.toIp(f.from), to: ip.toIp(f.to), count: f.to - f.from + 1 })),
+    freeRuns: free.length,
+  };
+}
+
 function registerRoutes(app, { readKeys, decorate }) {
   app.get("/api/ipam", async (req, res) => {
     try {
       const inv = await inventory(readKeys(req));
       await decorate(TOOL_ID, [...inv.vnets, ...inv.sites, ...inv.ipGroups]);
+      // Each subnet's address list comes from /api/ipam/subnet; here the room left for new subnets.
+      for (const v of inv.vnets) {
+        const subnetRanges = v.subnets.flatMap((s) => s.prefixes.map(ip.parse).filter(Boolean));
+        v.freeBlocks = v.prefixes.map(ip.parse).filter(Boolean).flatMap((r) => ip.freeBlocks(r, subnetRanges)).slice(0, 50).map((b) => b.cidr);
+        v.subnets = v.subnets.map(({ ips, ...s }) => ({ ...s, listKnown: Array.isArray(ips), nextFree: Array.isArray(ips) ? subnetAddresses(v, { ...s, ips }).free.slice(0, 3) : [] }));
+      }
       res.json({ ...inv, pools: pools().map((p) => p.cidr) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.get("/api/ipam/subnet", async (req, res) => {
+    const q = (k) => (typeof req.query[k] === "string" ? req.query[k] : "");
+    try {
+      const inv = await inventory(readKeys(req));
+      const v = inv.vnets.find((x) => String(x.id).toLowerCase() === q("vnet").toLowerCase());
+      const s = v && v.subnets.find((x) => x.name.toLowerCase() === q("subnet").toLowerCase());
+      if (!s) return res.status(404).json({ error: "no such subnet in the address inventory" });
+      await decorate(TOOL_ID, [v]);
+      res.json(subnetAddresses(v, s));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -491,5 +618,5 @@ module.exports = {
   schedule: "20 4 * * *", // daily at 04:20
   run,
   registerRoutes,
-  _test: { summarize, subnetFindings, overlapFindings, spaceFindings, peeringFindings, findFree, trackIpGroupChanges, coveredEntries, ipGroupFindings },
+  _test: { summarize, subnetFindings, overlapFindings, spaceFindings, peeringFindings, findFree, subnetAddresses, addAddresses, addressRows, trackIpGroupChanges, coveredEntries, ipGroupFindings },
 };

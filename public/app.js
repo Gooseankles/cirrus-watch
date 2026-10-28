@@ -134,7 +134,7 @@ const TOOLS = [
   { id: "network-hygiene", group: "resources", label: "Network hygiene", icon: "network", schedule: "Daily at 05:05", sub: "Network settings that look fine but protect or route nothing: WAF policies in Detection mode or turned off (Application Gateway and Front Door), WAF gateways with no WAF at all, public Standard gateways with no WAF, DNS records that point at an Azure name nobody owns any more (subdomain takeover) or at a deleted resource, and routes to a virtual appliance address that belongs to nothing, so the traffic is dropped." },
   { id: "subscriptions", group: "governance", label: "Subscriptions", icon: "box", schedule: "Daily at 04:35", sub: "Subscriptions sitting directly in the Tenant Root Group (management group policies and access do not reach them), with no Owner on the subscription or a management group above it, or not enabled: Warned or PastDue (about to be switched off) and Disabled ones left behind." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
-  { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "Every virtual network's address space and subnets with how full they are, free ranges for a new VNet or subnet, and what goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space and broken peerings." },
+  { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "What goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space, broken peerings and untidy firewall IP groups. Free addresses are on the IPAM page." },
   { id: "firewall-policies", group: "resources", label: "Firewall policies", icon: "wall", schedule: "Daily at 04:50", sub: "Every Azure Firewall policy with its rules laid out in the order the firewall checks them, and what is wrong in them: duplicate rules, rules that never apply because an earlier rule already allows or blocks the traffic, rules covered by a wider one, any-to-any and all-port allows, admin ports forwarded from the internet, missing IP groups, threat intelligence or IDPS off. Classic firewall rules are read too. The Reach map shows every rule that lets traffic in to or out from a picked VM or IP address." },
   { id: "architecture", group: "resources", info: true, drawing: true, label: "Architecture", icon: "grid", schedule: "Daily at 04:40", sub: "A drawing of the environment. Pick resource groups or whole subscriptions; the virtual networks and subnets their resources sit in are found and drawn by themselves, with peerings, VPN and ExpressRoute sites, private endpoints and public IPs. Download it as SVG, PNG or a draw.io file to edit. For information: no findings." },
   { id: "change-log", group: "governance", info: true, label: "Change log", icon: "history", schedule: "Daily at 08:00", sub: "What people and apps created, changed or deleted in the last 24 hours, with network, public access, TLS and permission changes marked. For information: not counted as open findings." },
@@ -548,6 +548,7 @@ function setTenant(key) {
   state.logsAt = null;
   Cost.reset();
   Report.reset();
+  Ipam.reset();
   delete $("#page-scan").dataset.tool;
   renderTenantTabs();
   renderMe();
@@ -771,6 +772,9 @@ function render() {
     show = () => showOverview();
   } else if (r.page === "lookup") {
     pageId = "page-lookup";
+  } else if (r.page === "ipam") {
+    pageId = "page-ipam";
+    show = () => Ipam.show();
   } else if (r.page === "scan" && TOOL_BY_ID[r.arg]) {
     pageId = "page-scan";
     key = `scan/${r.arg}`;
@@ -827,6 +831,7 @@ function buildNav() {
       label: g.label,
       items: [
         ...(g.id === "access" ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
+        ...(g.id === "resources" && !toolOff("ipam") ? [{ route: "ipam", label: "IPAM", icon: "grid" }] : []),
         ...shownTools().filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
         ...(g.id === "cost" ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
       ],

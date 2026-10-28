@@ -410,6 +410,32 @@ tr.ip-hit td { background: var(--accent-soft); }
 .ip-cmp pre { margin: 0; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.78rem; max-height: 200px; overflow-y: auto; }
 .ip-cmp .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
+/* --- IPAM page --- */
+.ipam-vnet { display: flex; gap: 6px; align-items: flex-start; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ipam-vnet > svg { width: 14px; height: 14px; flex: none; margin-top: 3px; color: var(--muted); transform: rotate(-90deg); transition: transform 0.15s; }
+.ipam-vnet[aria-expanded="true"] > svg { transform: none; }
+tr.ipam-sub-row > td { background: var(--surface-2); padding: 6px 10px 12px 30px; }
+table.ipam-subs { margin: 0; }
+table.ipam-subs td { vertical-align: top; }
+.ipam-free { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.ipam-free b { font-size: 1.05rem; }
+.ipam-room { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+tr.ipam-addr-row > td { background: var(--surface); padding: 10px 12px 14px; }
+.ipam-addr .ip-h3:first-of-type { margin-top: 14px; }
+.ipam-found { display: flex; gap: 6px; align-items: center; padding: 8px 10px; margin-bottom: 8px; border-radius: 6px; background: var(--accent-soft); }
+.ipam-found svg { width: 14px; height: 14px; }
+.ipam-warn { color: var(--warning); margin: 4px 0 8px; }
+.ipam-map-head { color: var(--muted); margin: 8px 0 4px; }
+.ipam-map { display: grid; grid-template-columns: repeat(32, 12px); gap: 2px; max-width: 100%; overflow-x: auto; }
+.ipam-cell { display: inline-block; width: 12px; height: 12px; border-radius: 2px; background: var(--surface-3); }
+.ipam-cell.free { background: rgba(12, 163, 12, 0.35); }
+.ipam-cell.used { background: var(--s1); }
+.ipam-cell.res { background: var(--border-strong); }
+.ipam-cell.hit { outline: 2px solid var(--warning); outline-offset: 1px; }
+.ipam-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 8px; color: var(--text-2); }
+.ipam-legend span { display: inline-flex; gap: 5px; align-items: center; }
+@media (max-width: 560px) { .ipam-map { grid-template-columns: repeat(16, 12px); } tr.ipam-sub-row > td { padding-left: 10px; } }
+
 .ar-nested { margin-top: 8px; font-size: 0.8rem; }
 .ar-nested > summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }
 .ar-nested > summary::-webkit-details-marker { display: none; }

@@ -215,8 +215,21 @@ The link can be:
   email address (channel ⋯ → Get email address) works too, if the organization allows mail to channels. The mail
   goes out through Microsoft Graph from the mailbox in **Send email from** (Settings → Notifications on the Home
   tab, `NOTIFY_MAIL_FROM`): a mailbox in the home tenant (a shared mailbox is fine), whichever tenant the message is
-  about. The dashboard's app needs the Graph application permission `Mail.Send`; limit it to that one mailbox with an
-  Exchange Online application access policy (`New-ApplicationAccessPolicy -AccessRight RestrictAccess`).
+  about. The dashboard's identity (app or managed identity) needs the right to send as that mailbox, best given in
+  Exchange Online with **RBAC for Applications**, limited to that mailbox, and *not* as Graph `Mail.Send` in Entra
+  (an Entra grant works for every mailbox and overrides the Exchange limit):
+
+  ```powershell
+  Connect-ExchangeOnline
+  New-DistributionGroup -Name "Dashboard Mailer Scope" -Type Security -Members alerts@contoso.com
+  New-ServicePrincipal -AppId <app id> -ObjectId <enterprise app object id> -DisplayName "Ops dashboard mailer"
+  $dn = (Get-DistributionGroup "Dashboard Mailer Scope").DistinguishedName
+  New-ManagementScope -Name "Dashboard Mailer Mailboxes" -RecipientRestrictionFilter "MemberOfGroup -eq '$dn'"
+  New-ManagementRoleAssignment -App <app id> -Role "Application Mail.Send" -CustomResourceScope "Dashboard Mailer Mailboxes"
+  Test-ServicePrincipalAuthorization -Identity <app id> -Resource alerts@contoso.com   # InScope = True
+  ```
+
+  The role can take up to two hours to apply.
 
 The link carries its own signature, so it is kept like a client secret (the key vault when `SECRET_VAULT_URL` is
 set, else `notify.json` under `DATA_DIR`) and never shown again. What is waiting is kept in `notify-queue.json`. A
@@ -267,8 +280,8 @@ identity (by default the web app's managed identity, or a service principal):
   needs Entra ID P1), `Policy.Read.All` (Conditional Access, consent settings) and
   `DelegatedPermissionGrant.Read.All` (app consents), `LicenseAssignment.Read.All` (licences owned) and
   `PrivilegedEligibilitySchedule.Read.AzureADGroup` + `PrivilegedAssignmentSchedule.Read.AzureADGroup` (PIM for
-  Groups, for licence coverage). All read-only. Only for email notifications: `Mail.Send` in the home tenant (see
-  Notifications).
+  Groups, for licence coverage). All read-only. Email notifications need a send right in the home tenant, given in
+  Exchange (see Notifications), not here.
 - **Key Vault**: `Key Vault Reader` (lists item names and expiry dates, never secret values) on RBAC vaults, or an
   access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
   Vault settings, access and logging checks need only Reader.

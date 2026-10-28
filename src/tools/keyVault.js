@@ -1,16 +1,18 @@
 // Key Vault posture, in four areas:
 // - settings: soft delete or purge protection off, open to every network,
 //   still on the access-policy model instead of Azure RBAC.
-// - expiry: secrets, keys and certificates that expired, expire soon or have
-//   no expiry date (metadata only; secret values are never read).
+// - expiry (only with KEYVAULT_ITEM_CHECK on): secrets, keys and certificates
+//   that expired, expire soon or have no expiry date (metadata only; secret
+//   values are never read).
 // - access: who can read secrets: secret roles granted at subscription or
 //   management-group level, vaults with many readers, guests, and access
 //   policies for deleted identities (deleted RBAC ones are in Role assignments).
 // - logging: no diagnostic setting, no owner tag, empty or unused vaults.
 //
-// The control-plane checks need Reader. Listing items needs "Key Vault
-// Reader" (RBAC vaults) or list permission on secrets, keys and certificates
-// (access-policy vaults), and the vault's firewall must let the app in.
+// The control-plane checks need Reader. Listing items (the item check, off
+// unless turned on) needs "Key Vault Reader" (RBAC vaults) or list permission
+// on secrets, keys and certificates (access-policy vaults), and the vault's
+// firewall must let the app in.
 const axios = require("axios");
 const { resourceGraphQuery, armGet } = require("../armClient");
 const { graphPost } = require("../graphClient");
@@ -40,6 +42,8 @@ function numberSetting(key, fallback) {
 const warnDays = () => numberSetting("KEYVAULT_EXPIRY_WARN_DAYS", 30);
 const maxReaders = () => numberSetting("KEYVAULT_MAX_READERS", 10);
 const unusedDays = () => Math.min(numberSetting("KEYVAULT_UNUSED_DAYS", 30), 90); // metrics are kept 93 days
+// The item check lists every vault's secrets, keys and certificates; blank = off.
+const itemCheck = () => /^(on|yes|true|1)$/i.test(String(settings.get("KEYVAULT_ITEM_CHECK") || "").trim());
 function ownerTag() {
   const v = String(settings.get("KEYVAULT_OWNER_TAG") || "").trim();
   if (v.toLowerCase() === "none") return null;
@@ -281,10 +285,13 @@ async function run() {
   }
 
   // --- expiry, empty vaults, diagnostics, usage (per vault) ---
-  const token = await vaultToken().catch((err) => {
-    log.record({ tool: TOOL_ID, level: "error", message: `no Key Vault token, skipping item checks: ${err.message}` });
-    return null;
-  });
+  const listing = itemCheck();
+  const token = !listing
+    ? null
+    : await vaultToken().catch((err) => {
+        log.record({ tool: TOOL_ID, level: "error", message: `no Key Vault token, skipping item checks: ${err.message}` });
+        return null;
+      });
   const now = Date.now();
   const warnMs = warnDays() * DAY_MS;
   const days = unusedDays();
@@ -339,7 +346,8 @@ async function run() {
       }
     }
 
-    if (total > 0 || blocked) {
+    // Without the item check every vault is looked at; with it, empty ones are already reported.
+    if (!listing || total > 0 || blocked) {
       try {
         if ((await realApiHits(v, days)) === 0) {
           add(v, { area: "logging", kind: "kv-unused", id: v.id, name: v.name, detail: `no reads or writes in the last ${days} days (listing not counted)` });

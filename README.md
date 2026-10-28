@@ -16,7 +16,7 @@ are needed.
 | Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
 | Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree) |
 | Expiring app credentials | Daily | App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default) |
-| Key Vault | Daily | Vault settings (soft delete, purge protection, open networks, access policies); secrets, keys and certificates that expired, expire soon or have no expiry date; who can read secrets (broad roles, many readers, guests, deleted identities); vaults with no audit log, no owner tag, nothing in them or no use |
+| Key Vault | Daily | Vault settings (soft delete, purge protection, open networks, access policies); secrets, keys and certificates that expired, expire soon or have no expiry date (optional, off unless turned on in Settings); who can read secrets (broad roles, many readers, guests, deleted identities); vaults with no audit log, no owner tag, nothing in them or no use |
 | Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date, have a single approver, or have approver groups with no (enabled) members, so requests cannot be approved |
 | Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
@@ -63,8 +63,8 @@ leaves the menu. A customer tenant's list does not follow Home: there, all scans
 - **Accept or snooze**: a finding that is known and fine (the public IP is the VPN gateway) can be accepted with a
   reason, for 30 to 365 days, until a chosen date or until reopened. It stays in the results but no longer counts as
   open; a snoozed one counts again from its end date. The **Accepted** chip on a scan page lists them, with who
-  accepted them and why, and reopens them. Needs Run now rights in the finding's tenant (`Admin` or
-  `Admin-<key>`); every accept and reopen goes to the activity log. Stored per tenant as
+  accepted them and why, and reopens them. Anyone who may read the scan in the finding's tenant may accept or
+  reopen it; every accept and reopen goes to the activity log. Stored per tenant as
   `suppressions/<tool>.json` next to the scan results. API: `POST /api/tools/<id>/accept`
   `{ key, tenant, reason, until }` (`until` = `YYYY-MM-DD` or null) and `POST /api/tools/<id>/unaccept` `{ key, tenant }`.
 - **Monthly report** (`#/report`): for one tenant or all you can see, where every scan stood at the end of the
@@ -143,6 +143,21 @@ To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access
 - **User**: read-only, every tenant.
 - **Admin-&lt;key&gt;**: one customer tenant (see "Customer tenants" below): read it and run its scans.
 - **User-&lt;key&gt;**: one customer tenant, read-only.
+- **&lt;Area&gt;.Read** / **&lt;Area&gt;.Run**: one area in every tenant, read-only or with Run now.
+- **&lt;Area&gt;.Read-&lt;key&gt;** / **&lt;Area&gt;.Run-&lt;key&gt;**: one area in one tenant.
+
+Areas let each team see only its own scans. Area is `Identity`, `Platform`, `Security` or `Cost`; a scan can sit in
+more than one (`TOOL_AREAS` in `src/access.js`):
+
+| Area | Scans |
+| --- | --- |
+| Identity | Access lookup, access review, secret expiry, access packages, role assignments, PIM, stale accounts, tenant settings, licence coverage, privileged roles, app permissions, Conditional Access, MFA coverage |
+| Security | Privileged roles, app permissions, Conditional Access, MFA coverage, Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log |
+| Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, backup coverage, resilience, updates, resource health, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
+| Cost | Orphaned resources, cost anomalies, cost history |
+
+Whoever may read a scan may also accept or snooze its findings. Settings, the server log lines and notifications
+stay with `Admin` (and `User` for reading).
 
 A person can hold several roles, for example `User-acme` and `Admin-globex`, and then sees only those tenants.
 Role values are matched without regard to case. An SSO account with no role is refused, even when the Enterprise
@@ -167,8 +182,8 @@ This is a separate app registration from the identity the scans use: it only sig
 2. Either create a client secret (`DASHBOARD_AZURE_CLIENT_SECRET`), or, on App Service, go secretless: attach a
    user-assigned managed identity to the web app, add a federated credential for it on the app registration
    (scenario "Managed identity") and set its client ID as `DASHBOARD_FEDERATED_MI_CLIENT_ID`.
-3. App roles → create `Admin` and `User`, plus `Admin-<key>` and `User-<key>` per customer tenant (allowed member
-   types: Users/Groups).
+3. App roles → create `Admin` and `User`, plus `Admin-<key>` and `User-<key>` per customer tenant and the area
+   roles you want (`Security.Read`, `Platform.Run-acme` and so on) (allowed member types: Users/Groups).
 4. Set `DASHBOARD_AZURE_TENANT_ID` and `DASHBOARD_AZURE_CLIENT_ID`.
 5. Enterprise applications → this app → Properties → **Assignment required** = Yes, so only people you add can
    sign in.
@@ -243,7 +258,7 @@ storage container, and its own roles (above). Its scans run in that tenant as th
 home tenant keeps using the shared SPN.
 
 Each customer tenant has its own app registration, made there by hand, with a client secret. Give that app the
-Graph application permissions (with admin consent) and Reader, Cost Management Reader and Key Vault Reader on the
+Graph application permissions (with admin consent) and Reader and Cost Management Reader on the
 subscriptions (step by step in [docs/permissions.md](docs/permissions.md#customer-tenant-app-other-tenants)), put
 its client ID in Terraform's `customers` (`client_id`) or in Settings, and paste its secret in Settings → Customer
 tenants → Edit (only there, so it never lands in the Terraform state; it is kept in the key vault, and the page
@@ -282,9 +297,10 @@ identity (by default the web app's managed identity, or a service principal):
   `PrivilegedEligibilitySchedule.Read.AzureADGroup` + `PrivilegedAssignmentSchedule.Read.AzureADGroup` (PIM for
   Groups, for licence coverage). All read-only. Email notifications need a send right in the home tenant, given in
   Exchange (see Notifications), not here.
-- **Key Vault**: `Key Vault Reader` (lists item names and expiry dates, never secret values) on RBAC vaults, or an
-  access policy with list on secrets, keys and certificates. The vault's firewall must let the dashboard in.
-  Vault settings, access and logging checks need only Reader.
+- **Key Vault**: vault settings, access and logging checks need only Reader. The optional item check
+  (`KEYVAULT_ITEM_CHECK`, off by default) also needs `Key Vault Reader` (lists item names and expiry dates, never
+  secret values) on RBAC vaults, or an access policy with list on secrets, keys and certificates, and the vault's
+  firewall must let the dashboard in.
 - **History storage**: `Storage Blob Data Contributor` on the storage account, when `STORAGE_ACCOUNT_URL` is set.
 - **Secret vault**: `Key Vault Secrets Officer` on the dashboard's own key vault, when `SECRET_VAULT_URL` is set.
 

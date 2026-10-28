@@ -110,7 +110,7 @@ const Cost = (() => {
   }
 
   function renderMain() {
-    const runner = canRun();
+    const runner = canRun("cost-history");
     const s = summary();
     const ix = st.index;
     const btn = $("#cost-refresh");

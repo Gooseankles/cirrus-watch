@@ -34,7 +34,7 @@
   const loading = () => `<div class="empty-state">Loading the rules…</div>`;
   const failed = (msg) => `<div class="empty-state big"><h3>Could not load the rules</h3><p class="muted">${esc(msg)}</p></div>`;
   const noInventory = () =>
-    `<div class="empty-state big"><h3>No rules saved yet</h3><p>The rules are saved by each scan. Run the scan once${canRun() ? " (Run now above)" : ""} and the policies show here.</p></div>`;
+    `<div class="empty-state big"><h3>No rules saved yet</h3><p>The rules are saved by each scan. Run the scan once${canRun("firewall-policies") ? " (Run now above)" : ""} and the policies show here.</p></div>`;
 
   /* IP search */
   function ipNum(s) {

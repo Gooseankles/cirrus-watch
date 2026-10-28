@@ -106,8 +106,8 @@ async function startLogin(req, res) {
   }
 }
 
-// Only people assigned an app role get in: Admin, User, or a per-customer
-// Admin-<key> / User-<key> (access.js). A token without one means the
+// Only people assigned an app role get in: Admin, User, a per-customer
+// Admin-<key> / User-<key>, or an area role such as Security.Read (access.js). A token without one means the
 // Enterprise App does not require assignment; refuse it rather than letting
 // the whole tenant read the dashboard.
 

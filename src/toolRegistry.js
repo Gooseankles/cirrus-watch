@@ -50,21 +50,30 @@ async function decorate(toolId, findings) {
   }
 }
 
-// The tenants whose stored results a request reads: those the person may see
-// (narrowed by ?tenant=) that still exist. A removed tenant's data stays in
-// its container but is no longer shown. With a tool: only the tenants where
-// that scan is on (results from before it was turned off stay hidden).
-function readKeys(req, toolId = null) {
-  const scope = access.readScope(req);
+// The tenants whose stored data for a tool or area (access.js) a request
+// reads: those the person may see it in (narrowed by ?tenant=) that still
+// exist. A removed tenant's data stays in its container but is no longer shown.
+function areaKeys(req, id) {
+  const scope = access.readScope(req, id);
   const known = tenants.all().map((t) => t.key);
-  const keys = scope === null ? known : scope.filter((k) => known.includes(k));
-  return toolId ? keys.filter((k) => !settings.scanOff(toolId, k)) : keys;
+  return scope === null ? known : scope.filter((k) => known.includes(k));
+}
+// The same for a scan's results, only in the tenants where that scan is on
+// (results from before it was turned off stay hidden).
+function readKeys(req, toolId) {
+  return areaKeys(req, toolId).filter((k) => !settings.scanOff(toolId, k));
+}
+// Every tenant the person may see in some area (narrowed by ?tenant=).
+function visibleKeys(req) {
+  const keys = access.visibleTenants(req.session && req.session.user).map((t) => t.key);
+  const w = req.query && req.query.tenant ? String(req.query.tenant).toLowerCase() : null;
+  return w ? keys.filter((k) => k === w) : keys;
 }
 
 // Accept or snooze one finding (body: key, tenant, reason, until) or take
-// that back. Needs Run now rights in the finding's tenant.
+// that back. Anyone who may read the scan in the finding's tenant may.
 const MAX_SNOOZE_DAYS = 3 * 365;
-function acceptTarget(req, res) {
+function acceptTarget(req, res, toolId) {
   const b = req.body || {};
   const tenantKey = String(b.tenant || tenants.HOME).toLowerCase();
   const key = typeof b.key === "string" ? b.key : "";
@@ -74,7 +83,7 @@ function acceptTarget(req, res) {
   };
   if (!key || key.length > 2000) return refuse(400, "finding key missing");
   if (!tenants.byKey(tenantKey)) return refuse(400, "no such tenant");
-  if (!access.inScope(access.runScope(req), tenantKey)) return refuse(403, "you cannot change findings in that tenant");
+  if (!areaKeys(req, toolId).includes(tenantKey)) return refuse(403, "you cannot change findings in that tenant");
   return { tenantKey, key };
 }
 function whoIs(req) {
@@ -164,9 +173,10 @@ function registerScanTool(app, tool) {
     return true;
   }
 
-  // Global Admin runs every tenant; Admin-<key> only theirs (?tenant= narrows).
-  app.post(`/api/tools/${tool.id}/run`, access.requireRunner, (req, res) => {
-    const keys = access.runScope(req);
+  // Global Admin runs every tenant; Admin-<key> only theirs, <Area>.Run its
+  // area's scans (?tenant= narrows).
+  app.post(`/api/tools/${tool.id}/run`, access.requireRunner(tool.id), (req, res) => {
+    const keys = access.runScope(req, tool.id);
     if (keys && !keys.length) return res.status(403).json({ error: "you cannot run scans in that tenant" });
     const targets = tenants.scanTargets().filter((t) => !keys || keys.includes(t.key));
     if (targets.length && targets.every((t) => settings.scanOff(tool.id, t.key))) {
@@ -176,8 +186,8 @@ function registerScanTool(app, tool) {
     execute(keys);
   });
 
-  app.post(`/api/tools/${tool.id}/accept`, access.requireRunner, async (req, res) => {
-    const target = acceptTarget(req, res);
+  app.post(`/api/tools/${tool.id}/accept`, async (req, res) => {
+    const target = acceptTarget(req, res, tool.id);
     if (!target) return;
     const b = req.body || {};
     const reason = typeof b.reason === "string" ? b.reason.trim() : "";
@@ -204,8 +214,8 @@ function registerScanTool(app, tool) {
     }
   });
 
-  app.post(`/api/tools/${tool.id}/unaccept`, access.requireRunner, async (req, res) => {
-    const target = acceptTarget(req, res);
+  app.post(`/api/tools/${tool.id}/unaccept`, async (req, res) => {
+    const target = acceptTarget(req, res, tool.id);
     if (!target) return;
     try {
       const had = await suppressions.remove(tool.id, target.tenantKey, target.key);
@@ -259,13 +269,13 @@ function registerScanTool(app, tool) {
     console.log(`[${tool.id}] scheduled: ${tool.schedule}`);
   }
 
-  return { id: tool.id, label: tool.label, kind: "scan", ...(tool.info && { info: true }) };
+  return { id: tool.id, label: tool.label, kind: "scan", areas: access.areasOf(tool.id), ...(tool.info && { info: true }) };
 }
 
 // Action tools (ones triggered on demand with input, like a lookup) register their own routes directly.
 function registerActionTool(app, tool) {
   tool.registerRoutes(app);
-  return { id: tool.id, label: tool.label, kind: "action" };
+  return { id: tool.id, label: tool.label, kind: "action", areas: access.areasOf(tool.id) };
 }
 
-module.exports = { registerScanTool, registerActionTool, readKeys, decorate };
+module.exports = { registerScanTool, registerActionTool, readKeys, areaKeys, visibleKeys, decorate };

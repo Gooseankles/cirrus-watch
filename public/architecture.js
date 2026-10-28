@@ -1031,7 +1031,7 @@
     if (!a) return `<div class="empty-state">Loading the saved drawing…</div>`;
     if (a.error) return `<div class="empty-state big"><h3>Could not load the drawing</h3><p class="muted">${esc(a.error)}</p></div>`;
     const inv = a.data;
-    if (!inv.updatedAt) return `<div class="empty-state big"><h3>Nothing saved yet</h3><p>Each scan saves what it found. Run it once${canRun() ? " (Run now above)" : ""} and the drawing shows here.</p></div>`;
+    if (!inv.updatedAt) return `<div class="empty-state big"><h3>Nothing saved yet</h3><p>Each scan saves what it found. Run it once${canRun("architecture") ? " (Run now above)" : ""} and the drawing shows here.</p></div>`;
     const o = opts(t, inv);
     const last = o.traffic && t.archFlow && t.archFlow.results;
     o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter((id) => id && !o.hide.has(id) && (o.fwVms || !(inv.byId.get(id) || {}).appliance)) : []);

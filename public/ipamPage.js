@@ -106,7 +106,7 @@ const Ipam = (() => {
     const el = $("#ipam-body");
     if (st.error) el.innerHTML = `<div class="empty-state big"><h3>Could not load the address inventory</h3><p class="muted">${esc(st.error)}</p></div>`;
     else if (!st.data) el.innerHTML = `<div class="empty-state">Loading the address inventory…</div>`;
-    else if (!st.data.updatedAt) el.innerHTML = `<div class="empty-state big"><h3>No address inventory yet</h3><p>The IP addresses scan saves it. <a href="#/scan/ipam">Run that scan</a>${canRun() ? "" : " (or ask someone who may)"} and the networks show here.</p></div>`;
+    else if (!st.data.updatedAt) el.innerHTML = `<div class="empty-state big"><h3>No address inventory yet</h3><p>The IP addresses scan saves it. <a href="#/scan/ipam">Run that scan</a>${canRun("ipam") ? "" : " (or ask someone who may)"} and the networks show here.</p></div>`;
     else el.innerHTML = st.view === "free" ? freeView() : networks();
   }
 

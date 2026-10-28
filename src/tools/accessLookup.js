@@ -421,11 +421,17 @@ async function groupDetail(id) {
 }
 
 function registerRoutes(app) {
+  // Identity area (access.js): someone without it anywhere gets a plain refusal.
+  app.use("/api/tools/access-lookup", (req, res, next) => {
+    const keys = access.readScope(req, "access-lookup");
+    if (keys && !keys.length) return res.status(403).json({ error: "Access lookup needs the Identity area" });
+    next();
+  });
   app.get("/api/tools/access-lookup/run", async (req, res) => {
     const upn = req.query.upn;
     if (!upn || typeof upn !== "string") return res.status(400).json({ error: "upn query param is required" });
     try {
-      const result = await lookupAll(upn.trim(), access.readScope(req));
+      const result = await lookupAll(upn.trim(), access.readScope(req, "access-lookup"));
       if (!result.user) {
         const errors = result.tenants.filter((t) => t.status === "error");
         if (errors.length) return res.status(500).json({ error: errors.map((t) => (result.tenants.length > 1 ? `${t.name}: ${t.error}` : t.error)).join("; ") });
@@ -441,7 +447,7 @@ function registerRoutes(app) {
       const text = typeof req.query.q === "string" ? req.query.q.trim() : "";
       if (text.length < 2 || text.length > 120) return res.status(400).json({ error: "type at least 2 characters of the name" });
       try {
-        const result = await search(kind, text, access.readScope(req));
+        const result = await search(kind, text, access.readScope(req, "access-lookup"));
         const errors = result.tenants.filter((t) => t.status === "error");
         if (!result[kind].length && errors.length === result.tenants.length && errors.length) return res.status(500).json({ error: errors.map((t) => t.error).join("; ") });
         res.json(result);
@@ -454,7 +460,7 @@ function registerRoutes(app) {
     if (!GUID.test(req.params.id)) return res.status(400).json({ error: "not a group ID" });
     // ?in= names the group's tenant (the page adds ?tenant= for the open tab
     // to every request, so that name is taken).
-    const keys = access.readScope(req);
+    const keys = access.readScope(req, "access-lookup");
     const wanted = typeof req.query.in === "string" && req.query.in ? req.query.in.toLowerCase() : null;
     const target = tenants.scanTargets().find((t) => (wanted ? t.key === wanted : true) && access.inScope(keys, t.key));
     if (!target) return res.status(404).json({ error: "tenant not found" });

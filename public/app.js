@@ -489,21 +489,35 @@ const tenantList = () => (state.me && Array.isArray(state.me.tenants) ? state.me
 const showTenants = () => tenantList().length > 1;
 // Rows name their tenant when the page shows more than one.
 const multiView = () => showTenants() && !state.tenant;
-function canRun() {
+// The tenants the page shows: the open tab, or all of them.
+const shownTenants = () => (state.tenant ? tenantList().filter((t) => t.key === state.tenant) : tenantList());
+// Areas of a scan or page, from /api/tools. The server decides what is sent; this only hides what would be empty.
+const AREAS_ALL = ["identity", "platform", "security", "cost"];
+const PAGE_AREAS = { "access-lookup": ["identity"], "cost-history": ["cost", "platform"] };
+const areaLabel = (a) => ((state.me && state.me.areaLabels) || {})[a] || a;
+const toolAreas = (id) => (TOOL_BY_ID[id] && TOOL_BY_ID[id].areas) || PAGE_AREAS[id] || null;
+// Whether a tenant entry's area list (areas or runAreas from /api/me) covers a scan or page.
+function reaches(list, id) {
+  const want = toolAreas(id);
+  const have = Array.isArray(list) ? list : AREAS_ALL;
+  return want && want.length ? want.some((a) => have.includes(a)) : AREAS_ALL.every((a) => have.includes(a));
+}
+// Whether the person may see a scan or page in some tenant the page shows.
+const mayRead = (id) => shownTenants().some((t) => reaches(t.areas, id));
+// Run now rights: for a scan or page when id is given, else for anything.
+function canRun(id) {
   const me = state.me || {};
-  if (!state.tenant) return Boolean(me.canRun);
-  const t = tenantList().find((x) => x.key === state.tenant);
-  return Boolean(t && t.canRun);
+  if (!id && !state.tenant) return Boolean(me.canRun);
+  return shownTenants().some((t) => (id ? reaches(t.runAreas, id) : t.canRun));
 }
-// Run now rights in the tenant a finding belongs to (accepting it needs them).
+// Accepting or snoozing a finding: anyone who sees its tenant (the server checks the scan's area).
 function canRunFor(f) {
-  const t = tenantList().find((x) => (f.tenant ? x.key === f.tenant : x.home));
-  return Boolean((state.me && state.me.isAdmin) || (t && t.canRun));
+  return tenantList().some((x) => (f.tenant ? x.key === f.tenant : x.home));
 }
-// A scan is hidden when it is off (Settings, Scans) in every tenant the page shows.
+// A scan is hidden when it is off (Settings, Scans) or outside the person's areas in every tenant the page shows.
 function toolOff(id) {
-  const list = state.tenant ? tenantList().filter((t) => t.key === state.tenant) : tenantList();
-  return list.length > 0 && list.every((t) => Array.isArray(t.scansOff) && t.scansOff.includes(id));
+  const list = shownTenants();
+  return list.length > 0 && list.every((t) => (Array.isArray(t.scansOff) && t.scansOff.includes(id)) || !reaches(t.areas, id));
 }
 const shownTools = () => TOOLS.filter((t) => !toolOff(t.id));
 // After scans were turned on or off: a new menu that keeps the current page and the counts.
@@ -770,12 +784,12 @@ function render() {
   if (r.page === "overview") {
     pageId = "page-overview";
     show = () => showOverview();
-  } else if (r.page === "lookup") {
+  } else if (r.page === "lookup" && mayRead("access-lookup")) {
     pageId = "page-lookup";
   } else if (r.page === "ipam") {
     pageId = "page-ipam";
     show = () => Ipam.show();
-  } else if (r.page === "scan" && TOOL_BY_ID[r.arg]) {
+  } else if (r.page === "scan" && TOOL_BY_ID[r.arg] && mayRead(r.arg)) {
     pageId = "page-scan";
     key = `scan/${r.arg}`;
     show = () => showScan(r.arg);
@@ -788,7 +802,7 @@ function render() {
   } else if (r.page === "compliance") {
     pageId = "page-compliance";
     show = () => ComplianceView.show();
-  } else if (r.page === "cost") {
+  } else if (r.page === "cost" && mayRead("cost-history")) {
     pageId = "page-cost";
     show = () => Cost.show();
   } else if (r.page === "audit" && state.me && state.me.isAdmin) {
@@ -830,12 +844,12 @@ function buildNav() {
     ...TOOL_GROUPS.map((g) => ({
       label: g.label,
       items: [
-        ...(g.id === "access" ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
+        ...(g.id === "access" && mayRead("access-lookup") ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
         ...(g.id === "resources" && !toolOff("ipam") ? [{ route: "ipam", label: "IPAM", icon: "grid" }] : []),
         ...shownTools().filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
-        ...(g.id === "cost" ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
+        ...(g.id === "cost" && mayRead("cost-history") ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
       ],
-    })),
+    })).filter((g) => g.items.length),
   ];
   if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "load", label: "Server load", icon: "cpu" },{ route: "settings", label: "Settings", icon: "settings" }] });
   const shut = navClosed();
@@ -884,7 +898,9 @@ function setNavCount(id, n) {
 function renderMe() {
   const me = state.me || {};
   $("#me-name").textContent = me.name || "Signed in";
-  $("#me-role").textContent = me.isAdmin ? "Admin" : canRun() ? "Can run scans" : (me.roles || []).length ? "Read-only" : "Reader";
+  const areas = Array.isArray(me.areas) ? me.areas : AREAS_ALL;
+  const part = areas.length < AREAS_ALL.length ? areas.map(areaLabel).join(", ") : "";
+  $("#me-role").textContent = me.isAdmin ? "Admin" : part ? `${part}${canRun() ? " · can run" : ""}` : canRun() ? "Can run scans" : (me.roles || []).length ? "Read-only" : "Reader";
   $("#me-role").title = (me.roles || []).join(", ");
   $("#me-avatar").textContent = initials(me.name || "?");
   $("#me-version").textContent = me.version ? `v${me.version}` : "";
@@ -917,7 +933,7 @@ function showOverview() {
     page.dataset.built = "1";
   }
   renderOverview();
-  Promise.all([...shownTools().map((t) => loadTool(t.id)), loadLogs(), Cost.loadIndex().catch(() => null)]).then(() => {
+  Promise.all([...shownTools().map((t) => loadTool(t.id)), loadLogs(), mayRead("cost-history") ? Cost.loadIndex().catch(() => null) : null]).then(() => {
     if (state.route === "overview") renderOverview();
   });
 }
@@ -961,6 +977,7 @@ function overviewSavings() {
   return sv && sv.data ? sv.data : null;
 }
 function overviewSavedTile() {
+  if (toolOff("orphaned-resources")) return "";
   const d = overviewSavings();
   const saved = d ? orSaved(d.entries) : [];
   return statTile({
@@ -999,9 +1016,18 @@ function toolCard(tool) {
 }
 function renderOverviewCost() {
   const el = $("#ov-cost");
+  // Without the Cost area the card holds only the cleanup savings, or is left out.
+  const costOn = mayRead("cost-history");
+  const only = costOn ? "" : overviewSavingsList();
+  el.classList.toggle("hidden", !costOn && !only);
+  el.parentElement.classList.toggle("one", !costOn && !only);
+  if (!costOn) {
+    el.innerHTML = only;
+    return;
+  }
   const s = Cost.summary();
   if (!s || !s.subs.length) {
-    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${canRun() ? " Refresh it from the cost history page." : ""}</div>` + overviewSavingsList();
+    el.innerHTML = `<div class="card-head"><h2>${icon("cost")} Tenant spend</h2><a href="#/cost">Open cost history ${icon("arrow")}</a></div><div class="empty-state">No cost data yet.${canRun("cost-history") ? " Refresh it from the cost history page." : ""}</div>` + overviewSavingsList();
     return;
   }
   el.innerHTML = `
@@ -1440,7 +1466,7 @@ function renderFindings(id) {
   const t = toolState(id);
   const tool = TOOL_BY_ID[id];
   const view = VIEWS[id] || GENERIC;
-  const runner = canRun();
+  const runner = canRun(id);
   renderRunState(id);
   $("#scan-lastrun").innerHTML = t.data.ranAt
     ? `Last run <b title="${esc(t.data.ranAt)}">${esc(fmt.rel(t.data.ranAt))}</b><br>${esc(tool.schedule)}`
@@ -1689,7 +1715,7 @@ function genericColumns(ranAt, hasSubs, hasExpiry) {
   if (hasSubs) cols.push({ label: "Subscription" });
   if (hasExpiry) cols.push({ label: "Expiry", cls: "nowrap" });
   cols.push({ label: "Detail" }, { label: "First seen", cls: "nowrap" });
-  if (canRun()) cols.push({ label: "" });
+  cols.push({ label: "" });
   return cols;
 }
 // "Expired <date>" (red) or "Expires <date>", with how long ago / how long left.
@@ -1707,7 +1733,7 @@ function genericRow(f, ranAt, hasSubs, hasExpiry) {
   if (hasSubs) row.push(subCell(f));
   if (hasExpiry) row.push(expiryCell(f));
   row.push(`${pathChain(f)}<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
-  if (canRun()) row.push(acceptButton(f));
+  row.push(acceptButton(f));
   return row;
 }
 function genericBody(shown, t) {
@@ -2021,7 +2047,7 @@ function pcMatrix(shown, t) {
       <span><span class="verdict ok">blocked</span> denied by policy</span>
       <span><span class="verdict open"><span class="nd"></span></span> new this run</span>
     </div>
-    <div class="note">Subscriptions where every probe was blocked (or whose open probes were all accepted) are not listed. Hover a verdict for the policy detail and the fix${canRun() ? "; click it to accept it" : ""}. The Recommended tab lists the built-in policies to assign.</div>`;
+    <div class="note">Subscriptions where every probe was blocked (or whose open probes were all accepted) are not listed. Hover a verdict for the policy detail and the fix; click it to accept it. The Recommended tab lists the built-in policies to assign.</div>`;
 }
 function pcHealth(shown, t) {
   const ranAt = t.data.ranAt;
@@ -2209,7 +2235,7 @@ function epRoute(f) {
 function epPathItem(f, ranAt) {
   const reached = Array.isArray(f.reached) ? f.reached : [];
   return `<li class="ep-path">
-      <div class="ep-path-top">${kindBadge(f.kind)}${isNew(f, ranAt) ? '<span class="new-badge">NEW</span>' : ""}<span class="ep-spacer"></span>${controlTags(f)}${canRun() ? acceptButton(f) : ""}</div>
+      <div class="ep-path-top">${kindBadge(f.kind)}${isNew(f, ranAt) ? '<span class="new-badge">NEW</span>' : ""}<span class="ep-spacer"></span>${controlTags(f)}${acceptButton(f)}</div>
       ${epRoute(f)}
       ${f.risk ? `<div class="ep-risk">${esc(f.risk)}.</div>` : ""}
       ${f.fix ? `<div class="ep-fix"><b>Fix:</b> ${esc(f.fix)}.</div>` : ""}
@@ -2441,7 +2467,7 @@ function renderRunState(id) {
   const btn = $("#scan-run");
   const st = $("#scan-status");
   if (!btn || $("#page-scan").dataset.tool !== id) return;
-  btn.classList.toggle("hidden", !canRun());
+  btn.classList.toggle("hidden", !canRun(id));
   if (t.running) {
     const secs = Math.max(0, Math.round((Date.now() - t.runStarted) / 1000));
     btn.disabled = true;
@@ -2480,7 +2506,10 @@ async function init() {
   }
   // What each tool's identity needs, for the hint next to a failed scan.
   try {
-    for (const x of await apiJson("/api/tools")) if (TOOL_BY_ID[x.id]) TOOL_BY_ID[x.id].needs = x.needs;
+    for (const x of await apiJson("/api/tools")) {
+      if (TOOL_BY_ID[x.id]) Object.assign(TOOL_BY_ID[x.id], { needs: x.needs, areas: x.areas });
+      else if (Array.isArray(x.areas)) PAGE_AREAS[x.id] = x.areas;
+    }
   } catch {}
   initTenant();
   renderTenantTabs();

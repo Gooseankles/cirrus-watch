@@ -73,6 +73,7 @@ const FIELDS = [
   { key: "AZURE_ACCESS_REVIEW_STALE_DAYS", label: "Stale direct-assignment age (days)", group: "Access review" },
   { key: "SECRET_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Expiring app credentials" },
   { key: "APP_SECRET_MAX_DAYS", label: "Longest allowed client secret (days)", group: "Expiring app credentials", hint: "Blank = 365" },
+  { key: "KEYVAULT_ITEM_CHECK", label: "Check secret, key and certificate expiry", group: "Key Vault", hint: "on or off; blank = off. Needs Key Vault Reader (names and expiry dates, never values)" },
   { key: "KEYVAULT_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Key Vault", hint: "Blank = 30" },
   { key: "KEYVAULT_MAX_READERS", label: "Most identities that may read secrets", group: "Key Vault", hint: "Per vault; blank = 10" },
   { key: "KEYVAULT_UNUSED_DAYS", label: "Unused after (days)", group: "Key Vault", hint: "No reads or writes for this long; blank = 30, at most 90" },

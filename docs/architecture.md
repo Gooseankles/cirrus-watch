@@ -81,7 +81,7 @@ flowchart TB
     scopes["Scan scopes<br/>management groups / subscriptions"]
   end
   subgraph entra["Entra ID (home tenant)"]
-    sso["App registration<br/>Azure tools dashboard (&lt;name&gt;)<br/>app roles Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;"]
+    sso["App registration<br/>Azure tools dashboard (&lt;name&gt;)<br/>app roles Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;,<br/>&lt;Area&gt;.Read/Run(-&lt;key&gt;)"]
     fic["Federated credential<br/>trusts id-&lt;name&gt;-sso"]
     groups["Security groups<br/>one per app role"]
     graphperm["Graph app role assignments<br/>to the web app's identity"]
@@ -190,12 +190,19 @@ wrong passwords from one address lock that address for 15 minutes.
 
 What each role may do (`src/access.js`):
 
-| Role | Tenants it sees | Run now, accept findings | Settings, audit log |
-|---|---|---|---|
-| `Admin` | all | all | yes |
-| `User` | all | no | no |
-| `Admin-<key>` | that customer | that customer | no |
-| `User-<key>` | that customer | no | no |
+| Role | Tenants it sees | Areas | Run now | Settings, audit log |
+|---|---|---|---|---|
+| `Admin` | all | all | all | yes |
+| `User` | all | all | no | no |
+| `Admin-<key>` | that customer | all | that customer | no |
+| `User-<key>` | that customer | all | no | no |
+| `<Area>.Run` | all | that area | that area | no |
+| `<Area>.Read` | all | that area | no | no |
+| `<Area>.Run-<key>` | that customer | that area | that area there | no |
+| `<Area>.Read-<key>` | that customer | that area | no | no |
+
+Areas are Identity, Platform, Security and Cost (`TOOL_AREAS` in `access.js`; a scan can be in several). Anyone who
+may read a scan in a tenant may accept or snooze its findings there.
 
 ## 5. A scan run
 

@@ -12,7 +12,7 @@ const access = require("./src/access");
 const audit = require("./src/audit");
 const { needsOf } = require("./src/toolPermissions");
 const { FileSessionStore } = require("./src/sessionStore");
-const { registerScanTool, registerActionTool, readKeys, decorate } = require("./src/toolRegistry");
+const { registerScanTool, registerActionTool, readKeys, areaKeys, visibleKeys, decorate } = require("./src/toolRegistry");
 
 const app = express();
 app.disable("x-powered-by");
@@ -78,6 +78,7 @@ app.get("/auth/logout", auth.handleLogout);
 app.get("/api/me", (req, res) => {
   const user = req.session && req.session.user;
   const acc = access.accessOf(user);
+  const seen = user ? access.visibleTenants(user) : [];
   res.json({
     ssoConfigured: auth.ssoConfigured(),
     localAdminConfigured: auth.localAdminConfigured(),
@@ -87,7 +88,10 @@ app.get("/api/me", (req, res) => {
     isAdmin: Boolean(user && acc.admin),
     canRun: Boolean(user && acc.canRun),
     // Tenants this person may see; the page shows a tab per tenant when there is more than one.
-    tenants: user ? access.visibleTenants(user).map((t) => ({ ...t, scansOff: settings.scansOff(t.key) })) : [],
+    tenants: seen.map((t) => ({ ...t, scansOff: settings.scansOff(t.key) })),
+    // Areas (access.js) the person may read in at least one tenant.
+    areas: access.AREAS.filter((a) => seen.some((t) => t.areas.includes(a))),
+    areaLabels: access.AREA_LABELS,
     multiTenant: Boolean(user) && tenants.isMultiTenant(),
     version: VERSION,
   });
@@ -237,14 +241,16 @@ const registeredTools = [
 ];
 
 for (const t of registeredTools) if (!needsOf(t.id)) console.warn(`[${t.id}] has no entry in src/toolPermissions.js`);
+for (const t of registeredTools) if (!t.areas.length) console.warn(`[${t.id}] has no area in src/access.js (only Admin and User see it)`);
 app.get("/api/tools", (req, res) => res.json(registeredTools.map((t) => ({ ...t, needs: needsOf(t.id) }))));
 app.get("/api/storage", (req, res) => res.json(require("./src/findingsStore").where()));
 
-// The scans with the tenants (of keys) where each is on; a scan off in all of them is left out.
-const scansFor = (keys) =>
+// The scans with the tenants where each is on and the person may read it; a
+// scan they cannot read anywhere (or off everywhere) is left out.
+const scansFor = (req) =>
   registeredTools
     .filter((t) => t.kind === "scan")
-    .map((t) => ({ ...t, keys: keys.filter((k) => !settings.scanOff(t.id, k)) }))
+    .map((t) => ({ ...t, keys: readKeys(req, t.id) }))
     .filter((t) => t.keys.length);
 
 // Monthly report over the tenants the person may see (?tenant= narrows):
@@ -254,8 +260,8 @@ app.get("/api/report", async (req, res) => {
   const month = String(req.query.month || thisMonth);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month > thisMonth) return res.status(400).json({ error: "month must be YYYY-MM, not in the future" });
   try {
-    const keys = readKeys(req);
-    const scans = scansFor(keys).filter((t) => !t.info); // the change log is not a problem list
+    const keys = visibleKeys(req);
+    const scans = scansFor(req).filter((t) => !t.info); // the change log is not a problem list
     const out = await require("./src/report").build(scans, month, keys, decorate);
     res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
   } catch (err) {
@@ -267,8 +273,8 @@ app.get("/api/report", async (req, res) => {
 app.get("/api/trends", async (req, res) => {
   const weeks = Math.min(52, Math.max(4, Math.round(Number(req.query.weeks) || 12)));
   try {
-    const keys = readKeys(req);
-    const scans = scansFor(keys).filter((t) => !t.info);
+    const keys = visibleKeys(req);
+    const scans = scansFor(req).filter((t) => !t.info);
     const out = await require("./src/trends").build(scans, keys, weeks);
     res.json({ ...out, tenants: keys.map((k) => ({ key: k, name: tenants.nameOf(k) })) });
   } catch (err) {
@@ -282,7 +288,7 @@ app.get("/api/secret-store", auth.requireRole("Admin"), (req, res) => res.json(s
 const costHistory = require("./src/costHistory");
 app.get("/api/cost/history", async (req, res) => {
   try {
-    const idx = await costHistory.index(readKeys(req));
+    const idx = await costHistory.index(areaKeys(req, "cost-history"));
     const multi = tenants.isMultiTenant();
     const name = (list) => (multi ? list.map((x) => ({ ...x, tenantName: tenants.nameOf(x.tenant) })) : list);
     res.json({ updatedAt: idx.updatedAt, subscriptions: name(idx.subscriptions), failures: name(idx.failures), running: costHistory.isRunning() });
@@ -294,7 +300,7 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.get("/api/cost/history/:subscriptionId", async (req, res) => {
   if (!GUID.test(req.params.subscriptionId)) return res.status(400).json({ error: "not a subscription ID" });
   try {
-    const doc = await costHistory.subscription(req.params.subscriptionId, readKeys(req));
+    const doc = await costHistory.subscription(req.params.subscriptionId, areaKeys(req, "cost-history"));
     if (!doc) {
       return res.status(404).json({ error: "no cost history for that subscription yet" });
     }
@@ -303,8 +309,8 @@ app.get("/api/cost/history/:subscriptionId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post("/api/cost/history/refresh", access.requireRunner, (req, res) => {
-  const keys = access.runScope(req);
+app.post("/api/cost/history/refresh", access.requireRunner("cost-history"), (req, res) => {
+  const keys = access.runScope(req, "cost-history");
   if (keys && !keys.length) return res.status(403).json({ error: "you cannot refresh that tenant" });
   res.status(202).json({ status: costHistory.isRunning() ? "already running" : "started" });
   costHistory.collectAll(keys).catch((err) => log.record({ tool: "cost-anomaly", level: "error", message: `cost history: ${err.message}` }));
@@ -335,10 +341,12 @@ app.get("/api/monitor", auth.requireRole("Admin"), (req, res) => {
 });
 
 app.get("/api/logs", (req, res) => {
-  // Someone limited to some tenants sees only those tenants' entries. Server
+  // Someone limited to some tenants or areas sees only those entries. Server
   // load alarms are about the dashboard itself: global Admin only.
-  const admin = access.accessOf(req.session && req.session.user).admin;
-  res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), tenants: access.readScope(req), ...(!admin && { exclude: [monitor.TOOL] }) }));
+  const acc = access.accessOf(req.session && req.session.user);
+  const wanted = req.query.tenant ? String(req.query.tenant).toLowerCase() : null;
+  const show = (e) => (!wanted || e.tenant === wanted) && access.canReadLog(acc, e);
+  res.json(log.readAll({ limit: Math.min(Number(req.query.limit) || 200, 1000), filter: show, ...(!acc.admin && { exclude: [monitor.TOOL] }) }));
 });
 
 // Secrets from the key vault (SECRET_VAULT_URL); any still in the JSON files

@@ -9,7 +9,11 @@ const NEEDS = {
   "cost-anomaly": { azure: ["Cost Management Reader"] },
   "access-review": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
   "secret-expiry": { graph: ["Application.Read.All"] },
-  "key-vault": { azure: ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] },
+  // Key Vault Reader only with the item check on (Settings, Key Vault).
+  get "key-vault"() {
+    const on = /^(on|yes|true|1)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
+    return { azure: on ? ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] : READER };
+  },
   "access-packages": { graph: ["EntitlementManagement.Read.All", "GroupMember.Read.All", "User.Read.All"], licence: "Entra ID P2 or ID Governance" },
   "role-assignments": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] },
   "policy-check": { azure: READER },

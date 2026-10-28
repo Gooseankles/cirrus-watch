@@ -24,10 +24,10 @@ automatically:
 | --- | --- |
 | Reader | Every scan: resources, Resource Graph (including Advisor, backup items and resource changes), metrics, diagnostic settings, role assignments, NSG rules, route tables, private endpoints and VNet peerings (for exposure paths), storage container and database firewall lists, App Service config (site settings such as remote debugging and FTP), AKS versions and settings, Recovery Services vault usage and recovery points, quota usage, Defender for Cloud secure scores, recommendations and plans, budgets and resource locks, virtual network subnet usage, Azure Policy (including the `checkPolicyRestrictions` probes, a read operation), Azure Monitor (agents, data collection rules, alert rules, action groups, workspaces, and a `Heartbeat` query per Log Analytics workspace through ARM; give Log Analytics Reader on the workspaces if Reader alone is refused), Update Manager assessments, installations and maintenance configurations, Resource Health and Service Health events, subscription state and management group placement (Reader at the Tenant Root Group also shows Owners given on management groups; without it, a subscription whose only Owner is inherited shows as "No Owner"), storage lifecycle policies, WAF policies and public DNS record sets (network hygiene also looks up CNAME targets in public DNS, so the app needs outbound DNS) |
 | Cost Management Reader | Cost anomalies and cost history |
-| Key Vault Reader | Names and expiry dates of secrets, keys and certificates on RBAC vaults; never a secret's value |
+| Key Vault Reader | Optional: only for the Key Vault item check (`KEYVAULT_ITEM_CHECK`, off by default). Names and expiry dates of secrets, keys and certificates on RBAC vaults; never a secret's value |
 
-A vault still on access policies needs a policy for the identity with **list** on secrets, keys and certificates
-instead of Key Vault Reader. A vault whose firewall keeps the dashboard out shows as "Items not checked".
+With the item check on, a vault still on access policies needs a policy for the identity with **list** on secrets,
+keys and certificates instead of Key Vault Reader. A vault whose firewall keeps the dashboard out shows as "Items not checked".
 
 **Microsoft Graph application permissions**, with admin consent:
 
@@ -71,13 +71,15 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
    `AuditLog.Read.All`, `Policy.Read.All`, `DelegatedPermissionGrant.Read.All`, `LicenseAssignment.Read.All`,
    `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup`, then **Grant admin consent**
    (needs a Privileged Role Administrator or Global Administrator in that tenant). No directory role.
-4. **Subscriptions (Azure RBAC)**: `Reader`, `Cost Management Reader` and `Key Vault Reader` for the app's
+4. **Subscriptions (Azure RBAC)**: `Reader` and `Cost Management Reader` (plus `Key Vault Reader` only for the
+   optional Key Vault item check) for the app's
    service principal on each subscription to scan, or on a management group (the tenant root group's ID is the
    tenant ID) to cover all of them:
 
    ```
    az role assignment create --assignee <client-id> --role "Reader"                 --scope /subscriptions/<id>
    az role assignment create --assignee <client-id> --role "Cost Management Reader" --scope /subscriptions/<id>
+   # only with the Key Vault item check on:
    az role assignment create --assignee <client-id> --role "Key Vault Reader"       --scope /subscriptions/<id>
    ```
 

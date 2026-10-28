@@ -41,7 +41,7 @@
   const loading = (what) => `<div class="empty-state">Loading ${esc(what)}…</div>`;
   const failed = (msg) => `<div class="empty-state big"><h3>Could not load the address inventory</h3><p class="muted">${esc(msg)}</p></div>`;
   const noInventory = () =>
-    `<div class="empty-state big"><h3>No address inventory yet</h3><p>The inventory is saved by each scan. Run the scan once${canRun() ? " (Run now above)" : ""} and the IP groups show here.</p></div>`;
+    `<div class="empty-state big"><h3>No address inventory yet</h3><p>The inventory is saved by each scan. Run the scan once${canRun("ipam") ? " (Run now above)" : ""} and the IP groups show here.</p></div>`;
 
   /* stats: the address picture when the inventory is in, else the usual counts */
   function stats(all, t) {
@@ -235,7 +235,7 @@
     if (inv.error) return failed(inv.error);
     const d = inv.data;
     if (!d.updatedAt) return noInventory();
-    if (!d.ipGroups) return `<div class="empty-state big"><h3>No IP groups read yet</h3><p>The scan reads IP groups from this version on. Run it once${canRun() ? " (Run now above)" : ""}.</p></div>`;
+    if (!d.ipGroups) return `<div class="empty-state big"><h3>No IP groups read yet</h3><p>The scan reads IP groups from this version on. Run it once${canRun("ipam") ? " (Run now above)" : ""}.</p></div>`;
     const q = t.filters.q;
     const asIp = ipNum(q);
     const contains = (g) => g.entries.map(entryOf).filter(Boolean).filter((e) => e.start <= asIp.end && asIp.start <= e.end);

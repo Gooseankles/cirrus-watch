@@ -1,5 +1,5 @@
 flowchart LR
-  dev["Commit to main<br/>(VERSION bumped)"] --> gh["GitHub<br/>Gooseankles/azure-ops-dashboard"]
+  dev["Commit to main<br/>(VERSION bumped)"] --> gh["GitHub<br/>Gooseankles/cirrus-watch"]
   gh --> ci["Actions: Docker image<br/>build + push"]
   ci --> hub[("Docker Hub<br/>latest, &lt;version&gt;, stable")]
   ci --> tag["Git tag v&lt;version&gt;"]

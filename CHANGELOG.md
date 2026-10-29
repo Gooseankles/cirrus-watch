@@ -21,6 +21,15 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.58.1.0] - 2026-10-29
+
+### Changed
+
+- The architecture pictures in the high-level design, the setup low-level design and the architecture page use the
+  official Azure icons. They are made from Python with the `diagrams` library (`docs/diagrams/*.py`, rendered in a
+  pinned Docker image); sequences and flows stay Mermaid. `npm run diagrams` makes both kinds.
+- The build and release picture names the repo `Gooseankles/cirrus-watch`.
+
 ## [0.58.0.0] - 2026-10-29
 
 ### Added

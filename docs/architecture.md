@@ -1,7 +1,7 @@
 # Architecture
 
 How the dashboard is built and deployed: first the big picture (high-level design), then the parts inside it
-(low-level design). The diagrams are PNG pictures made from the Mermaid text next to them in `diagrams/`. Names in `code` are settings, Terraform inputs or
+(low-level design). The diagrams are PNG pictures made from the sources next to them in `diagrams/` (Python with the official Azure icons for the building blocks, Mermaid text for sequences and flows). Names in `code` are settings, Terraform inputs or
 files in this repo. Permissions per identity are listed in [permissions.md](permissions.md); every Terraform input
 in the [Terraform module's README](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard#readme).
 
@@ -25,7 +25,7 @@ changed by the scans: every permission they use is a read permission.
 
 ![Overview of Cirrus Watch](diagrams/arch-overview.png)
 
-<sub>Source: [arch-overview.mmd](diagrams/arch-overview.mmd)</sub>
+<sub>Source: [arch-overview.py](diagrams/arch-overview.py)</sub>
 
 | Part | What it is | Why |
 |---|---|---|
@@ -44,7 +44,7 @@ a root configuration in `examples/default`). Dashed boxes are optional
 
 ![Azure resources Terraform creates](diagrams/arch-azure-resources.png)
 
-<sub>Source: [arch-azure-resources.mmd](diagrams/arch-azure-resources.mmd)</sub>
+<sub>Source: [arch-azure-resources.py](diagrams/arch-azure-resources.py)</sub>
 
 The image itself is not built by Terraform: the web app points at `image` (for example
 `trozity/azure-ops-dashboard:0.18.0.0`) on Docker Hub and App Service pulls it.
@@ -68,7 +68,7 @@ Four kinds of identity. Only the customer apps use a secret, and that secret liv
 
 ![Identities and what each talks to](diagrams/arch-identities.png)
 
-<sub>Source: [arch-identities.mmd](diagrams/arch-identities.mmd)</sub>
+<sub>Source: [arch-identities.py](diagrams/arch-identities.py)</sub>
 
 - **Shared SPN** = the web app's system-assigned identity. All home-tenant scans use it unless a tool has its own
   SPN override (`<TOOL_ID>_AZURE_CLIENT_ID`). History storage can have its own override too (`history-storage`).
@@ -120,7 +120,7 @@ names, and marks accepted or snoozed findings. Compliance tags are added in the 
 
 ![Customer tenants](diagrams/arch-customer-tenants.png)
 
-<sub>Source: [arch-customer-tenants.mmd](diagrams/arch-customer-tenants.mmd)</sub>
+<sub>Source: [arch-customer-tenants.py](diagrams/arch-customer-tenants.py)</sub>
 
 - Terraform never touches a customer tenant; `terraform output customer_onboarding` prints the consent link and role
   commands an admin there runs once.
@@ -143,7 +143,7 @@ reached only with Entra tokens. Two optional layers:
 
 ![Network with private_network](diagrams/arch-network.png)
 
-<sub>Source: [arch-network.mmd](diagrams/arch-network.mmd)</sub>
+<sub>Source: [arch-network.py](diagrams/arch-network.py)</sub>
 
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
 firewall to reach Docker Hub, ARM and Graph. The End of support scan also fetches dates from `endoflife.date`
@@ -208,7 +208,7 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 
 ![Where data is kept](diagrams/arch-data.png)
 
-<sub>Source: [arch-data.mmd](diagrams/arch-data.mmd)</sub>
+<sub>Source: [arch-data.py](diagrams/arch-data.py)</sub>
 
 | Data | Kept | How long |
 |---|---|---|

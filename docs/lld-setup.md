@@ -14,7 +14,7 @@ marked with that input.
 
 ![Azure resources Terraform creates](diagrams/arch-azure-resources.png)
 
-<sub>Source: [arch-azure-resources.mmd](diagrams/arch-azure-resources.mmd)</sub>
+<sub>Source: [arch-azure-resources.py](diagrams/arch-azure-resources.py)</sub>
 
 | Resource | Default name | Made when | What it is for |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Many installations scan only the tenant they run in. Leave `customers` out; noth
 
 ![What Terraform creates with no customers, and what a later customer adds](diagrams/lld-single-tenant.png)
 
-<sub>Source: [lld-single-tenant.mmd](diagrams/lld-single-tenant.mmd)</sub>
+<sub>Source: [lld-single-tenant.py](diagrams/lld-single-tenant.py)</sub>
 
 | What | Single tenant (no `customers`) | With customers |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ A customer can be added later without rebuilding anything (section 9).
 
 ![How the identities are wired](diagrams/lld-identities.png)
 
-<sub>Source: [lld-identities.mmd](diagrams/lld-identities.mmd)</sub>
+<sub>Source: [lld-identities.py](diagrams/lld-identities.py)</sub>
 
 - **Scans in the home tenant** use the system-assigned identity (`AZURE_AUTH_TYPE = managed-identity`, no client ID).
   A tool can get its own identity in Settings (SPN override); then it uses only that one.
@@ -181,7 +181,7 @@ Every request from the browser goes through the same chain of checks in `server.
 
 ![Containers, DATA_DIR files and vault secrets](diagrams/lld-storage-layout.png)
 
-<sub>Source: [lld-storage-layout.mmd](diagrams/lld-storage-layout.mmd)</sub>
+<sub>Source: [lld-storage-layout.py](diagrams/lld-storage-layout.py)</sub>
 
 - **Scan data** sits in blob containers when `STORAGE_ACCOUNT_URL` is set, else in folders: the home tenant in
   the container `dashboard` (or `DATA_DIR` itself), each customer in `dashboard-<key>` (or
@@ -253,7 +253,7 @@ only drops its Settings changes.
 
 ![Network with private_network](diagrams/arch-network.png)
 
-<sub>Source: [arch-network.mmd](diagrams/arch-network.mmd)</sub>
+<sub>Source: [arch-network.py](diagrams/arch-network.py)</sub>
 
 - The web app joins a subnet (outbound VNet integration).
 - `private_access = "private_endpoint"` (default): the storage account and the vault get private endpoints and

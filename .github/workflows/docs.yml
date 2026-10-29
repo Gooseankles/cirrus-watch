@@ -7,7 +7,7 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["**.md", "src/**", "server.js", "public/app.js", "Dockerfile", ".env.example", "scripts/gen-docs.mjs", "scripts/diagram-hash.mjs", "docs/diagrams/**", ".markdownlint-cli2.jsonc", ".lycheeignore", ".github/workflows/docs.yml"]
+    paths: ["**.md", "src/**", "server.js", "public/app.js", "Dockerfile", ".env.example", "scripts/gen-docs.mjs", "scripts/diagram-hash.mjs", "scripts/diagrams.mjs", "docs/diagrams/**", ".markdownlint-cli2.jsonc", ".lycheeignore", ".github/workflows/docs.yml"]
   pull_request:
     branches: [main]
   schedule:

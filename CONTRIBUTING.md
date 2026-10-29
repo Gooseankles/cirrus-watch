@@ -48,12 +48,19 @@ runs, update the [setup low-level design](docs/lld-setup.md). The pull request t
   goes in `.env.example` and the Settings hint; a new role, page or API route in
   [sign-in and roles](docs/guides/sign-in-and-roles.md) and [architecture.md](docs/architecture.md). A new big
   decision gets a decision record.
-- **Diagrams:** the pictures in the docs are PNG files made from Mermaid text in `docs/diagrams/*.mmd`, so they
-  show everywhere, also in GitHub's phone app. Edit the `.mmd`, run `npm run diagrams -- <name>` (needs Docker),
-  look at the PNG and commit both with `docs/diagrams/rendered.json`. A new picture is a new `.mmd`; embed the PNG
-  with a `<sub>Source: ...</sub>` line under it as the others do. Keep them portrait (`flowchart TB`) so they read
-  on a phone.
-- **Checks:** `npm run docs:check` (it also fails when a `.mmd` changed but its PNG was not rendered again), then Markdown style and links as the Docs workflow runs them:
+- **Diagrams:** the pictures in the docs are PNG files, so they show everywhere, also in GitHub's phone app. Their
+  sources sit next to them in `docs/diagrams/` and come in two kinds: Mermaid text (`.mmd`) for sequences and step
+  flows, and Python (`.py`, the [diagrams](https://diagrams.mingrammer.com) library, MIT) for the architecture
+  pictures, which are drawn with the official
+  [Microsoft Azure architecture icons](https://learn.microsoft.com/en-us/azure/architecture/icons/) the library
+  ships. Microsoft permits those icons in architecture diagrams and documentation: use them as they are (never
+  cropped, flipped, rotated or recoloured), with the product's name next to each, and never as an icon for the
+  dashboard itself. Edit the source, run `npm run diagrams -- <name>` (needs Docker; the Python renderer is built
+  from `docs/diagrams/Dockerfile` the first time), look at the PNG and commit both with
+  `docs/diagrams/rendered.json`. A new picture is a new `.mmd` or `.py` (one of the two, never both; `_style.py`
+  holds the shared look); embed the PNG with a `<sub>Source: ...</sub>` line under it as the others do. Keep them
+  portrait (`flowchart TB`, `direction="TB"`) so they read on a phone.
+- **Checks:** `npm run docs:check` (it also fails when a `.mmd` or `.py` changed but its PNG was not rendered again), then Markdown style and links as the Docs workflow runs them:
 
   ```sh
   npx -y markdownlint-cli2@0.18.1 "**/*.md"

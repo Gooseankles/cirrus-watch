@@ -36,7 +36,7 @@ weekly, resource health once an hour); being a SIEM or replacing Microsoft Defen
 
 ![Context: who and what Cirrus Watch talks to](diagrams/hld-context.png)
 
-<sub>Source: [hld-context.mmd](diagrams/hld-context.mmd)</sub>
+<sub>Source: [hld-context.py](diagrams/hld-context.py)</sub>
 
 ## Building blocks
 
@@ -76,7 +76,7 @@ Terraform too.
 
 ![Home and customer tenants, each with its own identity and container](diagrams/hld-tenants.png)
 
-<sub>Source: [hld-tenants.mmd](diagrams/hld-tenants.mmd)</sub>
+<sub>Source: [hld-tenants.py](diagrams/hld-tenants.py)</sub>
 
 ## Single tenant or several
 
@@ -90,7 +90,7 @@ keeps those in files instead. Customer tenants can be added at any time without 
 
 ![Single tenant: people, the web app, the home tenant, one container and the vault](diagrams/hld-single-tenant.png)
 
-<sub>Source: [hld-single-tenant.mmd](diagrams/hld-single-tenant.mmd)</sub>
+<sub>Source: [hld-single-tenant.py](diagrams/hld-single-tenant.py)</sub>
 
 | What | Single tenant | With customer tenants |
 | --- | --- | --- |

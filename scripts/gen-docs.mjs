@@ -7,7 +7,7 @@
 //   npm run docs          rewrite the files
 //   npm run docs:check    change nothing; exit 1 if a file is out of date (CI)
 import { readFileSync, writeFileSync, mkdtempSync, readdirSync, existsSync } from "node:fs";
-import { diagramHash } from "./diagram-hash.mjs";
+import { listDiagrams, sourceHash } from "./diagram-hash.mjs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -125,21 +125,20 @@ if (check) {
   if (stale.length) console.log(`Updated ${stale.join(", ")}`);
 }
 
-// --- Diagrams: every .mmd has a PNG rendered from its current text, every picture the docs show exists ---
+// --- Diagrams: every source (.mmd or .py) has a PNG rendered from its current text, every picture the docs show exists ---
 const diagramDir = path.join(ROOT, "docs", "diagrams");
 const rendered = existsSync(path.join(diagramDir, "rendered.json")) ? JSON.parse(read("docs/diagrams/rendered.json")) : {};
-const config = read("docs/diagrams/mermaid.json");
-const mmds = readdirSync(diagramDir).filter((f) => f.endsWith(".mmd")).map((f) => f.slice(0, -4));
-for (const n of mmds) {
-  const text = out[`docs/diagrams/${n}.mmd`] ?? read(`docs/diagrams/${n}.mmd`);
-  if (!existsSync(path.join(diagramDir, `${n}.png`))) problems.push(`docs/diagrams/${n}.png is missing: run npm run diagrams -- ${n}`);
-  else if (rendered[n] !== diagramHash(text, config)) problems.push(`docs/diagrams/${n}.png is older than its .mmd: run npm run diagrams -- ${n}`);
+const diagrams = listDiagrams(diagramDir);
+for (const d of diagrams) {
+  const text = out[`docs/diagrams/${d.file}`] ?? read(`docs/diagrams/${d.file}`);
+  if (!existsSync(path.join(diagramDir, `${d.name}.png`))) problems.push(`docs/diagrams/${d.name}.png is missing: run npm run diagrams -- ${d.name}`);
+  else if (rendered[d.name] !== sourceHash(diagramDir, d, text)) problems.push(`docs/diagrams/${d.name}.png is older than its .${d.kind}: run npm run diagrams -- ${d.name}`);
 }
 for (const f of readdirSync(diagramDir).filter((f) => f.endsWith(".png"))) {
-  if (!mmds.includes(f.slice(0, -4))) problems.push(`docs/diagrams/${f} has no .mmd source`);
+  if (!diagrams.some((d) => d.name === f.slice(0, -4))) problems.push(`docs/diagrams/${f} has no .mmd or .py source`);
 }
 for (const md of ["README.md", "CONTRIBUTING.md", ...readdirSync(path.join(ROOT, "docs"), { recursive: true }).filter((f) => f.endsWith(".md")).map((f) => `docs/${f.replace(/\\/g, "/")}`)]) {
-  for (const m of read(md).matchAll(/\]\(((?:\.\.\/)*(?:docs\/)?diagrams\/[\w-]+\.(?:png|mmd))\)/g)) {
+  for (const m of read(md).matchAll(/\]\(((?:\.\.\/)*(?:docs\/)?diagrams\/[\w-]+\.(?:png|mmd|py))\)/g)) {
     if (!existsSync(path.join(ROOT, path.dirname(md), m[1]))) problems.push(`${md}: ${m[1]} does not exist`);
   }
 }

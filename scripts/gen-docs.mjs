@@ -94,7 +94,7 @@ const out = {};
 const table = [
   "| Tool | Runs | What it finds or does |",
   "| --- | --- | --- |",
-  ...rows.map((r) => `| [${r.label}](docs/tools.md#${anchor(r.label)}) | ${runs(r.schedule)} | ${(sections.get(r.label) || "").replace(/\|/g, "\\|")} |`),
+  ...rows.map((r) => `| [${r.label}](docs/tools.md#${anchor(r.label)}) | ${runs(r.schedule)} | ${(sections.get(r.label) || "").replace(/[\\|]/g, "\\$&")} |`),
 ].join("\n");
 const nodeMajor = (read("Dockerfile").match(/^FROM node:(\d+)/m) || [])[1];
 if (!nodeMajor) problems.push("Dockerfile: no FROM node:<major> line");

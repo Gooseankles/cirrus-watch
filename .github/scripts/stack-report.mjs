@@ -34,7 +34,13 @@ const repoOf = (url) => {
 };
 // The lines that matter most go first: anything that says breaking, removed or deprecated.
 function notes(body) {
-  const text = String(body || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\r/g, "").trim();
+  let text = String(body || "");
+  // Until nothing changes, so "<!<!---->--" cannot leave a comment opener behind.
+  for (let prev = null; prev !== text; ) {
+    prev = text;
+    text = text.replace(/<!--[\s\S]*?-->/g, "");
+  }
+  text = text.replace(/<!--/g, "").replace(/\r/g, "").trim();
   if (!text) return "_No release notes._";
   // Node's commit lines start with "[`abc123`](link)] - "; test changes are not worth a flag.
   const clean = (l) => l.replace(/^[\s*#>-]+/, "").replace(/^\\?\[\[`\w+`\]\([^)]*\)\\?\]\s*-\s*/, "").trim();
@@ -86,7 +92,7 @@ async function npmPart() {
   const rows = [], blocks = [];
   for (const name of Object.keys(pkg.dependencies || {}).sort()) {
     const installed = ((lock.packages || {})[`node_modules/${name}`] || {}).version;
-    const meta = await get(`https://registry.npmjs.org/${name.replace("/", "%2f")}`);
+    const meta = await get(`https://registry.npmjs.org/${name.replaceAll("/", "%2f")}`);
     const latest = meta["dist-tags"].latest;
     const cur = parse(installed), lat = parse(latest);
     const behind = Object.keys(meta.versions || {}).map(parse).filter((v) => v && !v.pre && cmp(v, cur) > 0 && cmp(v, lat) <= 0).length;
@@ -157,9 +163,11 @@ async function actionsPart() {
   const files = execSync(`git ls-files ${dir}`, { encoding: "utf8" }).split("\n").filter((f) => /\.ya?ml$/.test(f));
   const used = new Map();
   for (const f of files) {
-    for (const m of readFileSync(f, "utf8").matchAll(/uses:\s*([\w.-]+\/[\w.-]+)(?:\/[\w./-]+)?@([\w.-]+)/g)) {
-      const k = `${m[1]}@${m[2]}`;
-      if (!used.has(k)) used.set(k, { repo: m[1], ref: m[2], files: new Set() });
+    // A third-party action is pinned by commit, with its version in a comment: uses: x/y@<sha> # v4.4.1
+    for (const m of readFileSync(f, "utf8").matchAll(/uses:\s*([\w.-]+\/[\w.-]+)(?:\/[\w./-]+)?@([\w.-]+)(?:[ \t]+#[ \t]*(v?[\d.]+))?/g)) {
+      const ref = /^[0-9a-f]{40}$/.test(m[2]) && m[3] ? m[3] : m[2];
+      const k = `${m[1]}@${ref}`;
+      if (!used.has(k)) used.set(k, { repo: m[1], ref, files: new Set() });
       used.get(k).files.add(f.split("/").pop());
     }
   }
@@ -173,6 +181,7 @@ async function actionsPart() {
       continue;
     }
     // A major tag (v4) follows its newest 4.x by itself; only a newer major needs a change.
+    // A commit pin does not follow anything, but Dependabot moves it (and its comment) weekly.
     const old = newest.v.major > cur.major;
     rows.push(`| \`${u.repo}\` | ${u.ref} | ${newest.t} | ${old ? "**new major**" : "✅"} |`);
     if (!old) continue;

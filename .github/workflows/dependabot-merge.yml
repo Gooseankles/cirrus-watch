@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Read the update
         id: meta
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
 
       # A grouped pull request merges only when every update in it is a patch.
       # A new digest for the same Node tag (node:26-alpine@sha256:...) has no

@@ -17,6 +17,10 @@ const secretStore = require("./secretStore");
 const { HOME, current } = require("./tenantContext");
 
 const SETTINGS_PATH = path.join(DATA_DIR, "settings.json");
+
+// The app sends its storage token to this address, so only an Azure blob
+// endpoint is taken (public, US Government or China cloud).
+const STORAGE_URL_RE = /^https:\/\/[a-z0-9]{3,24}\.blob\.core\.(?:windows\.net|usgovcloudapi\.net|chinacloudapi\.cn)\/?$/;
 const TENANT_SETTINGS_PATH = path.join(DATA_DIR, "tenant-settings.json");
 
 const AUTH_TYPES = [
@@ -39,7 +43,7 @@ const FIELDS = [
   { key: "HOME_TENANT_NAME", label: "Name of this tenant", group: "Home tenant", hint: "Shown next to its findings when customer tenants are added (Customer tenants below); blank = Home. Its role values are Admin-home and User-home" },
   { key: "HOME_TENANT_SCAN", label: "Scan this tenant", group: "Home tenant", options: [{ value: "on", label: "Yes" }, { value: "off", label: "No, only the customer tenants" }], defaultValue: "on" },
 
-  { key: "STORAGE_ACCOUNT_URL", label: "Storage account blob URL", group: "History storage", hint: "e.g. https://stdashboard.blob.core.windows.net; blank = keep results on the app's own disk" },
+  { key: "STORAGE_ACCOUNT_URL", label: "Storage account blob URL", group: "History storage", pattern: STORAGE_URL_RE, patternError: "must look like https://<account>.blob.core.windows.net", hint: "e.g. https://stdashboard.blob.core.windows.net; blank = keep results on the app's own disk" },
   { key: "STORAGE_CONTAINER", label: "Container", group: "History storage", hint: "Blank = dashboard" },
   { key: "HISTORY_RETENTION_DAYS", label: "Keep run history (days)", group: "History storage", hint: "Blank = 365" },
 
@@ -306,7 +310,11 @@ async function setMany(body, tenantKey) {
       continue;
     }
     const field = FIELDS.find((f) => f.key === key);
+    if (v !== null && v !== undefined && !["string", "number", "boolean"].includes(typeof v)) continue;
     if (field.options && v && !field.options.some((o) => o.value === v)) continue;
+    if (field.pattern && v && !field.pattern.test(String(v))) {
+      throw Object.assign(new Error(`${field.label} ${field.patternError}`), { status: 400 });
+    }
     if (v === "" || v === null || v === undefined) delete overrides[key];
     else overrides[key] = v;
   }
@@ -357,4 +365,5 @@ async function moveSecretsToVault() {
   return moved;
 }
 
-module.exports = { get, scansOff, scanOff, getAll, setMany, dropTenant, moveSecretsToVault, FIELDS, TOOL_SPNS, spnPrefix };
+module.exports = {
+  STORAGE_URL_RE, get, scansOff, scanOff, getAll, setMany, dropTenant, moveSecretsToVault, FIELDS, TOOL_SPNS, spnPrefix };

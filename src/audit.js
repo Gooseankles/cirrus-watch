@@ -28,10 +28,16 @@ function userOf(req) {
 
 // Drops entries older than the retention, at most once a day.
 function prune(now = Date.now()) {
-  if (now - prunedAt < DAY || !fs.existsSync(FILE)) return;
+  if (now - prunedAt < DAY) return;
   prunedAt = now;
   const cutoff = new Date(now - retentionDays() * DAY).toISOString();
-  const lines = fs.readFileSync(FILE, "utf8").split("\n").filter(Boolean);
+  let text;
+  try {
+    text = fs.readFileSync(FILE, "utf8");
+  } catch {
+    return; // no log yet
+  }
+  const lines = text.split("\n").filter(Boolean);
   const keep = lines.filter((l) => {
     try {
       return JSON.parse(l).time >= cutoff;

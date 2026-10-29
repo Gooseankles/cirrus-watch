@@ -78,7 +78,7 @@ function fileBackend(root) {
 }
 
 function blobBackend(accountUrl, container) {
-  const base = `${accountUrl.replace(/\/+$/, "")}/${container}`;
+  const base = `${accountUrl.replace(/\/$/, "")}/${container}`;
   let containerChecked = false;
 
   async function headers(extra) {
@@ -171,6 +171,8 @@ function backend(tenantKey) {
   const key = tenantKey || (tenantContext.current() && tenantContext.current().key) || HOME;
   const url = settings.get("STORAGE_ACCOUNT_URL");
   if (!url) return fileBackend(key === HOME ? DATA_DIR : path.join(DATA_DIR, "tenants", key));
+  // Also for a value from .env or saved before the check existed: the storage token goes nowhere else.
+  if (!settings.STORAGE_URL_RE.test(url)) throw new Error("history storage: STORAGE_ACCOUNT_URL must look like https://<account>.blob.core.windows.net");
   const id = `${url}|${containerName(key)}`;
   if (!blobBackends.has(id)) blobBackends.set(id, blobBackend(url, containerName(key)));
   return blobBackends.get(id);
@@ -179,7 +181,7 @@ function backend(tenantKey) {
 function where() {
   const url = settings.get("STORAGE_ACCOUNT_URL");
   return url
-    ? { backend: "blob", location: `${url.replace(/\/+$/, "")}/${baseContainer()}`, customers: `${baseContainer()}-<tenant key>` }
+    ? { backend: "blob", location: `${url.replace(/\/$/, "")}/${baseContainer()}`, customers: `${baseContainer()}-<tenant key>` }
     : { backend: "file", location: DATA_DIR, customers: path.join(DATA_DIR, "tenants", "<tenant key>") };
 }
 

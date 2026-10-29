@@ -39,11 +39,14 @@ const RETRY_MS = 60 * 60 * 1000; // a failed send is tried again hourly
 const TIMEOUT_MS = 20 * 1000;
 const DEFAULT_TIME = "08:30";
 const MAX_RECIPIENTS = 20;
-const EMAIL = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
+// The domain parts exclude the dot, so the match cannot backtrack on a long string.
+const EMAIL = /^[^\s@,;<>"]+@[^\s@,;<>".]+(?:\.[^\s@,;<>".]+)+$/;
 
 // "a@x.no, b@x.no" (commas or semicolons) -> the addresses; null when it is not a list of addresses.
 function emailsOf(value) {
-  const list = String(value || "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  const text = String(value || "");
+  if (text.length > 5000) return null;
+  const list = text.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
   return list.length && list.every((s) => EMAIL.test(s)) ? list : null;
 }
 

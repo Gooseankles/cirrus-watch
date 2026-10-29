@@ -10,7 +10,8 @@ const TOOL_ID = "change-log";
 const MAX_CHANGES = 1000;
 
 const SECURITY_PROPERTY = /networkAcls|securityRules|publicNetworkAccess|minimumTlsVersion|minTlsVersion|minimalTlsVersion|accessPolicies|firewallRules|ipRules|ipSecurityRestrictions|allowBlobPublicAccess|supportsHttpsTrafficOnly|httpsOnly|enableRbacAuthorization|enableSoftDelete|enablePurgeProtection|publicIPAddress|disableLocalAuth|allowSharedKeyAccess/i;
-const SECURITY_TYPE = /^microsoft\.authorization\/|networksecuritygroups|firewallpolicies|azurefirewalls/i;
+// Anything under Microsoft.Authorization, or a type that names an NSG or firewall anywhere.
+const SECURITY_TYPE = /^(?:microsoft\.authorization\/|.*(?:networksecuritygroups|firewallpolicies|azurefirewalls))/i;
 const VERB = { Create: "created", Update: "changed", Delete: "deleted" };
 
 async function run() {

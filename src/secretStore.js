@@ -63,7 +63,7 @@ async function token() {
 // Vault names allow letters, digits and dashes, so the key is cleaned and a
 // short hash keeps two keys that clean to the same text apart.
 function secretName(kind, key) {
-  const clean = String(key).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  const clean = String(key).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
   const hash = crypto.createHash("sha256").update(`${kind}|${key}`).digest("hex").slice(0, 8);
   return `dashboard-${kind}-${clean}-${hash}`;
 }

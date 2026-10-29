@@ -149,8 +149,8 @@ app.post("/api/settings", auth.requireRole("Admin"), async (req, res) => {
   try {
     res.json(await settings.setMany(req.body || {}, t.key));
   } catch (err) {
-    console.error(`Saving settings failed: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    if (err.status !== 400) console.error(`Saving settings failed: ${err.message}`);
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 app.post("/api/settings/test-spn", auth.requireRole("Admin"), async (req, res) => {
@@ -181,7 +181,7 @@ app.delete("/api/tenants/:key", auth.requireRole("Admin"), async (req, res) => {
   try {
     const list = await tenants.remove(req.params.key);
     const key = String(req.params.key).toLowerCase();
-    if (!tenants.byKey(key)) await notify.drop(key).catch((err) => console.error(`Notifications: could not remove ${key}: ${err.message}`));
+    if (!tenants.byKey(key)) await notify.drop(key).catch((err) => console.error(`Notifications: could not remove ${key.replace(/[^a-z0-9_-]/g, "")}: ${err.message}`));
     res.json({ tenants: withStorage(list) });
   } catch (err) {
     res.status(400).json({ error: err.message });

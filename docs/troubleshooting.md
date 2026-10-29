@@ -55,6 +55,6 @@ activity, the scan page's error box and App Service → Log stream usually say w
 
 ## Still stuck
 
-Search the [issues](https://github.com/Gooseankles/azure-ops-dashboard/issues), or open one with the version
+Search the [issues](https://github.com/Gooseankles/cirrus-watch/issues), or open one with the version
 (bottom left), what you did and the message. Security problems go through [SECURITY.md](../SECURITY.md), not an
 issue.

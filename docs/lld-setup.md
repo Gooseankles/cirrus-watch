@@ -189,7 +189,8 @@ Every request from the browser goes through the same chain of checks in `server.
   snapshots (`history/`), accepted and snoozed findings (`suppressions/`) and the cost history (`cost/`).
 - **`DATA_DIR`** (`/home/data` on App Service) holds the settings, the tenant list, notification links and the
   retry queue, sessions and the session key, 48 hours of load samples, the end-of-life dates, the activity log and
-  the audit log (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default).
+  the audit log (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default). `removed-tenants.json` lists
+  customer tenants removed in Settings that Terraform still sets (section 9); the file goes when the list is empty.
 - **The key vault** holds the secrets typed into Settings, named `dashboard-<kind>-<key>-<hash>`: customer client
   secrets, SPN overrides and notification links (only the last two in a single-tenant setup). Without a vault they
   stay in `DATA_DIR` (`settings.json`, `tenants.json`); the Settings page shows which of the two is in use.
@@ -216,6 +217,37 @@ then makes its container at the first write, but there are no `Admin-<key>` or `
 3. An Admin pastes the client secret in Settings → Customer tenants → Edit. It goes to the key vault.
 4. **Test** checks the sign-in, the Graph permissions in the token and the roles on each subscription. The next
    scheduled run (or Run now) scans the new tenant.
+
+### Removing a customer tenant
+
+Settings → Customer tenants → **Remove** (`Admin` only; `Admin-<key>` cannot) deletes everything the app holds for
+the tenant, with nothing kept (`src/tenantRemoval.js`, route `POST /api/tenants/<key>/remove`). The dialog lists
+what goes, says it cannot be undone and asks for the tenant's key typed back. The steps run in this order, each on
+its own, so one that fails does not stop the rest:
+
+1. The tenant entry leaves `tenants.json` and, for a Terraform tenant, its key goes on `removed-tenants.json`.
+   From here on `tenants.byKey()` does not find it, so it is not listed, scanned or shown, and the findings store
+   drops any write for it (a scan still running cannot make its container again).
+2. Its client secret is deleted from the vault and purged from the soft-delete bin (`DELETE /secrets/<name>`, then
+   `DELETE /deletedsecrets/<name>` once the bin lists it). The web app's role on the vault, Key Vault Secrets
+   Officer, includes the purge right; only `secret_vault_purge_protection` stops it, and then the page says the
+   vault keeps the secret for the soft-delete period (90 days). Without a vault the secret went with the entry.
+3. Its notification link (also a vault secret) is purged the same way, and its retry queue is dropped.
+4. Its container `dashboard-<key>` is deleted (`DELETE ?restype=container`; blob soft delete does not cover
+   containers, so this is final), or the folder `DATA_DIR/tenants/<key>` is removed.
+5. Its entry in `tenant-settings.json` goes.
+6. Cached subscription names and the cached sign-in with its secret are dropped.
+7. Its lines in the activity log (`runs.jsonl` entries with `tenant: <key>`) are removed; lines about a whole run
+   stay.
+
+The audit log records `remove-tenant` with who, when and what each step did. The reply names what was deleted
+and what failed, and the page shows it. What the app cannot delete: the customer's roles and groups in Entra
+(Terraform made them; the app has no write permission in Entra), the `DASHBOARD_TENANTS` setting, and the
+customer's own app registration. For a Terraform tenant the page therefore says to remove the key from
+`customers` and apply; until then the tenant is ignored and listed as "Removed, waiting for Terraform" with
+**Undo** (`POST /api/tenants/<key>/restore`: back on the list, data not restored). At start-up a removed key that
+is no longer in `DASHBOARD_TENANTS` clears itself. **Reset** on a Terraform tenant (`DELETE /api/tenants/<key>`)
+only drops its Settings changes.
 
 ## 10. With `private_network`
 
@@ -269,6 +301,9 @@ sessions and the key are in `DATA_DIR` or `SESSION_SECRET`. Steps for upgrading,
 | Graph permissions not granted or not yet in the token (up to 24 hours) | Entra scans fail with 403 | [Troubleshooting: scans](troubleshooting.md#scans) |
 | Customer client secret expired | That tenant fails, its last results stay; paste a new secret in Settings | [Troubleshooting: scans](troubleshooting.md#scans) |
 | Scan turned off for a tenant | Run now answers 409 | Settings → Customer tenants |
+| Remove a customer: a step fails (storage 403, vault unreachable) | The tenant is gone from the pages; the page and the audit log name what to finish by hand (the container or secret) | [Customer tenants: remove](guides/customer-tenants.md#remove-a-customer) |
+| Remove a customer with `secret_vault_purge_protection` on | "deleted; the vault's purge protection keeps it for 90 days" | [Customer tenants: remove](guides/customer-tenants.md#remove-a-customer) |
+| Customer removed in Settings but still in Terraform | Listed as "Removed, waiting for Terraform", not scanned; its roles and groups still exist | Remove the key from `customers` and apply |
 | Storage answers 403 | History errors naming Storage Blob Data Contributor, or the network blocks the account | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
 | Vault answers 403 or is unreachable | "key vault is not reachable"; Key Vault Secrets Officer, firewall or private DNS | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
 | `DATA_DIR/sessions` not writable | Warning in the log; everyone is signed out at the next restart | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |

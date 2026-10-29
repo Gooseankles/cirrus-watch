@@ -119,6 +119,17 @@ function build(spn) {
   return cache.get(cacheKey);
 }
 
+// A removed customer's cached sign-in (its tenant and app) goes with it, so
+// the secret is not held in memory any longer. Returns how many entries went.
+function forget(tenantId, clientId) {
+  let n = 0;
+  const prefix = `secret|${tenantId}|${clientId}|`;
+  for (const k of [...cache.keys()]) {
+    if (k.startsWith(prefix)) n += Number(cache.delete(k));
+  }
+  return n;
+}
+
 function getCredential(toolId) {
   const tenant = tenantContext.current();
   if (toolId !== STORAGE_TOOL_ID && !tenantContext.isHome(tenant)) return build(resolveTenantSpn(tenant));
@@ -172,4 +183,4 @@ async function testTenant(tenant) {
   }
 }
 
-module.exports = { getCredential, testSpn, testTenant };
+module.exports = { getCredential, forget, testSpn, testTenant };

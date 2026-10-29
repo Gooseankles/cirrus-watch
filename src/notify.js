@@ -107,15 +107,19 @@ function dropFromFile(key) {
   writeAtomic(LINKS_PATH, links);
 }
 
-// A tenant's link and queue go (link removed, or the tenant itself).
-async function drop(key) {
-  if (secretStore.enabled()) await secretStore.remove(KIND, key);
+// A tenant's link and queue go (link removed, or the tenant itself). With
+// purge (a tenant removed for good) the vault's copy is also purged from its
+// bin; returns secretStore.purge()'s outcome then, else nothing.
+async function drop(key, { purge = false } = {}) {
+  let outcome;
+  if (secretStore.enabled()) outcome = purge ? await secretStore.purge(KIND, key) : await secretStore.remove(KIND, key);
   dropFromFile(key);
   const q = readJson(QUEUE_PATH);
   if (q[key]) {
     delete q[key];
     writeAtomic(QUEUE_PATH, q);
   }
+  return outcome;
 }
 
 // Links still in notify.json move into the key vault once it is loaded.

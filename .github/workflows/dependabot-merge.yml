@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Gooseankles/azure-ops-dashboard'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Gooseankles/cirrus-watch'
     runs-on: ubuntu-latest
     permissions:
       contents: write

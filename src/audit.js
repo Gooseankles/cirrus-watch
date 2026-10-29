@@ -92,7 +92,9 @@ const RULES = [
   ["POST", /^\/api\/settings$/, (m, req) => ({ action: "change-settings", detail: clip(settingsChanged(req.body), 1000) }), false],
   ["POST", /^\/api\/settings\/test-spn$/, (m, req) => ({ action: "test-spn", target: b(req, "toolId") || "shared" }), false],
   ["POST", /^\/api\/tenants$/, (m, req) => ({ action: "save-tenant", target: b(req, "key") }), false],
-  ["DELETE", /^\/api\/tenants\/([\w-]+)$/, (m) => ({ action: "delete-tenant", target: m[1] }), false],
+  ["DELETE", /^\/api\/tenants\/([\w-]+)$/, (m) => ({ action: "reset-tenant", target: m[1] }), false],
+  ["POST", /^\/api\/tenants\/([\w-]+)\/remove$/, (m) => ({ action: "remove-tenant", target: m[1] }), false],
+  ["POST", /^\/api\/tenants\/([\w-]+)\/restore$/, (m) => ({ action: "restore-tenant", target: m[1] }), false],
   ["POST", /^\/api\/tenants\/([\w-]+)\/test$/, (m) => ({ action: "test-tenant", target: m[1] }), false],
 ];
 
@@ -107,7 +109,8 @@ function pageView(req, res) {
 }
 
 // Records matching requests once their response is sent, with its status, so
-// refused attempts show too.
+// refused attempts show too. A route that knows more once it has run (what a
+// Remove deleted) puts that in req.auditDetail.
 function middleware(req, res, next) {
   for (const [method, re, make, isView] of RULES) {
     if (req.method !== method) continue;
@@ -116,7 +119,7 @@ function middleware(req, res, next) {
     const fields = make(m, req);
     const tenant = q(req, "tenant") || b(req, "tenant");
     res.on("finish", () => {
-      const out = { ...fields, ...(tenant && { tenant }), status: res.statusCode };
+      const out = { ...fields, ...(tenant && { tenant }), ...(req.auditDetail != null && { detail: clip(req.auditDetail, 1000) }), status: res.statusCode };
       if (isView && res.statusCode < 400) view(req, out);
       else record(req, out);
     });

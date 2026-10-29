@@ -35,7 +35,7 @@ const Settings = (() => {
           </div>
           <div class="card" id="tenants-card">
             <div class="card-head"><h2 id="tenants-title">Customer tenants</h2><button type="button" class="btn small" data-tenant-new="1">Add tenant</button></div>
-            <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a client secret, give it read permissions, and enter its client ID (here or in Terraform) and its secret (here only; it is never shown again). Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; (read and run) and User-&lt;key&gt; (read); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes, Remove deletes only tenants added here.</div>
+            <div class="note" id="tenants-note">Other organizations' tenants this dashboard scans. In each, make an app registration with a client secret, give it read permissions, and enter its client ID (here or in Terraform) and its secret (here only; it is never shown again). Each tenant gets a tab, its own storage container and the app roles Admin-&lt;key&gt; and User-&lt;key&gt; (see and run its scans); the roles exist only for tenants in Terraform's customers. Tenants from Terraform can be changed here; Reset drops those changes. Remove deletes a tenant and everything the dashboard holds for it, with nothing kept.</div>
             <div class="status-msg" id="tenants-status"></div>
             <div id="tenants-list"><div class="empty-state">Loading…</div></div>
             <div id="tenant-form"></div>
@@ -58,7 +58,7 @@ const Settings = (() => {
     }
   }
   async function onClick(e) {
-    const t = e.target.closest("[data-tenant-new],[data-tenant-edit],[data-tenant-del],[data-tenant-test],[data-tenant-save],[data-tenant-cancel]");
+    const t = e.target.closest("[data-tenant-new],[data-tenant-edit],[data-tenant-del],[data-tenant-remove],[data-tenant-restore],[data-tenant-test],[data-tenant-save],[data-tenant-cancel]");
     if (t) return tenantClick(t);
     const n = e.target.closest("[data-notify]");
     if (n) return notifyClick(n);
@@ -243,16 +243,22 @@ const Settings = (() => {
   }
 
   /* ---------- customer tenants ---------- */
-  const tn = { list: [], editing: null };
+  // removed: tenants removed here that Terraform still sets. notice: a message
+  // shown by the next load (a Remove re-renders the whole page when its tab was open).
+  const tn = { list: [], removed: [], editing: null, notice: null };
 
   async function loadTenants() {
     const status = $("#tenants-status");
     try {
       const r = await apiJson("/api/tenants");
       tn.list = Array.isArray(r.tenants) ? r.tenants : [];
-      setStatus(status, "");
+      tn.removed = Array.isArray(r.removed) ? r.removed : [];
+      if (tn.notice) setStatus(status, tn.notice.text, tn.notice.cls);
+      else setStatus(status, "");
+      tn.notice = null;
     } catch (err) {
       tn.list = [];
+      tn.removed = [];
       setStatus(status, `Could not load tenants: ${err.message}`, "error");
     }
     renderTenants();
@@ -303,16 +309,109 @@ const Settings = (() => {
           t.subscriptionIds.length ? esc(t.subscriptionIds.length === 1 ? t.subscriptionIds[0] : `${t.subscriptionIds.length} listed`) : '<span class="muted">all it can see</span>',
           `<div class="name-cell"><div class="primary mono">${esc(t.container || "")}</div><div class="secondary">from ${esc(t.source)}</div></div>`,
           `<div class="tenant-actions"><button type="button" class="btn small ghost" data-tenant-test="${esc(t.key)}">Test</button><button type="button" class="btn small ghost" data-tenant-edit="${esc(t.key)}">Edit</button>${
-            t.source === "terraform"
-              ? ""
-              : t.source === "settings"
-                ? `<button type="button" class="btn small ghost" data-tenant-del="${esc(t.key)}">Remove</button>`
-                : `<button type="button" class="btn small ghost" data-tenant-del="${esc(t.key)}" data-tenant-reset="1" title="Drop the changes made here and use what Terraform set">Reset</button>`
-          }<div class="test-result" data-test-out="${esc(t.key)}"></div></div>`,
+            t.source === "terraform + settings"
+              ? `<button type="button" class="btn small ghost" data-tenant-del="${esc(t.key)}" title="Drop the changes made here and use what Terraform set">Reset</button>`
+              : ""
+          }<button type="button" class="btn small ghost danger-hover" data-tenant-remove="${esc(t.key)}" title="Delete this tenant and everything the dashboard holds for it">Remove</button><div class="test-result" data-test-out="${esc(t.key)}"></div></div>`,
         ])
       );
     }
+    if (!only && tn.removed.length) {
+      el.insertAdjacentHTML(
+        "beforeend",
+        `<div class="removed-tenants"><div class="hint-top">Removed, waiting for Terraform. Their data is gone; the roles and groups stay until each is removed from customers in Terraform and applied. Undo brings a tenant back to the list, not its data.</div>${tn.removed
+          .map(
+            (r) => `<div class="removed-row"><span><b>${esc(r.name)}</b> <span class="mono">${esc(r.key)}</span></span><span class="secondary">removed ${esc(when(r.at))}${r.by ? ` by ${esc(r.by)}` : ""}</span><button type="button" class="btn small ghost" data-tenant-restore="${esc(r.key)}">Undo</button></div>`
+          )
+          .join("")}</div>`
+      );
+    }
     renderTenantForm();
+  }
+
+  // The Remove dialog: what goes, that it cannot be undone, and the tenant's
+  // key typed back before the button works. Built once, like the accept dialog.
+  function removeDialog() {
+    let dlg = $("#remove-tenant-dialog");
+    if (dlg) return dlg;
+    dlg = document.createElement("dialog");
+    dlg.id = "remove-tenant-dialog";
+    dlg.className = "dialog";
+    dlg.innerHTML = `
+      <form class="remove-form" method="dialog">
+        <h3>Remove <span data-name></span></h3>
+        <p class="remove-what">Everything Cirrus Watch holds for this tenant is deleted, and nothing is kept:</p>
+        <ul class="remove-list">
+          <li>its client secret, purged from the key vault's bin too</li>
+          <li>its notification link and anything waiting to be sent</li>
+          <li>its storage (<span class="mono" data-store></span>): scan results, history, accepted and snoozed findings, cost history</li>
+          <li>its own settings and its lines in the activity log</li>
+          <li>the tenant itself: it disappears from every page at once</li>
+        </ul>
+        <p class="remove-what" data-terraform>Its roles and groups in Entra come from Terraform and stay until the tenant is removed from <span class="mono">customers</span> there and applied. Until then the dashboard ignores it.</p>
+        <p class="remove-what"><b>This cannot be undone.</b> Type the tenant's key, <span class="mono" data-key></span>, to confirm.</p>
+        <input class="input" name="confirm" autocomplete="off" spellcheck="false" />
+        <div class="status-msg" data-msg></div>
+        <div class="dialog-actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn danger" disabled>Remove everything</button></div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const form = dlg.querySelector("form");
+    const submit = form.querySelector("[type=submit]");
+    form.elements.confirm.addEventListener("input", () => {
+      submit.disabled = form.elements.confirm.value.trim().toLowerCase() !== (dlg._key || "");
+    });
+    dlg.querySelector("[data-cancel]").addEventListener("click", () => dlg.close());
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = dlg.querySelector("[data-msg]");
+      const key = dlg._key;
+      if (!key || form.elements.confirm.value.trim().toLowerCase() !== key) return setStatus(msg, "Type the tenant's key first.", "error");
+      submit.disabled = true;
+      setStatus(msg, "Removing…");
+      try {
+        const r = await postJson(`/api/tenants/${encodeURIComponent(key)}/remove`, { confirm: key });
+        dlg.close();
+        await afterRemove(r);
+      } catch (err) {
+        setStatus(msg, `Remove failed: ${err.message}`, "error");
+        submit.disabled = false;
+      }
+    });
+    return dlg;
+  }
+  function openRemove(key) {
+    const t = tn.list.find((x) => x.key === key);
+    if (!t) return;
+    const dlg = removeDialog();
+    const form = dlg.querySelector("form");
+    form.reset();
+    form.querySelector("[type=submit]").disabled = true;
+    setStatus(dlg.querySelector("[data-msg]"), "");
+    dlg.querySelector("[data-name]").textContent = t.name;
+    dlg.querySelector("[data-store]").textContent = t.container || "";
+    dlg.querySelector("[data-key]").textContent = key;
+    dlg.querySelector("[data-terraform]").classList.toggle("hidden", !/terraform/.test(t.source || ""));
+    form.elements.confirm.placeholder = key;
+    dlg._key = key;
+    dlg.showModal();
+    form.elements.confirm.focus();
+  }
+  // The tenant is gone: the list, the tabs and the menu follow. When its own
+  // tab was open the whole page is drawn again, and the message waits for that.
+  async function afterRemove(r) {
+    tn.list = Array.isArray(r.tenants) ? r.tenants : [];
+    tn.removed = Array.isArray(r.removed) ? r.removed : [];
+    if (tn.editing && tn.editing.key === r.key) tn.editing = null;
+    const cls = r.failed && r.failed.length ? "error" : "ok";
+    await refreshScans();
+    if (state.tenant === r.key) {
+      tn.notice = { text: r.message, cls };
+      setTenant("");
+      return;
+    }
+    renderTenantTabs();
+    renderTenants();
+    setStatus($("#tenants-status"), r.message, cls);
   }
 
   function tenantRow(label, hint, control) {
@@ -357,18 +456,33 @@ const Settings = (() => {
     } else if (d.tenantCancel !== undefined) {
       tn.editing = null;
       renderTenantForm();
+    } else if (d.tenantRemove !== undefined) {
+      openRemove(d.tenantRemove);
+    } else if (d.tenantRestore !== undefined) {
+      el.disabled = true;
+      try {
+        const r = await postJson(`/api/tenants/${encodeURIComponent(d.tenantRestore)}/restore`, {});
+        tn.list = r.tenants || [];
+        tn.removed = r.removed || [];
+        await refreshScans();
+        renderTenantTabs();
+        renderTenants();
+        setStatus(status, `${d.tenantRestore} is back on the list. Its data was deleted; the next scan starts afresh.`, "ok");
+      } catch (err) {
+        el.disabled = false;
+        setStatus(status, `Undo failed: ${err.message}`, "error");
+      }
     } else if (d.tenantDel !== undefined) {
-      const reset = d.tenantReset !== undefined;
-      const ask = reset ? `Reset ${d.tenantDel} to what Terraform set? Changes made here are dropped.` : `Remove ${d.tenantDel}? Its stored results stay in storage but are no longer shown.`;
-      if (!window.confirm(ask)) return;
+      if (!window.confirm(`Reset ${d.tenantDel} to what Terraform set? Changes made here are dropped.`)) return;
       try {
         const r = await apiJson(`/api/tenants/${encodeURIComponent(d.tenantDel)}`, { method: "DELETE" });
         tn.list = r.tenants || [];
+        tn.removed = r.removed || [];
         if (tn.editing && tn.editing.key === d.tenantDel) tn.editing = null;
-        setStatus(status, reset ? `${d.tenantDel} reset to the Terraform values.` : `${d.tenantDel} removed. Reload the page to update the tabs.`, "ok");
+        setStatus(status, `${d.tenantDel} reset to the Terraform values.`, "ok");
         renderTenants();
       } catch (err) {
-        setStatus(status, `${reset ? "Reset" : "Remove"} failed: ${err.message}`, "error");
+        setStatus(status, `Reset failed: ${err.message}`, "error");
       }
     } else if (d.tenantTest !== undefined) {
       const out = $(`[data-test-out="${CSS.escape(d.tenantTest)}"]`);

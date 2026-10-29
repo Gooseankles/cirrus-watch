@@ -345,12 +345,13 @@ function setTenant(tenantKey, values) {
   return getAll(tenantKey);
 }
 
-// A removed tenant's own settings go with it.
+// A removed tenant's own settings go with it. Returns whether it had any.
 function dropTenant(tenantKey) {
   const all = readTenantOverrides();
-  if (!all[tenantKey]) return;
+  if (!all[tenantKey]) return false;
   delete all[tenantKey];
   writeTenantOverrides(all);
+  return true;
 }
 
 // Moves secrets still in settings.json into the key vault (once one is set and

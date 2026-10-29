@@ -145,6 +145,15 @@ async function subscriptionNames(toolId) {
   return names;
 }
 
+// A removed customer's cached names go with it. Returns how many entries went.
+function forgetTenant(tenantKey) {
+  let n = 0;
+  for (const k of [...subNameCache.keys()]) {
+    if (k.startsWith(`${tenantKey}|`)) n += Number(subNameCache.delete(k));
+  }
+  return n;
+}
+
 // "Name (id)" when the name is known, else the id; never throws.
 async function subscriptionLabel(subscriptionId, toolId) {
   try {
@@ -158,6 +167,7 @@ async function subscriptionLabel(subscriptionId, toolId) {
 module.exports = {
   subscriptionNames,
   subscriptionLabel,
+  forgetTenant,
   getArmToken,
   armGet,
   armPut,

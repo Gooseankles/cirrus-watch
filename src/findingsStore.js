@@ -8,8 +8,8 @@
 // place: the home tenant uses STORAGE_CONTAINER (or DATA_DIR itself), each
 // customer tenant the container <STORAGE_CONTAINER>-<key> (or
 // DATA_DIR/tenants/<key>), so one customer's data never shares a file with
-// another's and removing a customer is deleting its container. Same layout in
-// each:
+// another's and removing a customer is deleting its container
+// (deleteTenantStore, from Settings). Same layout in each:
 //   findings/<tool>.json            latest run (plus `error` when the last scan failed)
 //   history/<tool>/index.json       [{ ranAt, count, added, resolved, byKind }]
 //   history/<tool>/<ranAt>.json     full snapshot of that run
@@ -77,7 +77,7 @@ function fileBackend(root) {
   };
 }
 
-function blobBackend(accountUrl, container) {
+function blobBackend(accountUrl, container, tenantKey) {
   const base = `${accountUrl.replace(/\/$/, "")}/${container}`;
   let containerChecked = false;
 
@@ -137,6 +137,8 @@ function blobBackend(accountUrl, container) {
         });
       let resp = await send();
       if (resp.status === 404 && resp.headers["x-ms-error-code"] === "ContainerNotFound") {
+        // A customer removed while this ran: its container must not come back.
+        if (!exists(tenantKey)) throw new Error(`history storage: tenant "${tenantKey}" no longer exists, nothing written`);
         await ensureContainer();
         resp = await send();
       }
@@ -174,7 +176,7 @@ function backend(tenantKey) {
   // Also for a value from .env or saved before the check existed: the storage token goes nowhere else.
   if (!settings.STORAGE_URL_RE.test(url)) throw new Error("history storage: STORAGE_ACCOUNT_URL must look like https://<account>.blob.core.windows.net");
   const id = `${url}|${containerName(key)}`;
-  if (!blobBackends.has(id)) blobBackends.set(id, blobBackend(url, containerName(key)));
+  if (!blobBackends.has(id)) blobBackends.set(id, blobBackend(url, containerName(key), key));
   return blobBackends.get(id);
 }
 
@@ -183,6 +185,46 @@ function where() {
   return url
     ? { backend: "blob", location: `${url.replace(/\/$/, "")}/${baseContainer()}`, customers: `${baseContainer()}-<tenant key>` }
     : { backend: "file", location: DATA_DIR, customers: path.join(DATA_DIR, "tenants", "<tenant key>") };
+}
+
+// Whether a tenant still exists. Writes for one that does not (removed while
+// a scan was running) are dropped, so its store is never made again. Looked up
+// late: tenants.js is loaded after this module.
+function exists(tenantKey) {
+  return tenantKey === HOME || Boolean(require("./tenants").byKey(tenantKey));
+}
+
+// Deletes a customer tenant's whole store, with no copy kept: the blob
+// container (results, history, accepted findings, cost history, savings) or
+// the folder under DATA_DIR/tenants. Never the home tenant's. Returns where it
+// was and whether there was anything.
+async function deleteTenantStore(tenantKey) {
+  const key = String(tenantKey || "").toLowerCase();
+  if (!key || key === HOME) throw new Error("history storage: the home tenant's store is never deleted");
+  if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(key)) throw new Error("history storage: invalid tenant key");
+  const url = settings.get("STORAGE_ACCOUNT_URL");
+  if (!url) {
+    const dir = path.join(DATA_DIR, "tenants", key);
+    const existed = fs.existsSync(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    return { backend: "file", where: dir, existed };
+  }
+  if (!settings.STORAGE_URL_RE.test(url)) throw new Error("history storage: STORAGE_ACCOUNT_URL must look like https://<account>.blob.core.windows.net");
+  const container = containerName(key);
+  blobBackends.delete(`${url}|${container}`);
+  const token = await getCredential(STORAGE_TOOL_ID).getToken("https://storage.azure.com/.default");
+  const resp = await axios.delete(`${url.replace(/\/$/, "")}/${container}?restype=container`, {
+    headers: { Authorization: `Bearer ${token.token}`, "x-ms-version": BLOB_API_VERSION },
+    timeout: BLOB_TIMEOUT_MS,
+    validateStatus: () => true,
+  });
+  if (resp.status === 404) return { backend: "blob", where: container, existed: false };
+  if (resp.status >= 300) {
+    const code = resp.headers["x-ms-error-code"] || resp.status;
+    const hint = resp.status === 403 ? " (give the dashboard's identity Storage Blob Data Contributor on the storage account)" : "";
+    throw new Error(`history storage: delete container ${container} failed: ${code}${hint}`);
+  }
+  return { backend: "blob", where: container, existed: true };
 }
 
 // --- Keys and diffs ---
@@ -267,6 +309,7 @@ async function writeTenant(toolId, tenantKey, findings, ranAt) {
 // A failed scan keeps the tenant's last results and notes the error on them
 // until the next scan of that tenant succeeds.
 async function writeTenantError(toolId, tenantKey, at, message) {
+  if (!exists(tenantKey)) return;
   return withLock(`${toolId}|${tenantKey}`, async () => {
     const store = backend(tenantKey);
     const latest = (await store.get(latestKey(toolId))) || { ranAt: null, findings: [] };
@@ -279,7 +322,7 @@ async function writeTenantError(toolId, tenantKey, at, message) {
 // carry `tenant`). opts.tenants: the tenants the run covered (default: the
 // home tenant plus any tenant a finding names). opts.errors: { tenantKey:
 // message } for tenants that failed. Each tenant is written to its own store,
-// all with the same ranAt.
+// all with the same ranAt. A tenant removed while the scan ran gets nothing.
 async function write(toolId, findings, opts = {}) {
   const ranAt = new Date().toISOString();
   const groups = new Map();
@@ -288,7 +331,7 @@ async function write(toolId, findings, opts = {}) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(f);
   }
-  const keys = opts.tenants || [...new Set([HOME, ...groups.keys()])];
+  const keys = (opts.tenants || [...new Set([HOME, ...groups.keys()])]).filter(exists);
   let added = 0;
   let resolved = 0;
   const newByTenant = {};
@@ -416,7 +459,9 @@ async function getDoc(key, tenantKey) {
   return backend(tenantKey).get(key);
 }
 async function putDoc(key, obj, tenantKey) {
-  return backend(tenantKey).put(key, obj);
+  const k = tenantKey || (tenantContext.current() && tenantContext.current().key) || HOME;
+  if (!exists(k)) throw new Error(`history storage: tenant "${k}" no longer exists, nothing written`);
+  return backend(k).put(key, obj);
 }
 
 module.exports = {
@@ -431,6 +476,7 @@ module.exports = {
   findingKey,
   tenantOf,
   containerName,
+  deleteTenantStore,
   HOME,
   getDoc,
   putDoc,

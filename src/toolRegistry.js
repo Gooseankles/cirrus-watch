@@ -52,7 +52,7 @@ async function decorate(toolId, findings) {
 
 // The tenants whose stored data for a tool or area (access.js) a request
 // reads: those the person may see it in (narrowed by ?tenant=) that still
-// exist. A removed tenant's data stays in its container but is no longer shown.
+// exist (a removed tenant's store is deleted with it, src/tenantRemoval.js).
 function areaKeys(req, id) {
   const scope = access.readScope(req, id);
   const known = tenants.all().map((t) => t.key);

@@ -8,7 +8,9 @@
 // Everything is loaded into memory at start-up so the rest of the app can read
 // secrets synchronously; a save goes to the vault first and only then into
 // memory. While the vault cannot be reached, loading is retried every minute
-// and saving a secret fails with the reason.
+// and saving a secret fails with the reason. remove() is the vault's soft
+// delete (the bin keeps it, and set() brings it back); purge() also empties it
+// from the bin, for a customer that is removed for good.
 //
 // The vault URL comes only from the environment, never from Settings, so a
 // Settings change can never send the app's token elsewhere.
@@ -189,10 +191,62 @@ async function remove(kind, key) {
   values.delete(`${kind}|${key}`);
 }
 
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const DAY_S = 86400;
+
+// What a delete-and-purge came to, from the vault's answers. deleted: the
+// vault had it and it is gone from use. purged: gone from the vault's bin too.
+// Otherwise keptDays says how long the bin keeps it (scheduledPurgeDate, unix
+// seconds) and reason why the purge was refused: the vault's purge protection,
+// or an identity without the purge right (Key Vault Secrets Officer has it).
+function purgeOutcome(deleteResp, purgeResp, now = Date.now()) {
+  if (deleteResp.status === 404) return { deleted: false, purged: false, keptDays: null, reason: "no secret was stored" };
+  if (!purgeResp || purgeResp.status === 204 || purgeResp.status === 404) return { deleted: true, purged: true, keptDays: null, reason: null };
+  const when = Number(deleteResp.data && deleteResp.data.scheduledPurgeDate);
+  const keptDays = when ? Math.max(1, Math.ceil((when - now / 1000) / DAY_S)) : null;
+  const err = (purgeResp.data && purgeResp.data.error) || {};
+  const text = `${err.code || ""} ${err.message || ""} ${(err.innererror && err.innererror.code) || ""}`;
+  const protection = purgeResp.status === 403 && /purge protection|ForbiddenByPolicy/i.test(text);
+  const reason = protection
+    ? "the vault's purge protection keeps it"
+    : purgeResp.status === 403
+      ? "the dashboard's identity may not purge (it needs Key Vault Secrets Officer on the vault); the vault keeps it"
+      : `the purge failed (${purgeResp.status} ${err.code || ""}`.trim() + "); the vault keeps it";
+  return { deleted: true, purged: false, keptDays, reason };
+}
+
+// Deletes a secret for good: the soft delete, then the purge from the vault's
+// bin, so nothing of it is kept. Returns purgeOutcome(); it never throws for a
+// refused purge (the caller says what was kept), only when the vault cannot be
+// reached or the delete itself fails.
+async function purge(kind, key) {
+  requireReady();
+  const name = secretName(kind, key);
+  const del = await call("DELETE", `/secrets/${name}`);
+  if (del.status >= 300 && del.status !== 404) throw fail(`delete ${name}`, del);
+  values.delete(`${kind}|${key}`);
+  if (del.status === 404) return purgeOutcome(del, null);
+  // The deleted entry shows up in the bin a moment after the delete; a purge
+  // before that answers 404 or 409 ("being deleted"), so wait for it.
+  let purged = null;
+  for (let i = 0; i < 30; i++) {
+    const gone = await call("GET", `/deletedsecrets/${name}`);
+    if (gone.status === 200) {
+      purged = await call("DELETE", `/deletedsecrets/${name}`);
+      if (purged.status !== 409) break;
+    } else if (gone.status !== 404) {
+      purged = gone;
+      break;
+    }
+    await wait(1000);
+  }
+  return purgeOutcome(del, purged || { status: 409, data: { error: { code: "Timeout", message: "the deleted secret did not appear in the vault's bin" } } });
+}
+
 // For the Settings page: where secrets are kept. Never a value.
 function describe() {
   if (!enabled()) return { backend: "file", location: "DATA_DIR (settings.json, tenants.json)" };
   return { backend: "key-vault", location: vaultUrl(), ready: state.ready, error: state.error };
 }
 
-module.exports = { enabled, ready, load, onLoad, get, has, set, remove, describe, secretName };
+module.exports = { enabled, ready, load, onLoad, get, has, set, remove, purge, describe, secretName, _test: { purgeOutcome } };

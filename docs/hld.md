@@ -70,7 +70,9 @@ A scan starts on its schedule or on **Run now**, reads the tenant, saves the fin
 
 One installation watches the home tenant, alone or with any number of customer tenants. Each tenant has its own
 identity for the scans (the home tenant a managed identity, a customer their own app registration) and its own
-storage container; roles decide who sees which.
+storage container; roles decide who sees which. Removing a customer in Settings deletes everything the dashboard
+holds for it (secrets purged, container deleted, nothing kept); its roles and groups go when it is removed from
+Terraform too.
 
 ![Home and customer tenants, each with its own identity and container](diagrams/hld-tenants.png)
 

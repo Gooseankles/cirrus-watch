@@ -5,7 +5,7 @@ local admin account and SSO; with Terraform, the module makes the app registrati
 
 ## Roles
 
-- **Admin**: every tenant, plus the Settings page.
+- **Admin**: every tenant, plus the Settings page (the only role that adds or removes customer tenants).
 - **User**: every tenant.
 - **Admin-&lt;key&gt;** / **User-&lt;key&gt;**: one customer tenant (see [Customer tenants](customer-tenants.md)).
 - **&lt;Area&gt;.Read**: one area in every tenant.

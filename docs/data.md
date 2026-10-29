@@ -23,5 +23,9 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
 - **Cleanup savings** (orphaned resources deleted after they were found): `savings/orphaned-resources.json` per tenant.
 - **Activity log** (scan runs): JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 - **Audit log** (who opened and changed what): `audit.jsonl` next to it, kept `AUDIT_RETENTION_DAYS`.
+- **A removed customer tenant** (Settings → Remove) leaves nothing behind: its secrets are purged from the vault,
+  its container or folder deleted, its settings, notification link, queue and activity-log lines dropped. Only the
+  audit line of the removal stays. A tenant Terraform still sets is listed in `DATA_DIR/removed-tenants.json` and
+  ignored until it is removed from Terraform too ([Customer tenants](guides/customer-tenants.md#remove-a-customer)).
 
 `.env`, `data/` and `logs/` are ignored by git; never commit real secrets.

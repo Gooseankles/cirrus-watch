@@ -124,7 +124,11 @@ names, and marks accepted or snoozed findings. Compliance tags are added in the 
 
 - Terraform never touches a customer tenant; `terraform output customer_onboarding` prints the consent link and role
   commands an admin there runs once.
-- Each customer's results go to its own container, so removing a customer is deleting one container.
+- Each customer's results go to its own container, so removing a customer is deleting one container. Settings →
+  Remove does that and the rest in one go (`src/tenantRemoval.js`): the secret and notification link purged from
+  the vault, the container, its settings and activity-log lines, the tenant entry; nothing is kept. Its Entra roles
+  and groups go when the key is removed from `customers` in Terraform; until then the app ignores the tenant
+  (`DATA_DIR/removed-tenants.json`).
 - A tenant delegated with Azure Lighthouse can instead be scanned by the home identity like any other subscription.
 
 ## 7. Network
@@ -195,6 +199,8 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | `GET /api/report?month=` | signed in | Monthly report |
 | `GET /api/cost/history[/<sub>]` | signed in | Cost history |
 | `GET/POST /api/settings`, `/api/tenants` | Admin | Settings and customer tenants (secrets go to the vault) |
+| `POST /api/tenants/<key>/remove` | Admin | Delete a customer tenant and everything held for it (the body repeats the key); the reply lists what was deleted and what failed |
+| `POST /api/tenants/<key>/restore`, `DELETE /api/tenants/<key>` | Admin | Undo a removed Terraform tenant (its data stays deleted); drop a Terraform tenant's Settings changes |
 | `GET /api/audit` | Admin | Audit log |
 | `GET /api/logs` | signed in | Activity log, filtered to the person's tenants |
 

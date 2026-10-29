@@ -21,6 +21,29 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.58.0.0] - 2026-10-29
+
+### Added
+
+- Remove a customer tenant: a Remove button in Settings → Customer tenants deletes everything the dashboard holds
+  for it, with nothing kept: its client secret and notification link (deleted and purged from the key vault), its
+  storage container with results, history, accepted findings and cost history, its own settings and its activity-log
+  lines. The dialog lists what goes and asks for the tenant's key typed back. Global Admin only; the audit log keeps
+  who removed what. If a step fails the rest still run and the page says what to finish by hand.
+
+### Changed
+
+- A tenant that comes from Terraform can be removed in Settings too. The dashboard then ignores it (no scans, no
+  container made again, not shown) and lists it as "Removed, waiting for Terraform" with Undo, until its key is
+  removed from `customers` in Terraform and applied, which deletes its roles and groups.
+- The repo is now `Gooseankles/cirrus-watch` (the old address redirects); links point there. The Docker image
+  keeps its name, `trozity/azure-ops-dashboard`.
+
+### Fixed
+
+- Dependabot updates merge by themselves again: the workflow checked for the repo's old name.
+- The Customer tenants note no longer says User-<key> is read only; both customer roles see and run its scans.
+
 ## [0.57.3.1] - 2026-10-29
 
 ### Added

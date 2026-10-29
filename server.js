@@ -86,6 +86,11 @@ app.use(
 
 const PORT = process.env.PORT || 7070;
 const MIN_ADMIN_PASSWORD = 16;
+
+// A customer removed in Settings while Terraform still set it is ignored
+// until its key is gone from DASHBOARD_TENANTS; then the note clears itself.
+const removedDone = tenants.pruneRemoved();
+if (removedDone.length) console.log(`Tenants: ${removedDone.join(", ")} removed from Terraform too, nothing more to do`);
 // Shown bottom-left in the sidebar; bump VERSION by hand (major.minor.revision.package).
 const VERSION = (() => {
   try {
@@ -167,22 +172,53 @@ const withStorage = (list) => {
   const blob = Boolean(settings.get("STORAGE_ACCOUNT_URL"));
   return list.map((t) => ({ ...t, container: blob ? store.containerName(t.key) : `tenants/${t.key}` }));
 };
+// removed: tenants removed here that Terraform still sets (waiting for Terraform).
+const tenantsReply = (list) => ({ tenants: withStorage(list), removed: tenants.removedForSettings() });
 app.get("/api/tenants", auth.requireRole("Admin"), (req, res) => {
-  res.json({ tenants: withStorage(tenants.listForSettings()) });
+  res.json(tenantsReply(tenants.listForSettings()));
 });
 app.post("/api/tenants", auth.requireRole("Admin"), async (req, res) => {
   try {
-    res.json({ tenants: withStorage(await tenants.upsert(req.body || {})) });
+    res.json(tenantsReply(await tenants.upsert(req.body || {})));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
+// Reset: a Terraform tenant goes back to what Terraform set.
 app.delete("/api/tenants/:key", auth.requireRole("Admin"), async (req, res) => {
   try {
-    const list = await tenants.remove(req.params.key);
-    const key = String(req.params.key).toLowerCase();
-    if (!tenants.byKey(key)) await notify.drop(key).catch((err) => console.error(`Notifications: could not remove ${key.replace(/[^a-z0-9_-]/g, "")}: ${err.message}`));
-    res.json({ tenants: withStorage(list) });
+    res.json(tenantsReply(await tenants.reset(req.params.key)));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+// Remove: everything the dashboard holds for the customer goes, nothing is
+// kept (src/tenantRemoval.js). The body repeats the key, as the page's dialog
+// asks for it. The audit line says what went and what did not; the answer
+// says the same, with the Terraform step still to do when it is one of
+// Terraform's tenants.
+const tenantRemoval = require("./src/tenantRemoval");
+app.post("/api/tenants/:key/remove", auth.requireRole("Admin"), async (req, res) => {
+  const key = String(req.params.key).toLowerCase();
+  if (String((req.body && req.body.confirm) || "").trim().toLowerCase() !== key) {
+    return res.status(400).json({ error: "type the tenant's key to confirm" });
+  }
+  if (key === tenants.HOME) return res.status(400).json({ error: "the home tenant cannot be removed" });
+  if (!tenants.byKey(key)) return res.status(404).json({ error: "no such tenant" });
+  try {
+    const u = req.session.user;
+    const r = await tenantRemoval.removeEverything(key, { by: u.upn || u.name || null });
+    req.auditDetail = tenantRemoval.summary(r);
+    if (r.failed.length) console.error(`Tenant ${key} removed, but not everything was deleted: ${r.failed.map((f) => `${f.label}: ${f.error}`).join("; ")}`);
+    res.json({ ...r, ...tenantsReply(tenants.listForSettings()) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+// Undo for a removed Terraform tenant: listed and scanned again (its data is gone).
+app.post("/api/tenants/:key/restore", auth.requireRole("Admin"), (req, res) => {
+  try {
+    res.json(tenantsReply(tenants.restore(req.params.key)));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

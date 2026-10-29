@@ -22,10 +22,13 @@ const Audit = (() => {
     "change-settings": "Changed settings",
     "test-spn": "Tested SPN",
     "save-tenant": "Saved customer tenant",
-    "delete-tenant": "Removed customer tenant",
+    "delete-tenant": "Removed customer tenant", // before 0.58: the entry alone
+    "remove-tenant": "Removed customer tenant and its data",
+    "restore-tenant": "Undid removing customer tenant",
+    "reset-tenant": "Reset customer tenant to Terraform",
     "test-tenant": "Tested customer tenant",
   };
-  const CHANGES = new Set(["run-scan", "refresh-cost", "accept-finding", "snooze-finding", "reopen-finding", "change-settings", "save-tenant", "delete-tenant"]);
+  const CHANGES = new Set(["run-scan", "refresh-cost", "accept-finding", "snooze-finding", "reopen-finding", "change-settings", "save-tenant", "delete-tenant", "remove-tenant", "restore-tenant", "reset-tenant"]);
   const SIGNIN = new Set(["sign-in", "sign-out", "sign-in-refused", "sign-in-failed"]);
   const label = (a) => LABELS[a] || a;
   const PAGES = { overview: "Overview", lookup: "Access lookup", report: "Monthly report", cost: "Cost history", audit: "Audit log", load: "Server load", settings: "Settings" };

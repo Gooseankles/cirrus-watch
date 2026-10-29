@@ -42,14 +42,22 @@ can recreate or remove Azure and Entra objects.
 | --- | --- | --- |
 | Scan results, history, cost history, accepted findings | Storage account, container `dashboard` and one `dashboard-<key>` per customer | Copy the containers, for example `azcopy login` then `azcopy copy "https://<account>.blob.core.windows.net/dashboard" ./backup --recursive` (needs Storage Blob Data Reader; account keys are off). Deleted blobs can be restored for 7 days (blob soft delete) |
 | Settings, customer list, notification links (without a vault), sessions, sign-in key, logs | `DATA_DIR` (`/home/data` on App Service) | App Service backups, or download the folder through the Kudu (scm) site. Without storage and vault settings this folder holds everything |
-| Secrets typed in Settings | Key vault `dashboard-…` secrets | Kept for 90 days after deletion (soft delete); turn on `secret_vault_purge_protection` to stop a purge |
+| Secrets typed in Settings | Key vault `dashboard-…` secrets | Kept for 90 days after deletion (soft delete), except that **Remove** on a customer tenant also purges its secrets; turn on `secret_vault_purge_protection` to make the vault keep them for the 90 days anyway |
 | The setup itself | Terraform configuration and state | Your Terraform backend |
 
 To restore, copy the containers back into the storage account (same names) and the files back into `DATA_DIR`,
 then restart the web app.
 
-Removing a customer from `customers` in Terraform deletes their storage container and its history. Copy it first
-if it must be kept.
+Removing a customer is done in two places, and nothing of theirs is kept. Settings → Customer tenants → **Remove**
+(Admin) deletes everything the dashboard holds for the tenant: its client secret and notification link (purged from
+the vault, not only soft-deleted), its container `dashboard-<key>` with results, history, accepted findings and cost
+history (containers have no soft delete, so this is final), its own settings and its activity-log lines; the tenant
+leaves every page at once. Then remove the key from `customers` in Terraform and apply: that deletes its roles and
+groups (the app cannot; it only reads Entra). Until that apply the app ignores the tenant and lists it as "Removed,
+waiting for Terraform". Removing a key from `customers` without the Remove button also deletes the container and
+its history (Terraform destroys it), but leaves the secret in the vault's soft-delete bin and the tenant's lines in
+the activity log. Copy the container first if it must be kept; the steps are in
+[Customer tenants](guides/customer-tenants.md#remove-a-customer).
 
 ## Rotate secrets
 

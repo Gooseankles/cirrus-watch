@@ -54,4 +54,20 @@ function readAll({ limit = 200, tool, tenants, exclude, filter } = {}) {
   return entries.slice(-limit).reverse();
 }
 
-module.exports = { record, readAll, _test: { prune, LOG_FILE, MAX_BYTES } };
+// A removed customer's lines go too (its key in `tenant`). Lines without a
+// tenant, or that name another one, stay. Returns how many went.
+function dropTenant(key) {
+  if (!key || !fs.existsSync(LOG_FILE)) return 0;
+  const lines = fs.readFileSync(LOG_FILE, "utf8").split("\n").filter(Boolean);
+  const keep = lines.filter((l) => {
+    try {
+      return JSON.parse(l).tenant !== key;
+    } catch {
+      return true;
+    }
+  });
+  if (keep.length !== lines.length) fs.writeFileSync(LOG_FILE, keep.length ? keep.join("\n") + "\n" : "");
+  return lines.length - keep.length;
+}
+
+module.exports = { record, readAll, dropTenant, _test: { prune, LOG_FILE, MAX_BYTES } };

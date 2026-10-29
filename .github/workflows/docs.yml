@@ -1,0 +1,50 @@
+name: Docs
+
+# Keeps the docs true to the code: the generated parts (tools table, Node.js
+# version, tool count, tool ids in .env.example) must match what
+# `npm run docs` writes, Markdown follows .markdownlint-cli2.jsonc, and links
+# work. Third-party actions are pinned by commit like the other workflows.
+on:
+  push:
+    branches: [main]
+    paths: ["**.md", "src/**", "server.js", "public/app.js", "Dockerfile", ".env.example", "scripts/gen-docs.mjs", ".markdownlint-cli2.jsonc", ".lycheeignore", ".github/workflows/docs.yml"]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 5 * * 3" # weekly, for links that broke on their own
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated:
+    name: Generated docs match the code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --omit=dev
+      - run: npm run docs:check
+
+  markdown:
+    name: Markdown style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        with:
+          globs: "**/*.md"
+
+  links:
+    name: Links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --no-progress --max-concurrency 8 README.md SECURITY.md CHANGELOG.md docs/*.md
+          fail: true

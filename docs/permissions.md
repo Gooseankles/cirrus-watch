@@ -76,7 +76,7 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
    service principal on each subscription to scan, or on a management group (the tenant root group's ID is the
    tenant ID) to cover all of them:
 
-   ```
+   ```sh
    az role assignment create --assignee <client-id> --role "Reader"                 --scope /subscriptions/<id>
    az role assignment create --assignee <client-id> --role "Cost Management Reader" --scope /subscriptions/<id>
    # only with the Key Vault item check on:

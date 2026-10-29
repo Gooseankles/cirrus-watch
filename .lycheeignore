@@ -1,0 +1,6 @@
+# Links lychee skips (docs.yml): local and placeholder addresses.
+localhost
+127\.0\.0\.1
+<
+example\.(com|org|net)
+contoso

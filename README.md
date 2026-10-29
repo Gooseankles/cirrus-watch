@@ -9,48 +9,52 @@ are needed.
 
 ## Tools
 
+Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in full.
+
+<!-- tools:start -->
 | Tool | Runs | What it finds or does |
-|---|---|---|
-| Orphaned resources | Daily | Unattached disks, unused public IPs, orphaned NICs, empty resource groups, old snapshots and snapshots of deleted disks, VMs stopped but not deallocated, empty App Service plans, idle NAT, VPN, ExpressRoute and application gateways, empty load balancers, disconnected private endpoints, unlinked private DNS zones, unused NSGs and route tables, empty availability sets and SQL elastic pools, backups still kept for VMs that were deleted (recovery points, protection state, fee plus a share of vault storage), each priced at list price where Azure publishes one; storage accounts with no lifecycle policy, workspaces with no daily cap (opt-in); Azure Advisor cost tips with Advisor's own estimate (settings: old snapshot age, Advisor tips on or off); **Cleaned up** lists the priced ones that were deleted since and what that saves (list price, so it works where cost analysis is off) |
-| Tag compliance | Daily | Resources missing required tags (`CostCenter`, `Owner`, `Environment` by default) |
-| Cost anomalies | Daily | Subscriptions whose spend jumped against their own recent baseline |
-| Access review | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree) |
-| Expiring app credentials | Daily | App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default) |
-| Key Vault | Daily | Vault settings (soft delete, purge protection, open networks, access policies); secrets, keys and certificates that expired, expire soon or have no expiry date (optional, off unless turned on in Settings); who can read secrets (broad roles, many readers, guests, deleted identities); vaults with no audit log, no owner tag, nothing in them or no use |
-| Access packages | Daily | Entra access packages that expire soon, wait too long for approval, go unused, auto-approve with no end date, have a single approver, or have approver groups with no (enabled) members, so requests cannot be approved |
-| Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
-| Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
-| Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
-| End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily), services that still accept TLS 1.0/1.1 |
-| Service retirements | Daily | Azure features being retired that your resources still use (from Azure Advisor), with the date |
-| Certificates | Daily | TLS certificates of websites: the custom domains of App Service apps and slots found in Azure, plus any address listed in Settings (also sites outside Azure). Certificates that expired or expire soon (30 days by default), are not for the site's name, or have a chain browsers will not trust, and sites that do not answer over TLS |
-| Defender for Cloud | Daily | Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others |
-| Safety nets | Daily | Subscriptions with no cost budget or a budget that alerts nobody (budgets set on a management group are not seen), and key vaults, backup vaults, VNets and DNS zones with no delete lock on them, their resource group or their subscription |
-| Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage (backups of deleted VMs are under Orphaned resources) |
-| Resilience | Daily | What one failure would take down: single VMs with no zone or availability set, AKS clusters not in zones, with under 3 system nodes or on the free tier, App Service plans on one instance or not zone redundant, storage in one datacenter, public IPs, load balancers and gateways not zone redundant, legacy or standby-only VPN and ExpressRoute gateways, PostgreSQL and MySQL without geo-backup or zone HA, subscriptions with no Service Health alert. Each finding links to its PSRule for Azure rule |
-| Resource settings | Daily | Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Each finding links to its PSRule for Azure rule |
-| Exposure paths | Daily | Attack paths across resources: internet-facing VMs and web apps whose managed identity can take over a subscription or read key vaults and storage; whose subnet reaches databases, key vaults or resources tagged sensitive with no NSG or firewall in between; or from which SSH and RDP between subnets lead to such a machine. Also a subnet-to-subnet reachability map of each VNet. Built from NSG rules, routes and role assignments in Resource Graph |
-| Azure Monitor | Daily | Machines with no agent, the legacy agent, no collection rule or no heartbeat; alert rules that are off, alert nobody or watch deleted resources; broken action groups; workspaces at their daily cap. Off per tenant for customers who do not use Azure Monitor |
-| Updates and patching | Daily | Running VMs and Arc servers with Critical or Security updates pending (overdue after 30 days by default), machines not assessed in the last 7 days or whose assessment failed, VMs on no patch schedule, and failed or partly failed update installations, from Azure Update Manager |
-| Resource health | Hourly | Resources Azure reports as Unavailable or Degraded now, active Azure outages, advisories and upcoming planned maintenance for your subscriptions |
-| Network hygiene | Daily | WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has |
-| Subscriptions | Daily | Subscriptions in the Tenant Root Group, with no Owner, or Warned, PastDue or Disabled |
-| Diagnostic settings | Daily | Resources whose logs go nowhere, subscriptions whose activity log is not exported, NSG flow logs (retiring September 2027), VNets with no flow log |
-| Quotas | Daily | Compute, network and storage quotas close to their limit in the regions you use |
-| Firewall policies | Daily | Every Azure Firewall policy and classic firewall with its rule collection groups, collections and rules in the order the firewall checks them (parent policy first); exact duplicates, denies an earlier allow already lets through, allows an earlier deny already blocks, rules a wider rule already covers, application rules a network rule answers first, any-to-any and all-port allows, allow-all FQDNs, DNAT of admin ports from anywhere, missing IP groups, FQDN network rules without DNS proxy, unused or empty policies, threat intelligence off and IDPS off on Premium; a Rules view per policy with every rule marked and a search by name, FQDN, port or IP address; a Reach map that takes a VM or IP address and shows every rule that lets traffic in to it or out from it, downloadable as CSV, PNG or SVG |
-| Architecture | Daily | A drawing of the environment: pick resource groups or subscriptions (or open a group and pick single resources) and the VNets and subnets their resources sit in are drawn by themselves (also from other resource groups), with NSG, route table, NAT and delegation marks, peerings (red when not connected), VPN and ExpressRoute sites, private endpoint links and public IPs; laid out hub and spoke (each hub VNet in the middle with its peered spokes around it and on-premises on its left; a plain Network layout is one click away) or by resource group; pan, zoom, search and a details panel; tiles carry Microsoft's Azure architecture icons (also in the downloads; terms in [public/icons/NOTICE.md](public/icons/NOTICE.md)); download as SVG, PNG or draw.io. Traffic lines: pick a port set (all ports, AD, RDP, SSH, SMB, SQL, web, WinRM or your own ports) and arrows show which drawn VMs can reach each other and the drawn private endpoints (blocked pairs on request); click a VM to see only its traffic in or out; a firewall the traffic passes through is always drawn and the lines go through it (firewall VMs get no lines of their own; each VM's lines can have its own colour, and pointing at a VM lights up its lines; over the whole drawing each VM has one line to the firewall with the number of pairs on it, and pairs in one subnet are left out unless asked for), following routes, NSGs on subnets and NICs and firewall network rules (also classic), with the blocking rule for each port. For information, no findings |
-| IP addresses | Daily | Every VNet's address space and subnets with how full they are, and which addresses are taken and by what (shown on the **IPAM** page under Resources: free addresses per subnet, an address map, search by IP and a free range finder); overlapping ranges (also with on-premises VPN sites and Virtual WAN hubs), subnets running out, public or off-plan address space, VNets with no room left, broken or unsynced peerings; a finder for free ranges for a new VNet or subnet; firewall IP groups with their entries, what uses them and when they last changed (empty, unused, failed, nearly full, duplicate or untidy groups are findings), with a compare against a pasted on-premises list that gives the `az` command to bring a group up to date |
-| Privileged roles | Daily | Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA, too few working emergency access accounts |
-| Entra tenant settings | Daily | Tenant settings that let any user register apps, create tenants or security groups, invite guests or join by email sign-up; guest access same as members; B2B direct connect open to every outside tenant |
-| PIM | Daily | A PIM review: everyone who can activate an Entra or Azure role, directly or through a group (a group eligible for a role, or PIM for Groups membership of a group that holds one), with a CSV; the groups that give PIM access. Findings: PIM settings of privileged roles (activation without MFA, reason or approval, too long, permanent assignment allowed), guests and disabled accounts with PIM access, access that never ends, runs out soon or is never used, groups that are not role-assignable or have permanent members, permanent Azure Owners where PIM is used (needs Entra ID P2) |
-| Stale accounts | Daily | Members and guests with no sign-in for 90 days, accounts that never signed in, guest invitations never accepted (needs Entra ID P1) |
-| MFA coverage | Daily | Enabled members with no MFA method registered, and accounts that can only use phone or SMS (needs Entra ID P1) |
-| Conditional Access | Daily | No MFA for everyone or for admins, legacy sign-in not blocked, report-only policies, long exclusion lists |
-| App permissions | Daily | Apps with Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, users allowed to consent to any app |
-| Licence coverage | Daily | How many Entra ID P1, P2 and ID Governance licences are needed for the people using Conditional Access, PIM and access packages, against how many you own |
-| Change log | Daily | What people and apps created, changed or deleted in the last 24 hours, security changes marked (for information; not in totals or the report) |
-| Cost history | Daily | Daily cost per subscription plus monthly cost by service and resource group, kept for as long as you like |
-| Access lookup | On demand | The Azure roles (every subscription and management group) and Entra ID roles a person or a group holds, and the ones they can activate with PIM (eligible; eligible Azure roles come from the last PIM scan, so a tenant with hundreds of subscriptions still answers fast), plus the groups they may join with PIM for Groups and the roles those give, directly or through groups. Nested groups show the whole chain, e.g. Ops team › Azure admins › Owners-Prod. Type part of a name and pick the person or group from the list (press Enter to search); a group also shows what it sits in and who is in it |
+| --- | --- | --- |
+| [Orphaned resources](docs/tools.md#orphaned-resources) | Daily | Leftovers that cost money or clutter the tenant, priced at list price, and what cleaning up has saved. |
+| [Tag compliance](docs/tools.md#tag-compliance) | Daily | Resources missing the tags you require. |
+| [Cost anomalies](docs/tools.md#cost-anomalies) | Daily | Resource groups whose cost yesterday jumped against the day before. |
+| [Access review](docs/tools.md#access-review) | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups. |
+| [Expiring app credentials](docs/tools.md#expiring-app-credentials) | Daily | App secrets and certificates that expire soon, and app registrations with risky credentials or no owner. |
+| [Key Vault](docs/tools.md#key-vault) | Daily | Vault settings, expiring vault items (optional) and who can read secrets. |
+| [Access packages](docs/tools.md#access-packages) | Daily | Entra access packages that expire, wait for approval, go unused or cannot be approved. |
+| [Role assignments](docs/tools.md#role-assignments) | Daily | Assignments to deleted identities and subscriptions near the role assignment limit. |
+| [Policy check](docs/tools.md#policy-check) | Daily | Whether Azure Policy actually blocks risky resources, and assignments that cannot work. |
+| [Internet exposure](docs/tools.md#internet-exposure) | Daily | NSG rules, VMs, storage and databases open to the internet. |
+| [End of support](docs/tools.md#end-of-support) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support. |
+| [Service retirements](docs/tools.md#service-retirements) | Daily | Azure features being retired that your resources still use, with the date. |
+| [Certificates](docs/tools.md#certificates) | Daily | TLS certificates of App Service custom domains and listed websites: expiry, name, trust and reachability. |
+| [Backup coverage](docs/tools.md#backup-coverage) | Daily | VMs with no backup, failing or old backups, and weak vault settings. |
+| [Resilience](docs/tools.md#resilience) | Daily | What one failure would take down: resources not spread over zones or instances. |
+| [Resource settings](docs/tools.md#resource-settings) | Daily | Risky settings on storage, SQL, web apps, registries, AKS, Redis and other services. |
+| [Exposure paths](docs/tools.md#exposure-paths) | Daily | Attack paths across resources, from internet-facing machines to what their identity and network can reach. |
+| [Diagnostic settings](docs/tools.md#diagnostic-settings) | Daily | Resources and subscriptions whose logs go nowhere, and missing flow logs. |
+| [Quotas](docs/tools.md#quotas) | Daily | Compute, network and storage quotas close to their limit. |
+| [IP addresses](docs/tools.md#ip-addresses) | Daily | Address space use, overlaps and free ranges (the IPAM page), and firewall IP groups. |
+| [Architecture](docs/tools.md#architecture) | Daily | A drawing of VNets, subnets and resources, with the traffic each VM can send (for information). |
+| [Firewall policies](docs/tools.md#firewall-policies) | Daily | Every firewall rule in the order it is checked, the rules that are wrong or redundant, and a reach map per VM or IP. |
+| [Change log](docs/tools.md#change-log) | Daily | What was created, changed or deleted in the last 24 hours (for information). |
+| [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected. |
+| [PIM](docs/tools.md#pim) | Daily | Everyone who can activate a role, and PIM settings and assignments that are too loose. |
+| [Stale accounts](docs/tools.md#stale-accounts) | Daily | Members and guests who have not signed in for a long time, or never. |
+| [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
+| [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
+| [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
+| [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
+| [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations and Defender plans that are off. |
+| [Safety nets](docs/tools.md#safety-nets) | Daily | Subscriptions with no working budget and key resources with no delete lock. |
+| [Azure Monitor](docs/tools.md#azure-monitor) | Daily | Machines, alert rules, action groups and workspaces that Azure Monitor does not cover or that do not work. |
+| [Updates and patching](docs/tools.md#updates-and-patching) | Daily | Machines with pending Critical or Security updates, missing assessments or failed installations. |
+| [Entra tenant settings](docs/tools.md#entra-tenant-settings) | Daily | Tenant settings that let any user register apps, invite guests or create tenants. |
+| [Resource health](docs/tools.md#resource-health) | Hourly | Resources that are down or degraded now, Azure outages and planned maintenance. |
+| [Subscriptions](docs/tools.md#subscriptions) | Daily | Subscriptions in the Tenant Root Group, with no Owner, or not in good standing. |
+| [Network hygiene](docs/tools.md#network-hygiene) | Daily | WAFs that block nothing, dangling DNS records and routes to nowhere. |
+| [Cost history](docs/tools.md#cost-history) | Daily | Daily cost per subscription and monthly cost by service and resource group. |
+| [Access lookup](docs/tools.md#access-lookup) | On demand | Every Azure and Entra role a person or group holds or can activate, with the group chain. |
+<!-- tools:end -->
 
 Every scan run is kept, so each tool shows a trend and what was new or resolved since the run before. Admins can
 start any scan with **Run now** instead of waiting for the schedule.
@@ -91,24 +95,24 @@ leaves the menu. A customer tenant's list does not follow Home: there, all scans
 
 ### Docker
 
-```
+```sh
 docker run -p 7070:7070 -e DASHBOARD_ADMIN_PASSWORD=<choose one> -e SESSION_SECRET=<long random string> \
   -e DATA_DIR=/app/data -v azure-ops-data:/app/data trozity/azure-ops-dashboard:latest
 ```
 
-Open http://localhost:7070 and sign in as `admin`. Image tags: `latest` (every push to `main`), `stable` (promoted
+Open <http://localhost:7070> and sign in as `admin`. Image tags: `latest` (every push to `main`), `stable` (promoted
 by hand with the "Promote to stable" workflow once a build has proven itself), and each version (e.g.
 `0.7.0.0`).
 
 ### From source
 
-```
+```sh
 npm install
 cp .env.example .env    # then fill it in
 npm start
 ```
 
-Uses Node.js 24 (the version the image is built on; the Azure libraries need 22 or newer). Set the Azure connection in `.env` or later on the dashboard's Settings page.
+Uses Node.js 26 (the version the image is built on; the Azure libraries need 22 or newer). Set the Azure connection in `.env` or later on the dashboard's Settings page.
 
 ### On Azure App Service
 
@@ -124,11 +128,11 @@ for the newest):
 
 ```hcl
 module "dashboard" {
-  source = "github.com/Gooseankles/terraform-azurerm-ops-dashboard?ref=v1.0.0"
+  source = "github.com/Gooseankles/terraform-azurerm-ops-dashboard?ref=v1.5.1"
 
   name     = "contoso-azure-tools"
   location = "norwayeast"
-  image    = "trozity/azure-ops-dashboard:0.21.2.0" # the module tag pins the infrastructure, this pins the app
+  image    = "trozity/azure-ops-dashboard:stable" # or a version such as 0.57.1.0; the module tag pins the infrastructure, this pins the app
 
   shared_spn_access = [
     { scope = "/providers/Microsoft.Management/managementGroups/<tenant-id>" },
@@ -226,6 +230,7 @@ failed. Accepted and snoozed findings and the change log are left out, a tool's 
 everything as new, and a day with nothing new sends nothing. A tenant only gets its own findings.
 
 The link can be:
+
 - **Teams**: in the channel, Workflows → "Post to a channel when a webhook request is received", and copy the link.
   The message is an Adaptive Card with a button to the dashboard (taken from `DASHBOARD_REDIRECT_URI`).
 - **Slack**: an incoming webhook (`hooks.slack.com`); it gets plain text.
@@ -321,7 +326,7 @@ each subscription it can see.
 - **Scan results and run history, cost history**: in an Azure Storage blob container when `STORAGE_ACCOUNT_URL` is
   set (reached with an Entra token; account keys can stay off), otherwise under `DATA_DIR` (default `./data`).
   Each customer tenant has its own container, `dashboard-<key>` (on disk `DATA_DIR/tenants/<key>`), so one
-  customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365).
+  customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365; the Terraform module sets 730).
   With Terraform's `private_network = true` the storage account is reached only through a private endpoint and
   its public network access is off.
 - **Client secrets and notification links entered in Settings** (SPN overrides, customer tenants, notifications): in an Azure key vault when

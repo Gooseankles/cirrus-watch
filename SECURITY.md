@@ -35,5 +35,5 @@ to the tenant.
   the image is rebuilt every week for new Alpine and Node fixes, and CodeQL checks the code on every push.
 - **Cross-site requests:** a request that changes something (POST, PUT, DELETE) must come from the dashboard's own
   pages (the browser's `Sec-Fetch-Site` or `Origin`); others get 403. The session cookie is `SameSite=Lax` as well.
-- **Audit:** sign-ins, Run now, accepted findings and settings changes go to the activity log; review it now and
+- **Audit:** sign-ins, Run now, accepted findings and settings changes go to the audit log; review it now and
   then.

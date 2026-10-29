@@ -1,12 +1,13 @@
 {
   "name": "azure-ops-dashboard",
-  "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Dashboard of home-grown Azure automation tools (subscription automation, housekeeping scans, lookups)",
+  "description": "Cirrus Watch: self-hosted Azure tenant checks (nightly scans, cost history, access lookup). The app version is in VERSION.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "docs": "node scripts/gen-docs.mjs",
+    "docs:check": "node scripts/gen-docs.mjs --check"
   },
   "dependencies": {
     "@azure/identity": "^4.4.1",

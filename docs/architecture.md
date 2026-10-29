@@ -344,7 +344,7 @@ flowchart TB
     mw["Middleware: security headers →<br/>session → requireAuth → audit"]
     auth["auth.js / access.js<br/>SSO, local admin, roles, tenant scope"]
     reg["toolRegistry.js<br/>routes + cron per tool"]
-    tools["tools/*.js<br/>23 tools: run() → findings"]
+    tools["tools/*.js<br/>39 tools: run() → findings"]
     clients["armClient.js / graphClient.js<br/>paging, retries"]
     cred["credentials.js<br/>which identity, cached"]
     ctx["tenantContext.js<br/>AsyncLocalStorage: current tenant"]

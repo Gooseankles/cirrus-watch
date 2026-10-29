@@ -45,6 +45,7 @@ const TOOL_AREAS = {
   "tag-compliance": ["platform"],
   "end-of-support": ["platform"],
   "service-retirements": ["platform"],
+  certificates: ["platform"],
   "backup-coverage": ["platform"],
   resilience: ["platform"],
   updates: ["platform"],

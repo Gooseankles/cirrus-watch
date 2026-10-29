@@ -237,6 +237,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/internetExposure")),
   registerScanTool(app, require("./src/tools/endOfSupport")),
   registerScanTool(app, require("./src/tools/serviceRetirements")),
+  registerScanTool(app, require("./src/tools/certificates")),
   registerScanTool(app, require("./src/tools/backupCoverage")),
   registerScanTool(app, require("./src/tools/resilience")),
   registerScanTool(app, require("./src/tools/resourceSettings")),

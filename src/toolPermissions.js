@@ -20,6 +20,7 @@ const NEEDS = {
   "internet-exposure": { azure: READER },
   "end-of-support": { azure: READER },
   "service-retirements": { azure: READER },
+  certificates: { azure: READER },
   "backup-coverage": { azure: READER },
   resilience: { azure: READER },
   "resource-settings": { azure: READER },

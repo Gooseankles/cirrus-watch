@@ -23,6 +23,7 @@ are needed.
 | Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
 | End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily), services that still accept TLS 1.0/1.1 |
 | Service retirements | Daily | Azure features being retired that your resources still use (from Azure Advisor), with the date |
+| Certificates | Daily | TLS certificates of websites: the custom domains of App Service apps and slots found in Azure, plus any address listed in Settings (also sites outside Azure). Certificates that expired or expire soon (30 days by default), are not for the site's name, or have a chain browsers will not trust, and sites that do not answer over TLS |
 | Defender for Cloud | Daily | Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others |
 | Safety nets | Daily | Subscriptions with no cost budget or a budget that alerts nobody (budgets set on a management group are not seen), and key vaults, backup vaults, VNets and DNS zones with no delete lock on them, their resource group or their subscription |
 | Backup coverage | Daily | VMs with no backup, backups stopped, failing or too old, vaults without soft delete or with locally redundant storage (backups of deleted VMs are under Orphaned resources) |
@@ -155,7 +156,7 @@ more than one (`TOOL_AREAS` in `src/access.js`):
 | --- | --- |
 | Identity | Access lookup, access review, secret expiry, access packages, role assignments, PIM, stale accounts, tenant settings, licence coverage, privileged roles, app permissions, Conditional Access, MFA coverage |
 | Security | Privileged roles, app permissions, Conditional Access, MFA coverage, Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log |
-| Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, backup coverage, resilience, updates, resource health, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
+| Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, certificates, backup coverage, resilience, updates, resource health, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
 | Cost | Orphaned resources, cost anomalies, cost history |
 
 Whoever may read a scan may also accept or snooze its findings. Settings, the server log lines and notifications
@@ -288,7 +289,7 @@ Terraform) is in **[docs/permissions.md](docs/permissions.md)**. In short, the s
 identity (by default the web app's managed identity, or a service principal):
 
 - **Reader** on every subscription to scan. Assign it at a management group and new subscriptions are picked up
-  automatically. Policy check, internet exposure, end of support, service retirements, Defender for Cloud, safety nets, backup coverage,
+  automatically. Policy check, internet exposure, end of support, service retirements, certificates, Defender for Cloud, safety nets, backup coverage,
   diagnostic settings, quotas, IP addresses, firewall policies, architecture and the change log need nothing more.
 - **Cost Management Reader** for cost anomalies and cost history.
 - **Microsoft Graph application permissions**, with admin consent: `User.Read.All`, `GroupMember.Read.All`,

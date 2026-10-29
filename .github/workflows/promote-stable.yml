@@ -3,6 +3,10 @@ name: Promote to stable
 # Run by hand once an image has been used long enough: points the "stable" tag
 # at the image another tag (default "latest") names. Nothing is rebuilt; the
 # exact same image gets one more tag.
+# Then it calls the deploy webhook of every App Service that runs :stable with
+# continuous deployment on (the Terraform module's continuous_deployment and its
+# deploy_webhook_url output), one URL per line in the STABLE_DEPLOY_WEBHOOKS
+# secret, so those sites pull the new stable at once.
 on:
   workflow_dispatch:
     inputs:
@@ -52,3 +56,19 @@ jobs:
             echo "- Previous stable: \`$old\`"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "stable now $new ($tags), was $old"
+
+      - name: Tell App Services to pull the new stable
+        env:
+          HOOKS: ${{ secrets.STABLE_DEPLOY_WEBHOOKS }}
+        run: |
+          if [ -z "$HOOKS" ]; then echo "No STABLE_DEPLOY_WEBHOOKS secret; nothing to call."; exit 0; fi
+          n=0; failed=0
+          while IFS= read -r url; do
+            url=$(echo "$url" | tr -d '[:space:]')
+            [ -z "$url" ] && continue
+            n=$((n + 1))
+            # The URL holds the site's deploy password: never echo it.
+            if curl -fsS -o /dev/null -X POST --max-time 60 "$url"; then echo "Site $n: deploy started"; else echo "Site $n: webhook failed"; failed=$((failed + 1)); fi
+          done <<< "$HOOKS"
+          echo "- Deploy webhooks called: $n, failed: $failed" >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]

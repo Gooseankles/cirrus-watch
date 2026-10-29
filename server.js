@@ -35,6 +35,29 @@ app.use((req, res, next) => {
   if (req.secure) res.set("Strict-Transport-Security", "max-age=31536000");
   next();
 });
+// Requests that change something must come from the dashboard's own pages. The
+// browser says where a request came from (Sec-Fetch-Site, or Origin in older
+// browsers), and a page on another site cannot fake it. The session cookie is
+// SameSite=Lax as well; this is the second lock. The Entra sign-in comes back
+// with a GET, so nothing here is exempt.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+function sameOrigin(req) {
+  const site = req.get("sec-fetch-site");
+  if (site) return site === "same-origin" || site === "none";
+  const origin = req.get("origin");
+  if (!origin) return true; // not a browser request (curl, scripts); the session still decides
+  try {
+    const host = new URL(origin).host;
+    return host === req.get("host") || host === req.get("x-forwarded-host");
+  } catch {
+    return false;
+  }
+}
+app.use((req, res, next) => {
+  if (SAFE_METHODS.has(req.method) || sameOrigin(req)) return next();
+  res.status(403).json({ error: "request refused: it did not come from this dashboard's own pages" });
+});
+
 // App Service ends HTTPS at its front end and forwards plain HTTP, so trust
 // its X-Forwarded-Proto to allow Secure cookies.
 function sessionStore() {
@@ -62,6 +85,7 @@ app.use(
 );
 
 const PORT = process.env.PORT || 7070;
+const MIN_ADMIN_PASSWORD = 16;
 // Shown bottom-left in the sidebar; bump VERSION by hand (major.minor.revision.package).
 const VERSION = (() => {
   try {
@@ -360,4 +384,11 @@ secretStore.load();
 
 app.listen(PORT, () => {
   console.log(`Cirrus Watch: http://localhost:${PORT}`);
+  // The local admin login is a password alone, without MFA; a short one is the easiest way in.
+  const adminPassword = process.env.DASHBOARD_ADMIN_PASSWORD || "";
+  if (adminPassword && adminPassword.length < MIN_ADMIN_PASSWORD) {
+    const message = `The local admin password is shorter than ${MIN_ADMIN_PASSWORD} characters. Use a long random one, or unset DASHBOARD_ADMIN_PASSWORD once SSO works.`;
+    console.warn(message);
+    log.record({ level: "warn", message });
+  }
 });

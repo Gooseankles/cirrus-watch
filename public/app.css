@@ -586,6 +586,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.
 .ctl-cis { border-color: rgba(57, 135, 229, 0.45); color: var(--accent-text); }
 .ctl-nis2 { border-color: rgba(144, 133, 233, 0.5); color: #b3aaf2; }
 .ctl-nsm { border-color: rgba(60, 180, 160, 0.5); color: #6cc7b8; }
+.ctl-ir { border-color: rgba(214, 160, 70, 0.5); color: #dcb062; }
 .accept-btn { white-space: nowrap; }
 .accept-btn svg { width: 12px; height: 12px; vertical-align: -2px; }
 .verdict.clickable { cursor: pointer; }
@@ -654,6 +655,7 @@ dialog.dialog h2 { margin-bottom: 10px; }
   a { color: inherit; }
   .ctl-nis2 { color: #5a4fc0; border-color: #a9a2e6; }
   .ctl-nsm { color: #187a6c; border-color: #8fcfc4; }
+  .ctl-ir { color: #8a5a00; border-color: #e0c07a; }
 }
 
 /* --- Permission hint on a failed scan --- */

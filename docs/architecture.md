@@ -54,7 +54,7 @@ flowchart TB
 | Part | What it is | Why |
 |---|---|---|
 | App Service (Linux) | One container, `always_on`, HTTPS only, TLS 1.2+ | Small, cheap, no servers to patch; the scheduler lives in the app |
-| Container image | `node:26-alpine` without npm, runs as user `node`, port 7070 | Built by GitHub Actions on every push to `main`; pushed only if the Trivy scan finds no fixable critical or high problem |
+| Container image | `node:26-alpine` (pinned by digest) without npm, runs as user `node`, port 7070 | Built by GitHub Actions on every push to `main`; pushed only if the Trivy scan finds no fixable critical or high problem |
 | Storage account | Blob containers `dashboard` and `dashboard-<customer>` | Scan results and history survive restarts and redeploys; no account keys |
 | Key vault | RBAC, soft delete, secrets named `dashboard-…` | Client secrets entered in Settings never sit on the app's disk |
 | Sign-in app registration | Entra app with app roles, assignment required | Who may sign in and what they may do |
@@ -317,12 +317,17 @@ flowchart LR
   promote["Actions: Promote to stable<br/>(by hand)"] --> hub
   tfrun["terraform apply<br/>image = ...:&lt;version&gt;"] --> web["App Service"]
   hub -- "pull on restart / image change" --> web
+  promote -. "deploy webhook<br/>(continuous_deployment)" .-> web
 ```
 
 - Versions are `major.minor.revision.package` (feature, small change, docs only). The image tag and the git tag carry
   the same number. The Terraform module has its own versions (`v<major>.<minor>.<patch>` in its repo); set
   `image = ...:<version>` to pin the app.
 - `stable` is moved by hand once a build has proven itself; nothing is rebuilt, the same image gets one more tag.
+  App Services deployed with the module's `continuous_deployment = true` pull it at once: the workflow calls each
+  URL in the `STABLE_DEPLOY_WEBHOOKS` secret (the module's `deploy_webhook_url` output, one per line).
+- `docker.yml` also runs every Tuesday so the image gets new base-image fixes; the Node base image is pinned by
+  digest and Dependabot moves it.
 - Pull requests build the image but do not push it.
 
 ## 9. Inside the app (low-level design)
@@ -334,7 +339,7 @@ flowchart TB
   subgraph browser["Browser (public/)"]
     appjs["app.js<br/>routing, TOOLS, KINDS, tables"]
     views["complianceView.js, report.js,<br/>cost.js, audit.js, settings.js"]
-    comp["compliance.js<br/>finding kind → NIS2 / NSM / CIS"]
+    comp["compliance.js<br/>finding kind → NIS2 / IR / NSM / CIS"]
   end
   subgraph server["Server (server.js + src/)"]
     mw["Middleware: security headers →<br/>session → requireAuth → audit"]

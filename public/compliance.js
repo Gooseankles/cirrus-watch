@@ -3,12 +3,14 @@
    in the monthly report and laid out per control on the Compliance page. A pointer for auditors, not a full
    assessment: a finding shows a control is not met somewhere; no finding does not prove it is met.
    cis = CIS Critical Security Controls v8.1 (safeguard numbers), nis2 = NIS2 Directive Article 21(2) (point letters),
-   nsm = NSM Grunnprinsipper for IKT-sikkerhet v2.1 (principle numbers; Norway's baseline, also for the public sector). */
-const FRAMEWORKS = { nis2: "NIS2 Art. 21(2)", nsm: "NSM ICT security principles 2.1", cis: "CIS Controls v8.1" };
+   nsm = NSM Grunnprinsipper for IKT-sikkerhet v2.1 (principle numbers; Norway's baseline, also for the public sector),
+   ir = Commission Implementing Regulation (EU) 2024/2690, Annex (section numbers; the NIS2 measures in detail). */
+const FRAMEWORKS = { nis2: "NIS2 Art. 21(2)", ir: "NIS2 Implementing Regulation 2024/2690", nsm: "NSM ICT security principles 2.1", cis: "CIS Controls v8.1" };
 // The text each mapping follows and when it was last checked against it. The weekly stack report watches the sources
 // (.github/frameworks.json) and says when one changes; after a review, update reviewed here and the value there.
 const FRAMEWORK_INFO = {
   nis2: { source: "Directive (EU) 2022/2555, Article 21(2), not amended", url: "https://eur-lex.europa.eu/eli/dir/2022/2555/oj", reviewed: "2026-10-29" },
+  ir: { source: "Implementing Regulation (EU) 2024/2690, Annex, not amended", url: "https://eur-lex.europa.eu/eli/reg_impl/2024/2690/oj", reviewed: "2026-10-29" },
   nsm: { source: "NSM Grunnprinsipper for IKT-sikkerhet, version 2.1", url: "https://nsm.no/regelverk-og-hjelp/rad-og-anbefalinger/grunnprinsipper-for-ikt-sikkerhet/", reviewed: "2026-10-29" },
   cis: { source: "CIS Critical Security Controls v8.1", url: "https://www.cisecurity.org/controls/v8-1", reviewed: "2026-10-29" },
 };
@@ -45,6 +47,55 @@ const CONTROLS = {
   "nis2:h": "Cryptography and encryption",
   "nis2:i": "Access control and asset management",
   "nis2:j": "Multi-factor authentication",
+  "ir:1.1": "Policy on the security of network and information systems",
+  "ir:1.2": "Roles, responsibilities and authorities",
+  "ir:2.1": "Risk management framework",
+  "ir:2.2": "Compliance monitoring",
+  "ir:2.3": "Independent review of information and network security",
+  "ir:3.1": "Incident handling policy",
+  "ir:3.2": "Monitoring and logging",
+  "ir:3.3": "Event reporting",
+  "ir:3.4": "Event assessment and classification",
+  "ir:3.5": "Incident response",
+  "ir:3.6": "Post-incident reviews",
+  "ir:4.1": "Business continuity and disaster recovery plan",
+  "ir:4.2": "Backup and redundancy management",
+  "ir:4.3": "Crisis management",
+  "ir:5.1": "Supply chain security policy",
+  "ir:5.2": "Directory of suppliers and service providers",
+  "ir:6.1": "Security in acquisition of ICT services or products",
+  "ir:6.2": "Secure development life cycle",
+  "ir:6.3": "Configuration management",
+  "ir:6.4": "Change management, repairs and maintenance",
+  "ir:6.5": "Security testing",
+  "ir:6.6": "Security patch management",
+  "ir:6.7": "Network security",
+  "ir:6.8": "Network segmentation",
+  "ir:6.9": "Protection against malicious and unauthorised software",
+  "ir:6.10": "Vulnerability handling and disclosure",
+  "ir:7": "Assessing the effectiveness of the measures",
+  "ir:8.1": "Awareness raising and basic cyber hygiene",
+  "ir:8.2": "Security training",
+  "ir:9": "Cryptography and key management",
+  "ir:10.1": "Human resources security",
+  "ir:10.2": "Verification of background",
+  "ir:10.3": "Termination or change of employment",
+  "ir:10.4": "Disciplinary process",
+  "ir:11.1": "Access control policy",
+  "ir:11.2": "Management of access rights",
+  "ir:11.3": "Privileged and system administration accounts",
+  "ir:11.4": "Administration systems",
+  "ir:11.5": "Identification",
+  "ir:11.6": "Authentication",
+  "ir:11.7": "Multi-factor authentication",
+  "ir:12.1": "Asset classification",
+  "ir:12.2": "Handling of assets",
+  "ir:12.3": "Removable media policy",
+  "ir:12.4": "Asset inventory",
+  "ir:12.5": "Return or deletion of assets when employment ends",
+  "ir:13.1": "Supporting utilities",
+  "ir:13.2": "Protection against physical and environmental threats",
+  "ir:13.3": "Perimeter and physical access control",
   "nsm:1.1": "Map governance, deliveries and supporting systems",
   "nsm:1.2": "Map devices and software",
   "nsm:1.3": "Map users and their access needs",
@@ -68,35 +119,35 @@ const CONTROLS = {
   "nsm:4.4": "Evaluate and learn from incidents",
 };
 
-const ASSETS = ["cis:1.1", "nis2:i", "nsm:1.2"];
-const ACCESS = ["cis:6.8", "nis2:i", "nsm:2.6"];
-const POLICY = ["cis:4.1", "nis2:a", "nis2:f", "nsm:2.3"];
-const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i", "nsm:2.4"];
-const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e", "nsm:3.1"];
-const BACKUP = ["cis:11.2", "nis2:c", "nsm:2.9"];
-const RECOVERY = ["cis:11.3", "nis2:c", "nsm:2.9"];
-const ADMINS = ["cis:5.4", "cis:6.8", "nis2:i", "nsm:2.6"];
-const DORMANT = ["cis:5.3", "nis2:i", "nsm:1.3", "nsm:2.6"];
-const MFA = ["cis:6.3", "cis:6.5", "nis2:j", "nsm:2.6"];
-const USER_MFA = ["cis:6.3", "nis2:j", "nsm:2.6"];
-const ADMIN_MFA = ["cis:6.5", "nis2:j", "nsm:2.6"];
-const APPS = ["cis:5.5", "cis:6.8", "nis2:d", "nis2:i", "nsm:2.6"];
-const KEYS = ["cis:3.11", "nis2:h", "nsm:2.7"];
-const IN_TRANSIT = ["cis:3.10", "nis2:h", "nsm:2.7"];
-const DATA_OPEN = ["cis:3.3", "nis2:i", "nsm:2.5"];
-const SECRET_READERS = ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6"];
-const LOGS = ["cis:8.2", "nis2:b", "nsm:3.2"];
-const ALERTING = ["nis2:b", "nsm:3.2", "nsm:3.3"];
-const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6"];
-const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6"];
-const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1"];
-const CONTINUITY = ["nis2:c", "nsm:2.2"];
-const PATCHING = ["cis:7.1", "nis2:e", "nsm:3.1"];
-const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1"];
+const ASSETS = ["cis:1.1", "nis2:i", "nsm:1.2", "ir:12.4"];
+const ACCESS = ["cis:6.8", "nis2:i", "nsm:2.6", "ir:11.2"];
+const POLICY = ["cis:4.1", "nis2:a", "nis2:f", "nsm:2.3", "ir:2.2", "ir:6.3"];
+const EXPOSED = ["cis:4.4", "cis:12.2", "nis2:i", "nsm:2.4", "ir:6.7"];
+const SUPPORT = ["cis:2.2", "cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6", "ir:6.10"];
+const BACKUP = ["cis:11.2", "nis2:c", "nsm:2.9", "ir:4.2"];
+const RECOVERY = ["cis:11.3", "nis2:c", "nsm:2.9", "ir:4.2"];
+const ADMINS = ["cis:5.4", "cis:6.8", "nis2:i", "nsm:2.6", "ir:11.3"];
+const DORMANT = ["cis:5.3", "nis2:i", "nsm:1.3", "nsm:2.6", "ir:11.2"];
+const MFA = ["cis:6.3", "cis:6.5", "nis2:j", "nsm:2.6", "ir:11.7"];
+const USER_MFA = ["cis:6.3", "nis2:j", "nsm:2.6", "ir:11.7"];
+const ADMIN_MFA = ["cis:6.5", "nis2:j", "nsm:2.6", "ir:11.3", "ir:11.7"];
+const APPS = ["cis:5.5", "cis:6.8", "nis2:d", "nis2:i", "nsm:2.6", "ir:11.2"];
+const KEYS = ["cis:3.11", "nis2:h", "nsm:2.7", "ir:9"];
+const IN_TRANSIT = ["cis:3.10", "nis2:h", "nsm:2.7", "ir:9"];
+const DATA_OPEN = ["cis:3.3", "nis2:i", "nsm:2.5", "ir:6.7", "ir:11.2"];
+const SECRET_READERS = ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6", "ir:11.2"];
+const LOGS = ["cis:8.2", "nis2:b", "nsm:3.2", "ir:3.2"];
+const ALERTING = ["nis2:b", "nsm:3.2", "nsm:3.3", "ir:3.2", "ir:3.3"];
+const PACKAGES = ["cis:6.1", "nis2:i", "nsm:2.6", "ir:11.2"];
+const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6", "ir:11.2"];
+const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1", "ir:6.4"];
+const CONTINUITY = ["nis2:c", "nsm:2.2", "ir:4.2"];
+const PATCHING = ["cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6"];
+const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1", "ir:2.2", "ir:6.9", "ir:6.10", "ir:7"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
   "orphaned-nic": ASSETS,
-  "unused-public-ip": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4"],
+  "unused-public-ip": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4", "ir:12.4", "ir:6.7"],
   "empty-resource-group": ASSETS,
   "orphaned-snapshot": ASSETS,
   "empty-app-service-plan": ASSETS,
@@ -157,13 +208,13 @@ const KIND_CONTROLS = {
   "cfg-aks-k8s-rbac": ACCESS,
   "cfg-aks-no-auto-upgrade": SUPPORT,
   "missing-tags": ASSETS,
-  "stale-direct-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
-  "stale-group-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6"],
-  "app-credential-expiring": ["cis:5.5", "nis2:i", "nsm:2.6"],
+  "stale-direct-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "stale-group-assignment": ["cis:6.8", "cis:6.2", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "app-credential-expiring": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
   "keyvault-cert-expiring": IN_TRANSIT,
   "kv-soft-delete-off": RECOVERY,
   "kv-purge-protection-off": RECOVERY,
-  "kv-public-network": ["cis:3.3", "cis:12.2", "nis2:i", "nsm:2.4"],
+  "kv-public-network": ["cis:3.3", "cis:12.2", "nis2:i", "nsm:2.4", "ir:6.7", "ir:11.2"],
   "kv-access-policies": ACCESS,
   "kv-expired": KEYS,
   "kv-expiring": KEYS,
@@ -177,7 +228,7 @@ const KIND_CONTROLS = {
   "kv-empty": ASSETS,
   "kv-unused": ASSETS,
   "access-package-expiring": PACKAGES,
-  "access-package-auto-approved-no-expiry": ["cis:6.1", "cis:6.2", "nis2:i", "nsm:2.6"],
+  "access-package-auto-approved-no-expiry": ["cis:6.1", "cis:6.2", "nis2:i", "nsm:2.6", "ir:11.2"],
   "access-package-duplicate-name": PACKAGES,
   "access-package-pending-too-long": PACKAGES,
   "access-package-single-approver": PACKAGES,
@@ -206,7 +257,7 @@ const KIND_CONTROLS = {
   "nsg-open-db-port": EXPOSED,
   "nsg-open-all-ports": EXPOSED,
   "nsg-open-unattached": EXPOSED,
-  "vm-public-ip": ["cis:12.2", "nis2:i", "nsm:2.4"],
+  "vm-public-ip": ["cis:12.2", "nis2:i", "nsm:2.4", "ir:6.7"],
   "storage-public-container": DATA_OPEN,
   "storage-public-allowed": DATA_OPEN,
   "db-firewall-open-all": EXPOSED,
@@ -239,19 +290,19 @@ const KIND_CONTROLS = {
     "dcr-destination-missing", "workspace-over-quota", "workspace-near-quota"].map((k) => [k, LOGS])),
   ...Object.fromEntries(["alert-disabled", "alert-no-action", "alert-action-group-missing", "alert-scope-missing", "action-group-disabled", "action-group-empty",
     "action-group-email-off"].map((k) => [k, ALERTING])),
-  "quota-near-limit": ["nis2:c"],
-  "quota-at-limit": ["nis2:c"],
+  "quota-near-limit": ["nis2:c", "ir:4.1"],
+  "quota-at-limit": ["nis2:c", "ir:4.1"],
   "too-many-global-admins": ADMINS,
-  "too-few-global-admins": ["cis:5.4", "nis2:c", "nsm:2.6"],
+  "too-few-global-admins": ["cis:5.4", "nis2:c", "nsm:2.6", "ir:4.3", "ir:11.3"],
   "privileged-guest": ADMINS,
-  "privileged-app": ["cis:5.5", "cis:6.8", "nis2:i", "nsm:2.6"],
+  "privileged-app": ["cis:5.5", "cis:6.8", "nis2:i", "nsm:2.6", "ir:11.3"],
   "privileged-group": ADMINS,
   "privileged-disabled": REVOKE,
   "privileged-standing": ADMINS,
   "privileged-no-mfa": ADMIN_MFA,
-  "break-glass-too-few": ["cis:5.4", "nis2:c", "nsm:2.6"],
-  "break-glass-weak": ["cis:5.4", "nis2:c", "nsm:2.6"],
-  "break-glass-not-admin": ["cis:5.4", "nis2:c", "nsm:2.6"],
+  "break-glass-too-few": ["cis:5.4", "nis2:c", "nsm:2.6", "ir:4.3", "ir:11.3"],
+  "break-glass-weak": ["cis:5.4", "nis2:c", "nsm:2.6", "ir:4.3", "ir:11.3"],
+  "break-glass-not-admin": ["cis:5.4", "nis2:c", "nsm:2.6", "ir:4.3", "ir:11.3"],
   "pim-activation-no-mfa": ADMIN_MFA,
   "pim-activation-no-reason": ADMINS,
   "pim-activation-no-approval": ADMINS,
@@ -276,19 +327,19 @@ const KIND_CONTROLS = {
   "ca-no-mfa-all-users": MFA,
   "ca-no-admin-mfa": ADMIN_MFA,
   "ca-legacy-auth-not-blocked": MFA,
-  "ca-report-only": ["cis:4.1", "nis2:j", "nsm:2.6"],
+  "ca-report-only": ["cis:4.1", "nis2:j", "nsm:2.6", "ir:11.7"],
   "ca-many-exclusions": USER_MFA,
-  "security-defaults-only": ["nis2:j", "nsm:2.6"],
+  "security-defaults-only": ["nis2:j", "nsm:2.6", "ir:11.7"],
   "app-takeover-permission": APPS,
   "app-broad-data-permission": APPS,
   "app-risky-delegated-consent": APPS,
-  "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6"],
+  "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6", "ir:5.1", "ir:11.2"],
   "defender-low-score": DEFENDER,
   "defender-high": DEFENDER,
   "defender-medium": DEFENDER,
   "defender-low": DEFENDER,
-  "defender-plan-off": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2"],
-  "defender-plan-uneven": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2"],
+  "defender-plan-off": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2", "ir:3.2", "ir:6.9"],
+  "defender-plan-uneven": ["cis:7.1", "cis:8.2", "nis2:b", "nsm:3.2", "ir:3.2", "ir:6.9"],
   "no-budget": ["nis2:a"],
   "budget-no-alerts": ["nis2:a"],
   "no-delete-lock": RECOVERY,
@@ -298,46 +349,46 @@ const KIND_CONTROLS = {
   "path-lateral-data": DATA_OPEN,
   "path-pivot-takeover": ADMINS,
   "path-pivot-data": DATA_OPEN,
-  "seg-flat-vnet": ["cis:12.2", "nis2:i", "nsm:2.2", "nsm:2.4"],
+  "seg-flat-vnet": ["cis:12.2", "nis2:i", "nsm:2.2", "nsm:2.4", "ir:6.7", "ir:6.8"],
   "storage-no-lifecycle": ASSETS,
   "workspace-no-cap": LOGS,
   "tenant-users-create-apps": APPS,
-  "tenant-users-create-tenants": ["cis:4.1", "nis2:i", "nsm:2.3"],
-  "tenant-users-create-groups": ["cis:6.8", "nis2:i", "nsm:2.6"],
-  "tenant-guest-invite-open": ["cis:6.1", "nis2:i", "nsm:2.6"],
-  "tenant-guest-invite-members": ["cis:6.1", "nis2:i", "nsm:2.6"],
-  "tenant-guest-access-member": ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6"],
-  "tenant-email-signup": ["cis:6.1", "nis2:i", "nsm:2.6"],
-  "tenant-direct-connect-open": ["cis:6.1", "nis2:d", "nis2:i", "nsm:2.6"],
-  "app-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3"],
+  "tenant-users-create-tenants": ["cis:4.1", "nis2:i", "nsm:2.3", "ir:6.3"],
+  "tenant-users-create-groups": ["cis:6.8", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "tenant-guest-invite-open": ["cis:6.1", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "tenant-guest-invite-members": ["cis:6.1", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "tenant-guest-access-member": ["cis:3.3", "cis:6.8", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "tenant-email-signup": ["cis:6.1", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "tenant-direct-connect-open": ["cis:6.1", "nis2:d", "nis2:i", "nsm:2.6", "ir:5.1", "ir:11.2"],
+  "app-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3", "ir:11.2"],
   "app-secret-only": KEYS,
-  "app-secret-long-lived": ["cis:5.5", "nis2:h", "nsm:2.6"],
+  "app-secret-long-lived": ["cis:5.5", "nis2:h", "nsm:2.6", "ir:9", "ir:11.2"],
   ...Object.fromEntries(["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"].map((k) => [k, PATCHING])),
-  "health-unavailable": ["nis2:c", "nsm:3.2"],
-  "health-degraded": ["nis2:c", "nsm:3.2"],
-  "service-issue": ["nis2:b", "nis2:c", "nsm:4.2"],
-  "service-advisory": ["nis2:e", "nsm:3.1"],
-  "service-maintenance": ["nis2:c", "nsm:2.10"],
+  "health-unavailable": ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"],
+  "health-degraded": ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"],
+  "service-issue": ["nis2:b", "nis2:c", "nsm:4.2", "ir:3.4", "ir:4.1"],
+  "service-advisory": ["nis2:e", "nsm:3.1", "ir:6.10"],
+  "service-maintenance": ["nis2:c", "nsm:2.10", "ir:6.4"],
   "sub-in-root-mg": POLICY,
-  "sub-no-owner": ["cis:6.8", "nis2:i", "nsm:2.6"],
+  "sub-no-owner": ["cis:6.8", "nis2:i", "nsm:2.6", "ir:11.2"],
   "sub-state": CONTINUITY,
   "sub-disabled": ASSETS,
   "waf-detection": EXPOSED,
   "waf-disabled": EXPOSED,
   "agw-no-waf": EXPOSED,
-  "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4"],
+  "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4", "ir:12.4", "ir:6.7"],
   "dns-alias-missing": ASSETS,
-  "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4"],
+  "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
   "storage-public-blob": DATA_OPEN,
   "storage-http": IN_TRANSIT,
   "storage-old-tls": IN_TRANSIT,
-  "public-ip": ["cis:12.2", "nsm:2.4"],
+  "public-ip": ["cis:12.2", "nsm:2.4", "ir:6.7"],
   "keyvault-no-purge-protection": RECOVERY,
-  "sql-public-network": ["cis:12.2", "nis2:i", "nsm:2.4"],
-  "untagged-resource": ["cis:1.1", "nsm:1.2"],
+  "sql-public-network": ["cis:12.2", "nis2:i", "nsm:2.4", "ir:6.7"],
+  "untagged-resource": ["cis:1.1", "nsm:1.2", "ir:12.1", "ir:12.4"],
 };
 // The kinds each scan can report, so the Compliance page knows which scans look at a control (a scan that ran and
 // found nothing counts as "no findings" for every control its kinds map to).
@@ -389,6 +440,13 @@ const MANUAL = {
   "nis2:e": "Secure development and vulnerability disclosure",
   "nis2:f": "Audits and tests of the measures (this page helps)",
   "nis2:g": "Training for staff and management",
+  "ir:2.3": "An independent review at planned intervals and after big changes",
+  "ir:3.5": "Incident response procedures, roles and the 24-hour report to the CSIRT",
+  "ir:5.2": "A kept list of suppliers and service providers with their contacts",
+  "ir:6.5": "Security tests and penetration tests, with the results acted on",
+  "ir:7": "Reviews of whether the measures work (this page helps)",
+  "ir:8.2": "Security training for staff, management included",
+  "ir:11.4": "Admin work from dedicated, hardened systems",
   "nsm:1.1": "Governance, risk owners and deliveries written down",
   "nsm:2.2": "Network design and segmentation (Internet exposure shows what is open)",
   "nsm:2.8": "E-mail filtering, SPF, DKIM, DMARC, browser hardening",
@@ -414,7 +472,7 @@ const Compliance = {
   },
   control(id) {
     const [fw, ref] = id.split(":");
-    const label = fw === "cis" ? `CIS ${ref}` : fw === "nsm" ? `NSM ${ref}` : `NIS2 (${ref})`;
+    const label = fw === "cis" ? `CIS ${ref}` : fw === "nsm" ? `NSM ${ref}` : fw === "ir" ? `IR ${ref}` : `NIS2 (${ref})`;
     return { id, fw, ref, label, title: CONTROLS[id] || "" };
   },
   // Every control of one framework, in order.

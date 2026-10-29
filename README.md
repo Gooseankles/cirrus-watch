@@ -75,10 +75,12 @@ leaves the menu. A customer tenant's list does not follow Home: there, all scans
   tool), with what was found and fixed each week, for 8 to 52 weeks. Built from the stored run history, so it runs
   no scans; a tool's first scan counts as the starting point, not as new findings. API:
   `GET /api/trends?weeks=12[&tenant=<key>]`.
-- **Compliance tags**: each finding shows the NIS2 Article 21(2) points, NSM ICT security principles (Norway's
-  baseline, v2.1) and CIS Controls v8 safeguards it bears on (`public/compliance.js`), and the scan pages filter on
+- **Compliance tags**: each finding shows the NIS2 Article 21(2) points, the sections of the NIS2 Implementing
+  Regulation (EU) 2024/2690, NSM ICT security principles (Norway's baseline, v2.1) and CIS Controls v8.1 safeguards it
+  bears on (`public/compliance.js`), and the scan pages filter on
   them. A finding shows a control is not met somewhere; no finding does not prove it is met.
-- **Compliance page** (`#/compliance`): every NIS2 point, NSM principle or mapped CIS safeguard for the tenant tab in
+- **Compliance page** (`#/compliance`): every NIS2 point, Implementing Regulation section, NSM principle or mapped CIS
+  safeguard for the tenant tab in
   view: critical findings, findings, no findings (the scans that look at it ran and found nothing), not run yet, or
   check by hand (training, incident handling, supplier contracts: things no scan can see). Each row links the scans
   that check it and when they last ran. **Print / PDF** as for the report. Built from the scans only; Microsoft
@@ -339,7 +341,13 @@ each subscription it can see.
 
 - **Dependabot** (`.github/dependabot.yml`) opens weekly pull requests for npm packages (minor and patch grouped),
   the Node base image (not majors) and GitHub Actions. Each PR body has the release notes, and the image build with
-  the Trivy gate runs on it before it is merged.
+  the Trivy gate runs on it before it is merged. Patch updates (and a new digest for the same Node image) merge by
+  themselves once the build passes (`.github/workflows/dependabot-merge.yml`); minor and major updates wait for a
+  person.
+- **Weekly rebuild**: `docker.yml` also runs on Tuesdays, so the image picks up new Alpine and Node fixes and the
+  merged updates, and the Trivy gate sees new CVEs. Promoting to `stable` stays a hand step.
+- **CodeQL** (`.github/workflows/codeql.yml`) scans the JavaScript and the workflows on every push and weekly;
+  findings go to the Security tab.
 - **Stack report** (`.github/workflows/stack-report.yml`, Mondays, or Run workflow by hand) checks every part the
   dashboard is built on, the version in use against the newest, with the release notes in between (breaking changes,
   deprecations and security fixes marked at the top of each). It keeps one open issue labelled `stack-report` up to

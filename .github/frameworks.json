@@ -10,6 +10,14 @@
       "link": "https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32022L2555"
     },
     {
+      "key": "ir",
+      "name": "NIS2 Implementing Regulation (EU) 2024/2690",
+      "how": "consolidated versions on EUR-Lex (a new one means the regulation was amended)",
+      "celex": "32024R2690",
+      "reviewed": ["02024R2690-20241018"],
+      "link": "https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32024R2690"
+    },
+    {
       "key": "nsm",
       "name": "NSM Grunnprinsipper for IKT-sikkerhet",
       "how": "the version named on NSM's page",

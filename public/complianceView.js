@@ -1,13 +1,15 @@
 "use strict";
-/* Compliance page: every control of one framework (NIS2, NSM or CIS) with what the latest scans say about it, for
+/* Compliance page: every control of one framework (NIS2, its Implementing Regulation, NSM or CIS) with what the latest scans say about it, for
    the tenant tab in view. Built from the same tool data as the scan pages (state.tools), so a tenant switch needs no
    reset of its own. Uses esc(), fmt, icon, statTile, tableHtml, kindSev, loadTool, toolState, TOOLS, shownTools, TOOL_BY_ID and
    state from app.js and Compliance / FRAMEWORKS from compliance.js. */
 const ComplianceView = (() => {
   const st = { fw: "nis2", built: false };
   const STALE_DAYS = 8;
+  const SHORT = { nis2: "NIS2", ir: "NIS2 IR", nsm: "NSM", cis: "CIS" };
   const NOTES = {
     nis2: "NIS2 Article 21(2) lists the measures an essential or important entity must take. In Norway it is expected to replace the Digital Security Act (the NIS1 law); until then use it as a checklist.",
+    ir: "Implementing Regulation (EU) 2024/2690 spells out the NIS2 Article 21(2) measures section by section. It binds cloud, data centre, managed and managed security service providers, DNS, CDNs, online marketplaces, search engines, social networks and trust services; for anyone else it is a detailed checklist for NIS2.",
     nsm: "NSM's ICT security principles are the Norwegian baseline: what the National Security Authority expects of public bodies, municipalities included, and what auditors often check against. Principle 2.6.7 is MFA.",
     cis: "CIS Controls v8.1 safeguards that the scans can see. Many safeguards (training, physical, endpoint) are outside what an Azure scan can check and are not listed.",
   };
@@ -19,7 +21,7 @@ const ComplianceView = (() => {
         <div class="page-head">
           <div><h1>Compliance</h1><p class="page-sub">Each control, and what the latest scans found that bears on it. A pointer for an audit, not the audit itself.</p></div>
           <div class="page-actions no-print">
-            <div class="seg" id="cp-fw" role="tablist">${Object.entries(FRAMEWORKS).map(([k, v]) => `<button data-fw="${k}" title="${esc(v)}">${esc(k === "nis2" ? "NIS2" : k.toUpperCase())}</button>`).join("")}</div>
+            <div class="seg" id="cp-fw" role="tablist">${Object.entries(FRAMEWORKS).map(([k, v]) => `<button data-fw="${k}" title="${esc(v)}">${esc(SHORT[k] || k.toUpperCase())}</button>`).join("")}</div>
             <button class="btn" id="cp-print">${icon("print")} Print / PDF</button>
           </div>
         </div>

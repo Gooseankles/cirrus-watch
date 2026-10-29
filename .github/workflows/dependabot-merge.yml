@@ -1,0 +1,43 @@
+name: Dependabot auto-merge
+
+# Patch updates from Dependabot merge by themselves once the image build and
+# the Trivy gate pass (main requires the build-and-push check). Minor and major
+# updates, and anything else, wait for a person. A merge made here does not
+# start a new image build on its own; the weekly Tuesday rebuild in docker.yml
+# picks it up, and promoting to stable stays a hand step.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Gooseankles/azure-ops-dashboard'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Read the update
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
+      # A grouped pull request merges only when every update in it is a patch.
+      # A new digest for the same Node tag (node:26-alpine@sha256:...) has no
+      # version change and counts as a patch.
+      - name: Turn on auto-merge for a patch update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          UPDATES: ${{ steps.meta.outputs.updated-dependencies-json }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+        run: |
+          kinds=$(jq -r '[.[].updateType // ""] | unique | join(",")' <<< "$UPDATES")
+          echo "Ecosystem: $ECOSYSTEM; update types: ${kinds:-digest only}"
+          if [ "$kinds" = "version-update:semver-patch" ] || { [ "$ECOSYSTEM" = "docker" ] && [ -z "$kinds" ]; }; then
+            gh pr merge --auto --squash "$PR_URL"
+          else
+            echo "Not only patches; left for a person."
+          fi

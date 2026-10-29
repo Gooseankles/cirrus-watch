@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [main]
+  # Weekly rebuild: takes Alpine and Node patches and the Dependabot updates
+  # merged on Monday, and runs the Trivy gate against new CVEs. A failed
+  # rebuild pushes nothing and shows as a failed run.
+  schedule:
+    - cron: "0 4 * * 2"
   workflow_dispatch:
 
 env:

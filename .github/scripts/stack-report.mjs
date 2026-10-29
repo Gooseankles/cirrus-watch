@@ -126,7 +126,7 @@ function summariseAudit(out) {
 
 /* --- Node base image --- */
 async function nodePart() {
-  const from = readFileSync("Dockerfile", "utf8").match(/^FROM\s+node:(\d+)([^\s]*)/m);
+  const from = readFileSync("Dockerfile", "utf8").match(/^FROM\s+node:(\d+)([^\s@]*)/m);
   if (!from) return { outdated: 0, md: "### Node base image\n\nNo `FROM node:` line found in the Dockerfile." };
   const major = +from[1];
   const dist = await get("https://nodejs.org/dist/index.json");

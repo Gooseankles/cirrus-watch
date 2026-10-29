@@ -906,7 +906,7 @@ function renderMe() {
   $("#me-name").textContent = me.name || "Signed in";
   const areas = Array.isArray(me.areas) ? me.areas : AREAS_ALL;
   const part = areas.length < AREAS_ALL.length ? areas.map(areaLabel).join(", ") : "";
-  $("#me-role").textContent = me.isAdmin ? "Admin" : part ? `${part}${canRun() ? " · can run" : ""}` : canRun() ? "Can run scans" : (me.roles || []).length ? "Read-only" : "Reader";
+  $("#me-role").textContent = me.isAdmin ? "Admin" : part || "All areas";
   $("#me-role").title = (me.roles || []).join(", ");
   $("#me-avatar").textContent = initials(me.name || "?");
   $("#me-version").textContent = me.version ? `v${me.version}` : "";

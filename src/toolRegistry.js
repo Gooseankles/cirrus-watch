@@ -173,8 +173,8 @@ function registerScanTool(app, tool) {
     return true;
   }
 
-  // Global Admin runs every tenant; Admin-<key> only theirs, <Area>.Run its
-  // area's scans (?tenant= narrows).
+  // Whoever may see the scan may run it, in the tenants their roles reach
+  // (?tenant= narrows).
   app.post(`/api/tools/${tool.id}/run`, access.requireRunner(tool.id), (req, res) => {
     const keys = access.runScope(req, tool.id);
     if (keys && !keys.length) return res.status(403).json({ error: "you cannot run scans in that tenant" });

@@ -142,12 +142,14 @@ To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access
 
 ## Signing in and roles
 
-- **Admin**: everything, every tenant, plus Run now, cost history refresh and the Settings page.
-- **User**: read-only, every tenant.
-- **Admin-&lt;key&gt;**: one customer tenant (see "Customer tenants" below): read it and run its scans.
-- **User-&lt;key&gt;**: one customer tenant, read-only.
-- **&lt;Area&gt;.Read** / **&lt;Area&gt;.Run**: one area in every tenant, read-only or with Run now.
-- **&lt;Area&gt;.Read-&lt;key&gt;** / **&lt;Area&gt;.Run-&lt;key&gt;**: one area in one tenant.
+- **Admin**: every tenant, plus the Settings page.
+- **User**: every tenant.
+- **Admin-&lt;key&gt;** / **User-&lt;key&gt;**: one customer tenant (see "Customer tenants" below).
+- **&lt;Area&gt;.Read**: one area in every tenant.
+- **&lt;Area&gt;.Read-&lt;key&gt;**: one area in one tenant.
+
+Whoever may see a scan may also run it (Run now, cost history refresh). The `<Area>.Run` roles of older versions
+still work and count as `<Area>.Read`.
 
 Areas let each team see only its own scans. Area is `Identity`, `Platform`, `Security` or `Cost`; a scan can sit in
 more than one (`TOOL_AREAS` in `src/access.js`):
@@ -159,8 +161,8 @@ more than one (`TOOL_AREAS` in `src/access.js`):
 | Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, certificates, backup coverage, resilience, updates, resource health, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
 | Cost | Orphaned resources, cost anomalies, cost history |
 
-Whoever may read a scan may also accept or snooze its findings. Settings, the server log lines and notifications
-stay with `Admin` (and `User` for reading).
+Whoever may see a scan may also run it and accept or snooze its findings. Settings stays with `Admin`; the server
+log lines and notifications are shown to `Admin` and `User`.
 
 A person can hold several roles, for example `User-acme` and `Admin-globex`, and then sees only those tenants.
 Role values are matched without regard to case. An SSO account with no role is refused, even when the Enterprise
@@ -186,7 +188,7 @@ This is a separate app registration from the identity the scans use: it only sig
    user-assigned managed identity to the web app, add a federated credential for it on the app registration
    (scenario "Managed identity") and set its client ID as `DASHBOARD_FEDERATED_MI_CLIENT_ID`.
 3. App roles → create `Admin` and `User`, plus `Admin-<key>` and `User-<key>` per customer tenant and the area
-   roles you want (`Security.Read`, `Platform.Run-acme` and so on) (allowed member types: Users/Groups).
+   roles you want (`Security.Read`, `Platform.Read-acme` and so on) (allowed member types: Users/Groups).
 4. Set `DASHBOARD_AZURE_TENANT_ID` and `DASHBOARD_AZURE_CLIENT_ID`.
 5. Enterprise applications → this app → Properties → **Assignment required** = Yes, so only people you add can
    sign in.

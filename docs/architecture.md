@@ -190,19 +190,18 @@ wrong passwords from one address lock that address for 15 minutes.
 
 What each role may do (`src/access.js`):
 
-| Role | Tenants it sees | Areas | Run now | Settings, audit log |
-|---|---|---|---|---|
-| `Admin` | all | all | all | yes |
-| `User` | all | all | no | no |
-| `Admin-<key>` | that customer | all | that customer | no |
-| `User-<key>` | that customer | all | no | no |
-| `<Area>.Run` | all | that area | that area | no |
-| `<Area>.Read` | all | that area | no | no |
-| `<Area>.Run-<key>` | that customer | that area | that area there | no |
-| `<Area>.Read-<key>` | that customer | that area | no | no |
+| Role | Tenants it sees | Areas | Settings, audit log |
+|---|---|---|---|
+| `Admin` | all | all | yes |
+| `User` | all | all | no |
+| `Admin-<key>` | that customer | all | no |
+| `User-<key>` | that customer | all | no |
+| `<Area>.Read` | all | that area | no |
+| `<Area>.Read-<key>` | that customer | that area | no |
 
 Areas are Identity, Platform, Security and Cost (`TOOL_AREAS` in `access.js`; a scan can be in several). Anyone who
-may read a scan in a tenant may accept or snooze its findings there.
+may see a scan in a tenant may run it (Run now) and accept or snooze its findings there. `<Area>.Run` roles from
+older versions count as `<Area>.Read`.
 
 ## 5. A scan run
 

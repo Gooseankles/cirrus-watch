@@ -1,15 +1,14 @@
-// What a signed-in person may see and do, from their app roles:
-//   Admin                 everything: every tenant and area, Run now, Settings
-//   User                  read every tenant and area
-//   Admin-<key>           every area of tenant <key>: read and run its scans
-//   User-<key>            every area of tenant <key>: read
-//   <Area>.Read           read one area in every tenant
-//   <Area>.Run            read one area in every tenant and run its scans
-//   <Area>.Read-<key>     read one area in tenant <key>
-//   <Area>.Run-<key>      read and run one area in tenant <key>
-// Areas: Identity, Platform, Security, Cost. Every scan belongs to one or more
-// (TOOL_AREAS). <key> is a customer tenant's key, or "home" for the tenant the
-// dashboard runs in. Whoever may read a finding may also accept or snooze it.
+// What a signed-in person may see, from their app roles:
+//   Admin                 every tenant and area, plus Settings
+//   User                  every tenant and area
+//   Admin-<key>           every area of tenant <key>
+//   User-<key>            every area of tenant <key>
+//   <Area>.Read           one area in every tenant
+//   <Area>.Read-<key>     one area in tenant <key>
+// Whoever may see a scan may also run it (Run now) and accept or snooze its
+// findings. Areas: Identity, Platform, Security, Cost. Every scan belongs to
+// one or more (TOOL_AREAS). <key> is a customer tenant's key, or "home" for the
+// tenant the dashboard runs in. The old <Area>.Run roles still count, as Read.
 // Role values are matched without regard to case, except Admin and User.
 const tenants = require("./tenants");
 
@@ -66,15 +65,15 @@ const areasOf = (id) => (AREAS.includes(id) ? [id] : TOOL_AREAS[id] || []);
 const CUSTOMER_ROLE = /^(admin|user)-(.+)$/i;
 const AREA_ROLE = new RegExp(`^(${AREAS.join("|")})\\.(read|run)(?:-(.+))?$`, "i");
 
-// One role as a grant: area ("*" = all), tenant key ("*" = all), run rights.
+// One role as a grant: area ("*" = all), tenant key ("*" = all). Every grant
+// may run what it may read.
 function grantOf(role) {
   const r = String(role);
-  if (r === "Admin") return { area: "*", key: "*", run: true };
-  if (r === "User") return { area: "*", key: "*", run: false };
+  if (r === "Admin" || r === "User") return { area: "*", key: "*", run: true };
   let m = CUSTOMER_ROLE.exec(r);
-  if (m) return { area: "*", key: m[2].toLowerCase(), run: m[1].toLowerCase() === "admin" };
+  if (m) return { area: "*", key: m[2].toLowerCase(), run: true };
   m = AREA_ROLE.exec(r);
-  if (m) return { area: m[1].toLowerCase(), key: m[3] ? m[3].toLowerCase() : "*", run: m[2].toLowerCase() === "run" };
+  if (m) return { area: m[1].toLowerCase(), key: m[3] ? m[3].toLowerCase() : "*", run: true };
   return null;
 }
 
@@ -130,7 +129,7 @@ function requireRunner(id) {
     const user = req.session && req.session.user;
     if (!user) return res.status(401).json({ error: "sign in required" });
     const keys = keysFor(accessOf(user), id, true);
-    if (keys !== null && !keys.length) return res.status(403).json({ error: "requires Admin, Admin-<customer> or the area's .Run role" });
+    if (keys !== null && !keys.length) return res.status(403).json({ error: "needs a role that can see this scan" });
     next();
   };
 }

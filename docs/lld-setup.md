@@ -2,14 +2,19 @@
 
 What happens, step by step, when Cirrus Watch is deployed with the
 [Terraform module](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard) and then starts: which resources
-are made and how they are wired, which settings the app gets, what the app does at start-up, how a sign-in and a
-scan run, and what changes on an update. For the big picture see the [high-level design](hld.md) and [architecture.md](architecture.md); for every
-permission see [permissions.md](permissions.md).
+are made and how they are wired, which settings the app gets, what the app does at start-up, how a sign-in, a
+request and a scan run, where the data lives, and what changes on an update. For the big picture see the
+[high-level design](hld.md) and [architecture.md](architecture.md); for every permission see
+[permissions.md](permissions.md).
 
 Names below use the module's defaults with `name = "contoso-ops"`. Everything a module input can turn off is
 marked with that input.
 
 ## 1. What Terraform creates
+
+![Azure resources Terraform creates](diagrams/arch-azure-resources.png)
+
+<sub>Source: [arch-azure-resources.mmd](diagrams/arch-azure-resources.mmd)</sub>
 
 | Resource | Default name | Made when | What it is for |
 | --- | --- | --- | --- |
@@ -29,6 +34,8 @@ marked with that input.
 | Security group per role | `Cirrus Watch (contoso-ops) <role>` | `create_role_groups` | Access is given by group membership |
 | Graph application permissions on the shared SPN | (none) | `grant_graph_permissions` | The Entra scans (`graph_permissions` lists them) |
 | Azure role assignments for the shared SPN | (none) | one per entry in `shared_spn_access` | Reader and Cost Management Reader on what is scanned |
+| Role assignments for the web app's own data | (none) | `create_history_storage`, `create_secret_vault` | Storage Blob Data Contributor on the storage account and Key Vault Secrets Officer on the vault, for the system-assigned identity |
+| Key Vault Secrets Officer for named people | (none) | `create_secret_vault` and `secret_vault_admin_ids` | Break-glass: those users or groups may see and change the stored secrets in the portal; nobody else can |
 | VNet, subnets, private endpoints, private DNS zones | `vnet-contoso-ops` … | `private_network` (`private_access`) | Storage and vault reachable only from the app |
 | Action group + three metric alerts | `ag-contoso-ops` | `alert_emails` | Email when CPU, memory or HTTP errors stay high |
 
@@ -37,31 +44,16 @@ Terraform never touches a customer tenant. Each customer makes their own app reg
 
 ## 2. How the identities are wired
 
-```mermaid
-flowchart LR
-  subgraph app["Web app contoso-ops"]
-    sys["System-assigned identity<br/>(shared SPN)"]
-    uai["User-assigned identity<br/>id-contoso-ops-sso"]
-  end
-  sso["Sign-in app registration<br/>Cirrus Watch (contoso-ops)"]
-  arm["Subscriptions / management group"]
-  graph["Microsoft Graph"]
-  st["Storage account<br/>container dashboard"]
-  kv["Key vault"]
-  cust["Customer's own app registration<br/>(in their tenant, client secret)"]
+![How the identities are wired](diagrams/lld-identities.png)
 
-  uai -- "federated credential<br/>(token for api://AzureADTokenExchange)" --> sso
-  sys -- "Reader, Cost Management Reader" --> arm
-  sys -- "Graph application permissions" --> graph
-  sys -- "Storage Blob Data Contributor" --> st
-  sys -- "Key Vault Secrets Officer" --> kv
-  kv -. "holds the client secret of" .-> cust
-```
+<sub>Source: [lld-identities.mmd](diagrams/lld-identities.mmd)</sub>
 
 - **Scans in the home tenant** use the system-assigned identity (`AZURE_AUTH_TYPE = managed-identity`, no client ID).
   A tool can get its own identity in Settings (SPN override); then it uses only that one.
 - **Scans in a customer tenant** use that customer's app registration and the client secret stored in the key vault.
-  History storage always stays on the home identity.
+- **Storage and the vault** always use the system-assigned identity: it writes the container `dashboard` and one
+  `dashboard-<key>` per customer (Storage Blob Data Contributor) and reads and writes the vault's secrets
+  (Key Vault Secrets Officer). A customer's app never touches them.
 - **Sign-in** uses the sign-in app registration. Instead of a client secret, the app asks the user-assigned identity
   for a token with the audience `api://AzureADTokenExchange` and hands it to Entra as a client assertion. Entra
   accepts it because of the federated credential (issuer `https://login.microsoftonline.com/<tenant>/v2.0`, subject
@@ -81,7 +73,7 @@ The web app's app settings become environment variables in the container. The ap
 | `AZURE_AUTH_TYPE` | `managed-identity` | `src/credentials.js`: the shared SPN is the system-assigned identity |
 | `DASHBOARD_AZURE_TENANT_ID` | the tenant Terraform runs in | `src/auth.js` |
 | `DASHBOARD_AZURE_CLIENT_ID` | the sign-in app's client ID (made or given in `sso_app_client_id`) | `src/auth.js` |
-| `DASHBOARD_REDIRECT_URI` | `https://contoso-ops.azurewebsites.net/auth/callback` | `src/auth.js`; also the origin check and the link in notifications |
+| `DASHBOARD_REDIRECT_URI` | `https://contoso-ops.azurewebsites.net/auth/callback` | `src/auth.js`: where Entra sends the sign-in back, and the return address after logout. An `https://` value also turns on Secure cookies and `trust proxy` in `server.js`, and `src/notify.js` builds the link in messages from it |
 | `DASHBOARD_FEDERATED_MI_CLIENT_ID` | the user-assigned identity's client ID (secretless SSO) | `src/auth.js` |
 | `DASHBOARD_AZURE_CLIENT_SECRET` | `sso_client_secret`, only when SSO uses a secret | `src/auth.js` |
 | `SECRET_VAULT_URL` | the vault URI (`create_secret_vault`) | `src/secretStore.js` |
@@ -100,23 +92,9 @@ Customer client secrets never do: they are typed into Settings only.
 `node server.js` runs one process that serves the pages, answers the API, runs the scan schedules, samples its own
 load and sends the notifications. Run exactly one instance ([ADR 0006](adr/0006-one-process-one-instance.md)).
 
-```mermaid
-sequenceDiagram
-  participant S as server.js
-  participant KV as Key vault
-  participant FS as DATA_DIR
-  S->>S: load .env (dotenv; App Service settings win)
-  S->>FS: read settings.json, tenants.json (DASHBOARD_TENANTS merged in)
-  S->>S: security headers, origin check for changing requests
-  S->>FS: session store in DATA_DIR/sessions (memory if not writable)
-  S->>S: sign-in key: SESSION_SECRET, else DATA_DIR/session-secret, else a new one
-  S->>S: register every tool: routes, and a cron job per schedule
-  S->>S: notifications: daily at NOTIFY_TIME, retry queue hourly
-  S->>S: cost history cron (07:30), Server load sampler (every 15 s)
-  S->>KV: load secrets (retry every minute until it answers)
-  KV-->>S: secrets; any still in the JSON files move to the vault
-  S->>S: listen on PORT (7070); warn if the admin password is short
-```
+![Start-up sequence](diagrams/lld-startup.png)
+
+<sub>Source: [lld-startup.mmd](diagrams/lld-startup.mmd)</sub>
 
 Things to know:
 
@@ -125,60 +103,80 @@ Things to know:
 - A tool with no entry in `src/toolPermissions.js` or no area in `src/access.js` is reported in the log at start-up.
 - Schedules use the container's time zone: UTC, unless a `TZ` app setting (for example through
   `extra_app_settings`) says otherwise.
+- Sign-ins are files in `DATA_DIR/sessions`. When that folder cannot be written, the app logs a warning and keeps
+  them in memory; they are then lost at the next restart.
+- A `SESSION_SECRET` shorter than 32 characters (or a placeholder) is ignored; the app makes its own key and keeps
+  it in `DATA_DIR/session-secret`.
 
 ## 5. A sign-in
 
-```mermaid
-sequenceDiagram
-  participant B as Browser
-  participant A as Cirrus Watch
-  participant M as User-assigned identity
-  participant E as Entra ID
-  B->>A: GET /auth/login
-  A->>A: new state and PKCE verifier, kept in the session
-  A-->>B: redirect to Entra (openid profile)
-  B->>E: sign in (MFA and Conditional Access apply here)
-  E-->>B: redirect to /auth/callback?code&state
-  B->>A: GET /auth/callback
-  A->>M: token for api://AzureADTokenExchange
-  M-->>A: assertion
-  A->>E: code + verifier + assertion
-  E-->>A: ID token with the roles claim
-  A->>A: no dashboard role: refuse (login page says so); else new session
-  A-->>B: redirect to /
-```
+![Sign-in sequence](diagrams/lld-sign-in.png)
+
+<sub>Source: [lld-sign-in.mmd](diagrams/lld-sign-in.mmd)</sub>
 
 The session lasts 8 hours without use and at most 24 hours. Roles live only in Entra; a change takes effect at the
-next sign-in. The local admin account (`DASHBOARD_ADMIN_PASSWORD`) skips Entra and always has the Admin role.
+next sign-in. A person with no app role is refused at the login page. The local admin account
+(`DASHBOARD_ADMIN_PASSWORD`) skips Entra and always has the Admin role; after ten wrong passwords from one address
+that address must wait 15 minutes. On an `https://` site the session cookie is marked Secure.
 
-## 6. A scheduled scan
+## 6. The path of a request
 
-```mermaid
-sequenceDiagram
-  participant C as node-cron
-  participant R as toolRegistry
-  participant T as Tool run()
-  participant Z as Azure (ARM, Graph)
-  participant H as History storage
-  participant N as Notify queue
-  C->>R: schedule fires
-  R->>R: targets = enabled tenants with this scan on, not already running
-  loop each tenant
-    R->>T: run() inside that tenant's context
-    T->>Z: calls with the home identity or the customer's app
-    Z-->>T: data
-    T-->>R: findings (or an error, kept for that tenant)
-  end
-  R->>H: write latest results, a history snapshot and counts (per tenant container)
-  R->>N: new findings and failed scans per tenant
-```
+Every request from the browser goes through the same chain of checks in `server.js` before a route answers it.
 
-- A tenant that fails keeps its last results, with the error shown on the scan page. Other tenants still run.
-- **Run now** calls the same function for the tenants the person may see. A tenant already being scanned is
-  skipped, so two runs never write the same results.
-- Notifications go out once a day, not per scan.
+![What happens to a request, from the browser to the answer](diagrams/lld-request-path.png)
 
-## 7. Adding a customer tenant
+<sub>Source: [lld-request-path.mmd](diagrams/lld-request-path.mmd)</sub>
+
+- Every answer carries the security headers: a content security policy that allows only the site itself, no
+  framing, no content sniffing, and HSTS on HTTPS.
+- A changing request (anything but GET, HEAD or OPTIONS) whose `Sec-Fetch-Site` or `Origin` header points at another
+  site gets 403.
+- Only `/auth/*`, `/api/me` and the login page work without a session. Everything else needs one that is less
+  than 24 hours old: API calls get 401, pages are sent to the login page.
+- Reading routes (findings, history, report, cost) return only the tenants and areas the roles reach.
+- **Run now** and accepting a finding need a role that reaches that scan in at least one tenant, else 403. Run now
+  answers 202 when the scan has started, or 409 when the scan is turned off in that tenant.
+- Settings, the tenant list and the audit log need the `Admin` role, else 403. Secrets typed into Settings go to
+  the key vault and are never sent back by the API.
+
+## 7. A scheduled scan
+
+![Scheduled scan sequence](diagrams/lld-scan.png)
+
+<sub>Source: [lld-scan.mmd](diagrams/lld-scan.mmd)</sub>
+
+- A scan goes through its tenants one after another. A tenant that fails keeps its last results, with the error
+  shown on the scan page. Other tenants still run. When every tenant fails, nothing new is written; the error is
+  noted on each tenant's last results.
+- **Run now** calls the same function for the tenants the person's roles reach. A tenant already being scanned is
+  skipped, so two runs never write the same results. A tenant where the scan is turned off is skipped too.
+- Each run writes the latest result, a history snapshot and the counts for the trend pages, per tenant container.
+  Snapshots older than `HISTORY_RETENTION_DAYS` are removed.
+- Notifications go out once a day at `NOTIFY_TIME` (08:30 by default), not per scan. A message that fails is
+  retried every hour.
+
+## 8. Where the data lives
+
+![Containers, DATA_DIR files and vault secrets](diagrams/lld-storage-layout.png)
+
+<sub>Source: [lld-storage-layout.mmd](diagrams/lld-storage-layout.mmd)</sub>
+
+- **Scan data** sits in blob containers when `STORAGE_ACCOUNT_URL` is set, else in folders: the home tenant in
+  the container `dashboard` (or `DATA_DIR` itself), each customer in `dashboard-<key>` (or
+  `DATA_DIR/tenants/<key>`). Each holds the latest result and last error per scan (`findings/`), the history
+  snapshots (`history/`), accepted and snoozed findings (`suppressions/`) and the cost history (`cost/`).
+- **`DATA_DIR`** (`/home/data` on App Service) holds the settings, the tenant list, notification links and the
+  retry queue, sessions and the session key, 48 hours of load samples, the end-of-life dates, the activity log and
+  the audit log (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default).
+- **The key vault** holds the secrets typed into Settings, named `dashboard-<kind>-<key>-<hash>`: customer client
+  secrets, SPN overrides and notification links. Without a vault they stay in `DATA_DIR` (`settings.json`,
+  `tenants.json`); the Settings page shows which of the two is in use.
+
+## 9. Adding a customer tenant
+
+![Adding a customer tenant, step by step](diagrams/lld-customer.png)
+
+<sub>Source: [lld-customer.mmd](diagrams/lld-customer.mmd)</sub>
 
 1. The customer makes an app registration in their tenant with a client secret, grants the Graph application
    permissions (admin consent) and gives it Reader and Cost Management Reader on their subscriptions
@@ -190,7 +188,11 @@ sequenceDiagram
 4. **Test** checks the sign-in, the Graph permissions in the token and the roles on each subscription. The next
    scheduled run (or Run now) scans the new tenant.
 
-## 8. With `private_network`
+## 10. With `private_network`
+
+![Network with private_network](diagrams/arch-network.png)
+
+<sub>Source: [arch-network.mmd](diagrams/arch-network.mmd)</sub>
 
 - The web app joins a subnet (outbound VNet integration).
 - `private_access = "private_endpoint"` (default): the storage account and the vault get private endpoints and
@@ -201,12 +203,21 @@ sequenceDiagram
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
   rules.
 
-## 9. What an update changes
+## 11. What an update changes
+
+![How an update reaches the web app](diagrams/lld-update.png)
+
+<sub>Source: [lld-update.mmd](diagrams/lld-update.mmd)</sub>
+
+Every push to the app's main branch builds the image and, once the Trivy scan passes, pushes it as `:latest` and
+`:<version>`; a `v*` git tag adds that version as a tag too. `:stable` moves only by hand (the promote workflow),
+which then calls the deploy webhooks it knows.
 
 | Change | What happens |
 | --- | --- |
 | New image under the same tag (`:stable` promoted, `:latest` pushed) | With `continuous_deployment`, the deploy webhook makes App Service pull it and restart; without it, the next restart does |
 | `image` set to another tag | Terraform updates the web app; it pulls that image and restarts |
+| `continuous_deployment` turned on or off | Also turns the Kudu site's basic authentication on or off: the deploy webhook signs in with the publishing credentials (FTP stays off) |
 | Module `?ref=` raised | Read the module [CHANGELOG](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard/blob/main/CHANGELOG.md) Upgrading section first, then plan and apply |
 | Any app setting changed | App Service restarts the container |
 
@@ -214,12 +225,23 @@ A restart keeps everything in `DATA_DIR` (on `/home`) and in the storage account
 sessions and the key are in `DATA_DIR` or `SESSION_SECRET`. Steps for upgrading, rolling back and backing up are in
 [operations.md](operations.md).
 
-## 10. Where it can go wrong
+## 12. Where it can go wrong
+
+![The usual failure points, by step](diagrams/lld-failure-points.png)
+
+<sub>Source: [lld-failure-points.mmd](diagrams/lld-failure-points.mmd)</sub>
 
 | Step | Symptom | See |
 | --- | --- | --- |
 | Federated credential or user-assigned identity missing | "gave no token" at sign-in | [Troubleshooting: sign-in](troubleshooting.md#sign-in) |
 | Redirect URI differs from `DASHBOARD_REDIRECT_URI` | Entra error AADSTS50011 | [Troubleshooting: sign-in](troubleshooting.md#sign-in) |
-| Graph permissions not granted or not yet in the token | Entra scans fail with 403 | [Troubleshooting: scans](troubleshooting.md#scans) |
-| Vault or storage blocked by the network | "key vault is not reachable", history errors | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
+| Person has no app role (not in a group) | Refused at the login page | [Sign-in and roles](guides/sign-in-and-roles.md) |
+| Ten wrong local admin passwords from one address | Sign-in refused for 15 minutes | [Troubleshooting: sign-in](troubleshooting.md#sign-in) |
+| Graph permissions not granted or not yet in the token (up to 24 hours) | Entra scans fail with 403 | [Troubleshooting: scans](troubleshooting.md#scans) |
+| Customer client secret expired | That tenant fails, its last results stay; paste a new secret in Settings | [Troubleshooting: scans](troubleshooting.md#scans) |
+| Scan turned off for a tenant | Run now answers 409 | Settings → Customer tenants |
+| Storage answers 403 | History errors naming Storage Blob Data Contributor, or the network blocks the account | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
+| Vault answers 403 or is unreachable | "key vault is not reachable"; Key Vault Secrets Officer, firewall or private DNS | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
+| `DATA_DIR/sessions` not writable | Warning in the log; everyone is signed out at the next restart | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
 | Two instances (scale-out) | Scans run twice, files fight | [ADR 0006](adr/0006-one-process-one-instance.md) |
+| Restart during a scan | That run is lost; the next schedule or Run now repeats it | [ADR 0006](adr/0006-one-process-one-instance.md) |

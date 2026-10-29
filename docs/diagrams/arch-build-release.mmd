@@ -1,0 +1,9 @@
+flowchart LR
+  dev["Commit to main<br/>(VERSION bumped)"] --> gh["GitHub<br/>Gooseankles/azure-ops-dashboard"]
+  gh --> ci["Actions: Docker image<br/>build + push"]
+  ci --> hub[("Docker Hub<br/>latest, &lt;version&gt;, stable")]
+  ci --> tag["Git tag v&lt;version&gt;"]
+  promote["Actions: Promote to stable<br/>(by hand)"] --> hub
+  tfrun["terraform apply<br/>image = ...:&lt;version&gt;"] --> web["App Service"]
+  hub -- "pull on restart / image change" --> web
+  promote -. "deploy webhook<br/>(continuous_deployment)" .-> web

@@ -1,0 +1,30 @@
+flowchart TB
+  subgraph cw["Cirrus Watch (one installation)"]
+    app["Web app"]
+  end
+  subgraph home["Home tenant"]
+    hid["Managed identity<br/>(no secret)"]
+    hsubs["Subscriptions and Entra"]
+  end
+  subgraph ca["Customer A tenant"]
+    aapp["Their app registration<br/>(client secret)"]
+    asubs["Subscriptions and Entra"]
+  end
+  subgraph cb["Customer B tenant"]
+    bapp["Their app registration<br/>(client secret)"]
+    bsubs["Subscriptions and Entra"]
+  end
+  app --> hid --> hsubs
+  app -- "secret from Key Vault" --> aapp --> asubs
+  app -- "secret from Key Vault" --> bapp --> bsubs
+  app --> sh[("container dashboard")]
+  app --> sa[("container dashboard-a")]
+  app --> sb[("container dashboard-b")]
+  ppl["People"] -- "roles decide which tenants<br/>and areas they see" --> app
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class ppl person
+  class sh,sa,sb store
+  class hsubs,asubs,bsubs ext

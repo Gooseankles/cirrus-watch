@@ -1,0 +1,18 @@
+flowchart LR
+  signin["Sign-in"] --> f1["Identity or federated credential missing:<br/>'gave no token'"]
+  signin --> f2["Redirect URI differs:<br/>AADSTS50011"]
+  signin --> f3["No app role:<br/>refused at the login page"]
+  signin --> f4["Ten wrong local admin passwords:<br/>15 minutes wait"]
+  scan["Scan"] --> f5["Graph permission missing, or granted<br/>but not yet in the token (up to 24 h):<br/>Entra scans fail with 403"]
+  scan --> f6["Customer client secret expired:<br/>that tenant fails, its last results stay"]
+  scan --> f7["Scan turned off for the tenant:<br/>Run now answers 409"]
+  store["Storage and secrets"] --> f8["Storage 403:<br/>Storage Blob Data Contributor missing,<br/>or the network blocks the account"]
+  store --> f9["Vault 403 or unreachable:<br/>Key Vault Secrets Officer, firewall,<br/>private DNS"]
+  store --> f10["DATA_DIR/sessions not writable:<br/>sign-ins kept in memory, lost at restart"]
+  run["Running"] --> f11["Two instances:<br/>every scan runs twice, files fight"]
+  run --> f12["Restart during a scan:<br/>that run is lost, the next repeats it"]
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12 ext

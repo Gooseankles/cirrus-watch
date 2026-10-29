@@ -1,0 +1,17 @@
+flowchart TB
+  trig["Schedule<br/>or Run now"] --> run["Scan runs in each tenant<br/>where it is turned on"]
+  run --> find["Findings"]
+  find --> cmp["Compared with the run before:<br/>new and resolved"]
+  cmp --> save[("Latest result and<br/>history snapshot")]
+  acc["Accepted or snoozed<br/>findings"] -. "not counted as open" .-> save
+  save --> page["Scan pages"]
+  save --> rep["Monthly report"]
+  save --> trend["Weekly trends"]
+  save --> comp["Compliance pages<br/>NIS2, NSM, CIS"]
+  save --> note["Daily notification<br/>(only what is new)"]
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class trig person
+  class save store

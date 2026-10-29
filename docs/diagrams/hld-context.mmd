@@ -1,0 +1,17 @@
+flowchart LR
+  people["People<br/>(browser)"] -- "HTTPS, Entra sign-in" --> cw["Cirrus Watch<br/>(one container)"]
+  cw -- "read" --> arm["Azure Resource Manager<br/>Resource Graph, Cost Management"]
+  cw -- "read" --> msgraph["Microsoft Graph<br/>(Entra ID)"]
+  cw -- "read" --> cust["Customer tenants<br/>(ARM + Graph, their own app)"]
+  cw -- "daily message" --> chan["Teams, Slack, webhook<br/>or email (Graph)"]
+  cw -- "results and history" --> st["Azure Storage<br/>(or local disk)"]
+  cw -- "secrets from Settings" --> kv["Azure Key Vault<br/>(or local file)"]
+  cw -- "end-of-support dates" --> eol["endoflife.date"]
+  entra["Entra ID"] -- "ID token with roles" --> cw
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class people person
+  class st,kv store
+  class arm,msgraph,cust,chan,eol,entra ext

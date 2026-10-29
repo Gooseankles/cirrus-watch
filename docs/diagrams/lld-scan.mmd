@@ -1,0 +1,22 @@
+sequenceDiagram
+  participant C as node-cron
+  participant R as toolRegistry
+  participant T as Tool run()
+  participant Z as Azure (ARM, Graph)
+  participant H as History storage
+  participant N as Notify queue
+  C->>R: schedule fires
+  R->>R: targets = enabled tenants with this scan on, not already running
+  loop each tenant
+    R->>T: run() inside that tenant's context
+    T->>Z: calls with the home identity or the customer's app
+    Z-->>T: data
+    T-->>R: findings (or an error, kept for that tenant)
+  end
+  alt every tenant failed
+    R->>H: note the error on each tenant's last results (they stay)
+  else at least one succeeded
+    R->>H: write latest results, a history snapshot and counts (per tenant container)
+    R->>H: a failed tenant keeps its last results, with the error on them
+  end
+  R->>N: new findings and failed scans per tenant

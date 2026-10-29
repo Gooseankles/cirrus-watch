@@ -1,0 +1,18 @@
+flowchart LR
+  user["Allowed IPs / subnets"] -- "HTTPS 443" --> fe["App Service front end<br/>access restrictions, TLS 1.2+"]
+  fe --> app["Web app"]
+  subgraph vnet["VNet (private_network)"]
+    snapp["snet-app<br/>delegated to App Service"]
+    snpe["snet-private-endpoints"]
+    pest["Private endpoint: blob"]
+    pekv["Private endpoint: vault"]
+    dns["Private DNS<br/>privatelink.blob.core.windows.net<br/>privatelink.vaultcore.azure.net"]
+  end
+  app -- "VNet integration" --> snapp
+  snapp --> pest
+  snapp --> pekv
+  snpe --- pest
+  snpe --- pekv
+  pest --> st[("Storage<br/>public access off")]
+  pekv --> kv[("Key vault<br/>public access off")]
+  app -- "public internet<br/>(or via VNet with vnet_route_all + NAT)" --> azure["ARM, Graph, Entra,<br/>Docker Hub, endoflife.date"]

@@ -1,0 +1,39 @@
+flowchart TB
+  p["A person<br/>(roles from Entra, or the local admin)"]
+  subgraph roles["App roles"]
+    direction LR
+    admin["Admin"]
+    user["User"]
+    cust["Admin-&lt;key&gt;<br/>User-&lt;key&gt;"]
+    area["&lt;Area&gt;.Read"]
+    areak["&lt;Area&gt;.Read-&lt;key&gt;"]
+  end
+  p --> admin
+  p --> user
+  p --> cust
+  p --> area
+  p --> areak
+  all["Every tenant,<br/>every area"]
+  one["One tenant,<br/>every area"]
+  aall["One area,<br/>every tenant"]
+  aone["One area,<br/>one tenant"]
+  admin --> all
+  user --> all
+  cust --> one
+  area --> aall
+  areak --> aone
+  admin --> settings["Settings page<br/>(Admin only)"]
+  all --> see
+  one --> see
+  aall --> see
+  aone --> see
+  see["Sees those scans, runs them,<br/>accepts findings"]
+  areas["Areas: Identity, Platform,<br/>Security, Cost<br/>(a scan can sit in two)"]
+  aall -.-> areas
+  aone -.-> areas
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class p person
+  class areas ext

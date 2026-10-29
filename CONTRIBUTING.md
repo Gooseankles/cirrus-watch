@@ -48,7 +48,12 @@ runs, update the [setup low-level design](docs/lld-setup.md). The pull request t
   goes in `.env.example` and the Settings hint; a new role, page or API route in
   [sign-in and roles](docs/guides/sign-in-and-roles.md) and [architecture.md](docs/architecture.md). A new big
   decision gets a decision record.
-- **Checks:** `npm run docs:check`, then Markdown style and links as the Docs workflow runs them:
+- **Diagrams:** the pictures in the docs are PNG files made from Mermaid text in `docs/diagrams/*.mmd`, so they
+  show everywhere, also in GitHub's phone app. Edit the `.mmd`, run `npm run diagrams -- <name>` (needs Docker),
+  look at the PNG and commit both with `docs/diagrams/rendered.json`. A new picture is a new `.mmd`; embed the PNG
+  with a `<sub>Source: ...</sub>` line under it as the others do. Keep them portrait (`flowchart TB`) so they read
+  on a phone.
+- **Checks:** `npm run docs:check` (it also fails when a `.mmd` changed but its PNG was not rendered again), then Markdown style and links as the Docs workflow runs them:
 
   ```sh
   npx -y markdownlint-cli2@0.18.1 "**/*.md"

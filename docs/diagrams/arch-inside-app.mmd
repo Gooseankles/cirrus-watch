@@ -1,0 +1,35 @@
+flowchart TB
+  subgraph browser["Browser (public/)"]
+    appjs["app.js<br/>routing, TOOLS, KINDS, tables"]
+    views["complianceView.js, report.js,<br/>cost.js, audit.js, settings.js"]
+    comp["compliance.js<br/>finding kind → NIS2 / IR / NSM / CIS"]
+  end
+  subgraph server["Server (server.js + src/)"]
+    mw["Middleware: security headers →<br/>session → requireAuth → audit"]
+    auth["auth.js / access.js<br/>SSO, local admin, roles, tenant scope"]
+    reg["toolRegistry.js<br/>routes + cron per tool"]
+    tools["tools/*.js<br/>39 tools: run() → findings"]
+    clients["armClient.js / graphClient.js<br/>paging, retries"]
+    cred["credentials.js<br/>which identity, cached"]
+    ctx["tenantContext.js<br/>AsyncLocalStorage: current tenant"]
+    store["findingsStore.js<br/>latest, history, diff"]
+    supp["suppressions.js<br/>accepted / snoozed"]
+    cost["costHistory.js"]
+    rep["report.js<br/>monthly report"]
+    cfg["settings.js / tenants.js /<br/>secretStore.js"]
+    logs["log.js (runs.jsonl)<br/>audit.js (audit.jsonl)"]
+  end
+  appjs -- "fetch /api/*" --> mw
+  mw --> auth
+  mw --> reg
+  reg --> tools
+  tools --> clients
+  clients --> cred
+  cred --> ctx
+  cred --> cfg
+  reg --> store
+  reg --> supp
+  reg --> logs
+  rep --> store
+  cost --> clients
+  store --> cred

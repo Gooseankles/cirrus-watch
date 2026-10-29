@@ -1,0 +1,22 @@
+flowchart TB
+  browser["Browser<br/>(public/ pages)"] -- "HTTPS" --> web["Web server<br/>security headers, origin check"]
+  web --> auth["Sign-in and access<br/>Entra SSO or local admin,<br/>roles to tenants and areas"]
+  web --> api["JSON API"]
+  cron["Scheduler<br/>(node-cron)"] --> reg["Tool registry<br/>one run per tool and tenant"]
+  api -- "Run now" --> reg
+  reg --> tools["Scan tools<br/>src/tools/*.js"]
+  tools --> cred["Credentials<br/>managed identity, federated, secret"]
+  cred --> azure["Azure Resource Manager<br/>and Microsoft Graph"]
+  cred --> secrets["Secret store"] --> kv[("Key Vault<br/>or local file")]
+  reg --> store["Findings store<br/>latest, history, counts"] --> blob[("Azure Storage<br/>or DATA_DIR")]
+  api --> store
+  store --> reports["Reports, trends,<br/>compliance view"]
+  store --> notify["Notifications<br/>daily digest, retry queue"] --> chan["Teams, Slack,<br/>webhook, email"]
+  mon["Self-monitoring<br/>server load, audit log, activity"] --> api
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class browser person
+  class kv,blob store
+  class azure,chan ext

@@ -21,6 +21,25 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.57.3.0] - 2026-10-29
+
+### Added
+
+- Pictures in the high-level and setup low-level designs: building blocks, from scan to report, tenants, who sees
+  what, the Azure resources, the path of a request, where the data lives, adding a customer tenant, the private
+  network, how an update arrives and where it can go wrong.
+- The setup low-level design covers more: the role assignments Terraform makes, session storage, the local admin
+  lockout, Run now, history pruning, how image tags are made, and more failure cases.
+- `npm run diagrams` makes the pictures from their Mermaid text (`docs/diagrams/*.mmd`); the Docs check fails
+  when a picture is missing or older than its text.
+
+### Fixed
+
+- The diagrams in the docs show on GitHub's phone app and in editors without Mermaid: they are now PNG images.
+- Three diagrams that GitHub could not draw (a reserved word and semicolons in their text) draw again.
+- The designs and `.env.example` no longer say that only Admins may press Run now, and the high-level design
+  no longer says every scan runs daily or weekly (resource health runs hourly).
+
 ## [0.57.2.0] - 2026-10-29
 
 ### Added

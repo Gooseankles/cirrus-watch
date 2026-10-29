@@ -1,0 +1,25 @@
+flowchart TB
+  people["People<br/>browser"]
+  hub["Docker Hub<br/>trozity/azure-ops-dashboard"]
+  subgraph home["Home tenant"]
+    subgraph rg["Resource group rg-&lt;name&gt;"]
+      app["App Service<br/>Linux container<br/>Node.js + Express"]
+      st[("Storage account<br/>scan results, history,<br/>cost history")]
+      kv[("Key vault<br/>secrets typed in Settings")]
+    end
+    subgraph apis["Microsoft cloud APIs"]
+      entra["Entra ID<br/>sign-in app + app roles"]
+      arm["Azure Resource Manager<br/>subscriptions"]
+      msgraph["Microsoft Graph<br/>users, roles, policies"]
+    end
+  end
+  cust["Customer tenants<br/>ARM + Graph"]
+
+  people -- "HTTPS" --> app
+  hub -- "image pull" --> app
+  app -- "Entra token" --> st
+  app -- "Entra token" --> kv
+  app -- "sign-in: ID token<br/>with roles claim" --> entra
+  app -- "scans: read only" --> arm
+  app -- "scans: read only" --> msgraph
+  app -- "scans: as each<br/>customer's app" --> cust

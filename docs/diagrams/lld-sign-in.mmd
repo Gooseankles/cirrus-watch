@@ -1,0 +1,17 @@
+sequenceDiagram
+  participant B as Browser
+  participant A as Cirrus Watch
+  participant M as User-assigned identity
+  participant E as Entra ID
+  B->>A: GET /auth/login
+  A->>A: new state and PKCE verifier, kept in the session
+  A-->>B: redirect to Entra (openid profile)
+  B->>E: sign in (MFA and Conditional Access apply here)
+  E-->>B: redirect to /auth/callback?code&state
+  B->>A: GET /auth/callback
+  A->>M: token for api://AzureADTokenExchange
+  M-->>A: assertion
+  A->>E: code + verifier + assertion
+  E-->>A: ID token with the roles claim
+  A->>A: no dashboard role: refuse (the login page says so), else a new session
+  A-->>B: redirect to /

@@ -1,0 +1,20 @@
+sequenceDiagram
+  participant C as Customer's admin
+  participant T as You (Terraform)
+  participant W as Web app
+  participant A as Cirrus Watch Admin
+  participant K as Key vault
+  participant X as Customer tenant
+  T->>T: terraform output customer_onboarding
+  T-->>C: the steps
+  C->>X: app registration, client secret, Graph consent, Reader roles
+  C-->>T: tenant ID, client ID, subscriptions
+  T->>W: add to customers, apply: container, roles, groups, DASHBOARD_TENANTS
+  W->>W: restarts with the new tenant
+  C-->>A: client secret (a safe channel)
+  A->>W: Settings, Customer tenants, Edit: paste the secret
+  W->>K: store dashboard-... secret
+  A->>W: Test
+  W->>X: sign in as their app, read the token's permissions and the roles
+  X-->>W: ok, or what is missing
+  W->>X: next scheduled run or Run now scans the tenant

@@ -1,0 +1,25 @@
+sequenceDiagram
+  autonumber
+  participant C as node-cron / Run now
+  participant R as toolRegistry.execute
+  participant T as Tool run()
+  participant ID as credentials.getCredential
+  participant AZ as ARM / Graph
+  participant S as findingsStore
+  participant L as Activity log
+  C->>R: start (all tenants, or the runner's tenants)
+  loop each tenant
+    R->>R: tenantContext.runIn(tenant)
+    R->>T: run()
+    T->>ID: credential for this tool in this tenant
+    ID-->>T: managed identity, tool SPN or customer app
+    T->>AZ: read-only calls (paged)
+    AZ-->>T: resources, users, policies
+    T-->>R: findings [{kind, id, name, detail, ...}]
+    R->>AZ: subscription names
+  end
+  R->>S: write(tool, findings, tenants done, errors)
+  S->>S: per tenant: diff with last run (new / resolved), keep firstSeen
+  S->>S: put history/<tool>/<ranAt>.json, findings/<tool>.json, index.json
+  S->>S: drop runs older than HISTORY_RETENTION_DAYS
+  R->>L: "scan complete: n findings, x new, y resolved"

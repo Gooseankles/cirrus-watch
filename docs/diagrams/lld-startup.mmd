@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant S as server.js
+  participant KV as Key vault
+  participant FS as DATA_DIR
+  S->>S: load .env (dotenv, App Service settings win)
+  S->>FS: read settings.json, tenants.json (DASHBOARD_TENANTS merged in)
+  S->>S: security headers, origin check for changing requests
+  S->>FS: session store in DATA_DIR/sessions (memory if not writable)
+  S->>S: sign-in key: SESSION_SECRET, else DATA_DIR/session-secret, else a new one
+  S->>S: register every tool: routes, and a cron job per schedule
+  S->>S: notifications: daily at NOTIFY_TIME, retry queue hourly
+  S->>S: cost history cron (07:30), Server load sampler (every 15 s)
+  S->>KV: load secrets (retry every minute until it answers)
+  KV-->>S: secrets (any left in the JSON files move to the vault)
+  S->>S: listen on PORT (7070), warn if the admin password is short

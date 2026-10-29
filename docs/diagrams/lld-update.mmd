@@ -1,0 +1,15 @@
+flowchart TB
+  push["Push to main"] --> build["Docker build<br/>+ Trivy gate"]
+  build --> latest["Image :latest<br/>and :&lt;version&gt;"]
+  latest -- "Promote to stable<br/>(by hand)" --> stable["Image :stable"]
+  latest --> hub[("Docker Hub")]
+  stable --> hub
+  hub -- "same tag, new image:<br/>continuous_deployment webhook,<br/>else the next restart" --> web["Web app pulls<br/>and restarts"]
+  tf["terraform apply<br/>image tag or app setting changed"] --> web
+  web --> keep[("DATA_DIR and storage<br/>are kept")]
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class push,tf person
+  class hub,keep store

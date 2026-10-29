@@ -1,0 +1,34 @@
+flowchart TB
+  subgraph az["Azure subscription"]
+    subgraph rg["rg-&lt;name&gt;"]
+      asp["App Service plan<br/>asp-&lt;name&gt; (sku_name)"]
+      web["Linux web app &lt;name&gt;<br/>identity: SystemAssigned + UserAssigned"]
+      uami["User-assigned identity<br/>id-&lt;name&gt;-sso"]
+      st["Storage account st&lt;name&gt;&lt;suffix&gt;<br/>shared keys off, TLS 1.2"]
+      cont["Containers: dashboard,<br/>dashboard-&lt;key&gt; per customer"]
+      kv["Key vault kv&lt;name&gt;&lt;suffix&gt;<br/>RBAC, purge protection optional"]
+      vnet["VNet + subnets,<br/>private endpoints, private DNS"]
+    end
+    scopes["Scan scopes<br/>management groups / subscriptions"]
+  end
+  subgraph entra["Entra ID (home tenant)"]
+    sso["App registration<br/>Cirrus Watch (&lt;name&gt;)<br/>app roles Admin, User, Admin-&lt;key&gt;, User-&lt;key&gt;,<br/>&lt;Area&gt;.Read(-&lt;key&gt;)"]
+    fic["Federated credential<br/>trusts id-&lt;name&gt;-sso"]
+    groups["Security groups<br/>one per app role"]
+    graphperm["Graph app role assignments<br/>to the web app's identity"]
+  end
+
+  asp --> web
+  uami --> web
+  st --> cont
+  web -- "Storage Blob Data Contributor" --> st
+  web -- "Key Vault Secrets Officer" --> kv
+  web -- "Reader, Cost Management Reader<br/>(Key Vault Reader only for the item check)" --> scopes
+  sso --> fic
+  fic -. "subject = principal of" .-> uami
+  groups -- "assigned to app roles" --> sso
+  graphperm -. "granted to" .-> web
+  vnet -.-> web
+
+  classDef opt stroke-dasharray: 5 5
+  class st,cont,kv,vnet,groups opt

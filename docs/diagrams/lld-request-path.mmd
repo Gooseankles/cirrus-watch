@@ -1,0 +1,21 @@
+flowchart TB
+  req["Request from the browser"] --> hdr["Security headers on every answer<br/>CSP, nosniff, no framing,<br/>HSTS on HTTPS"]
+  hdr --> chg["A changing request (POST)<br/>from another site?"]
+  chg -- "yes" --> r403a["403"]
+  chg -- "no" --> sess["Session from the cookie<br/>(DATA_DIR/sessions)"]
+  sess --> login["/auth/*, /api/me and<br/>the login page:<br/>no session needed"]
+  sess --> signed["Signed in less than<br/>24 hours ago?"]
+  signed -- "no" --> r401["401 for the API,<br/>pages go to the login page"]
+  signed -- "yes" --> audit["Audit log line"]
+  audit --> files["public/ files<br/>(pages, scripts, styles)"]
+  audit --> read["Findings, history, report, cost:<br/>only the tenants and areas<br/>the roles reach"]
+  audit --> run["Run now, accept:<br/>a role must reach the scan<br/>in some tenant, else 403"]
+  audit --> adm["Settings, tenants, audit log:<br/>Admin role, else 403"]
+  run --> started["202 started<br/>(409 when the scan is off there)"]
+  adm --> vault["Secrets typed in go<br/>to the key vault"]
+
+  classDef person fill:#fff7ed,stroke:#ea580c,color:#1b2533
+  classDef store fill:#ecfdf5,stroke:#059669,color:#1b2533
+  classDef ext fill:#f1f5f9,stroke:#64748b,color:#1b2533
+  class req person
+  class sess store

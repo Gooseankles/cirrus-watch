@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph home["Home tenant"]
+    app["Dashboard"]
+    kv[("Key vault<br/>dashboard-… secrets")]
+    st[("Storage<br/>dashboard-&lt;key&gt;")]
+    roles["App roles<br/>Admin-&lt;key&gt;, User-&lt;key&gt;"]
+  end
+  subgraph cust["Customer tenant &lt;key&gt;"]
+    capp["App registration (made by hand)<br/>Graph app permissions + admin consent"]
+    csubs["Subscriptions<br/>Reader, Cost Management Reader<br/>(Key Vault Reader only for the item check)"]
+  end
+  tf["Terraform customers = {...}"] -- "DASHBOARD_TENANTS<br/>(no secrets)" --> app
+  tf --> st
+  tf --> roles
+  admin["Admin in Settings"] -- "client secret" --> kv
+  kv --> app
+  app -- "client secret credential" --> capp
+  capp --> csubs

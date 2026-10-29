@@ -1,0 +1,23 @@
+sequenceDiagram
+  autonumber
+  actor P as Person
+  participant A as Dashboard (Express)
+  participant MI as Managed identity endpoint
+  participant E as Entra ID
+  P->>A: GET /auth/login
+  A->>A: state + PKCE verifier into the session
+  A-->>P: redirect to Entra (openid, profile)
+  P->>E: sign in (MFA, Conditional Access apply here)
+  E-->>P: redirect to /auth/callback?code&state
+  P->>A: GET /auth/callback
+  A->>A: check state (timing-safe)
+  A->>MI: token for api://AzureADTokenExchange (user-assigned identity)
+  MI-->>A: assertion
+  A->>E: code + PKCE verifier + client assertion
+  E-->>A: ID token with roles claim
+  alt no dashboard role
+    A-->>P: /login.html?error=no-role (audit: sign-in-refused)
+  else Admin, User, Admin-key or User-key
+    A->>A: new session (8 h, httpOnly, Secure, SameSite=Lax)
+    A-->>P: redirect to / (audit: sign-in)
+  end

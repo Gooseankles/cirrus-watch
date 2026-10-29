@@ -1,0 +1,20 @@
+flowchart LR
+  subgraph blob["Storage account"]
+    c0["dashboard/ (home)"]
+    c1["dashboard-&lt;key&gt;/ (each customer)"]
+  end
+  subgraph files["In each container"]
+    f1["findings/&lt;tool&gt;.json<br/>latest run + last error"]
+    f2["history/&lt;tool&gt;/index.json<br/>counts per run"]
+    f3["history/&lt;tool&gt;/&lt;ranAt&gt;.json<br/>full snapshot"]
+    f4["suppressions/&lt;tool&gt;.json<br/>accepted, snoozed"]
+    f5["cost history documents"]
+  end
+  subgraph disk["/home/data on App Service"]
+    d1["settings.json, tenants.json<br/>(no secrets when the vault is on)"]
+    d2["sessions/"]
+    d3["logs/runs.jsonl, logs/audit.jsonl"]
+  end
+  kv[("Key vault<br/>dashboard-* secrets")]
+  c0 --- files
+  c1 --- files

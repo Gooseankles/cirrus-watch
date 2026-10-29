@@ -28,25 +28,21 @@ trends; accepting findings; monthly report and compliance view (NIS2, NSM, CIS);
 tenants from one installation.
 
 **Not in scope:** changing anything in a scanned tenant (the scans only read, see
-[ADR 0001](adr/0001-scans-only-read.md)); real-time alerting (scans run daily or weekly); being a SIEM or replacing
-Microsoft Defender for Cloud; proving compliance (a missing finding does not prove a control is met).
+[ADR 0001](adr/0001-scans-only-read.md)); real-time alerting (scans run on a schedule: most once a night, a few
+weekly, resource health once an hour); being a SIEM or replacing Microsoft Defender for Cloud; proving compliance
+(a missing finding does not prove a control is met).
 
 ## Context
 
-```mermaid
-flowchart LR
-  people["People<br/>(browser)"] -- "HTTPS, Entra sign-in" --> cw["Cirrus Watch<br/>(one container)"]
-  cw -- "read" --> arm["Azure Resource Manager<br/>Resource Graph, Cost Management"]
-  cw -- "read" --> graph["Microsoft Graph<br/>(Entra ID)"]
-  cw -- "read" --> cust["Customer tenants<br/>(ARM + Graph, their own app)"]
-  cw -- "daily message" --> chan["Teams, Slack, webhook<br/>or email (Graph)"]
-  cw -- "results and history" --> st["Azure Storage<br/>(or local disk)"]
-  cw -- "secrets from Settings" --> kv["Azure Key Vault<br/>(or local file)"]
-  cw -- "end-of-support dates" --> eol["endoflife.date"]
-  entra["Entra ID"] -- "ID token with roles" --> cw
-```
+![Context: who and what Cirrus Watch talks to](diagrams/hld-context.png)
+
+<sub>Source: [hld-context.mmd](diagrams/hld-context.mmd)</sub>
 
 ## Building blocks
+
+![Building blocks inside the one container](diagrams/hld-building-blocks.png)
+
+<sub>Source: [hld-building-blocks.mmd](diagrams/hld-building-blocks.mmd)</sub>
 
 | Block | What it does | Where in the code |
 | --- | --- | --- |
@@ -61,6 +57,37 @@ flowchart LR
 | Notifications | Daily digest per tenant, retry queue | `src/notify.js` |
 | Self-monitoring | Server load sampling and alarms, audit log, activity log | `src/monitor.js`, `src/audit.js`, `src/log.js` |
 | Front end | No-build single page app | `public/` |
+
+## From scan to report
+
+A scan starts on its schedule or on **Run now**, reads the tenant, saves the findings and feeds every page and the daily message.
+
+![From a scan to the pages and the daily message](diagrams/hld-scan-to-report.png)
+
+<sub>Source: [hld-scan-to-report.mmd](diagrams/hld-scan-to-report.mmd)</sub>
+
+## Tenants
+
+One installation watches the home tenant and any number of customer tenants. Each tenant has its own identity for
+the scans (the home tenant a managed identity, a customer their own app registration) and its own storage
+container; roles decide who sees which.
+
+![Home and customer tenants, each with its own identity and container](diagrams/hld-tenants.png)
+
+<sub>Source: [hld-tenants.mmd](diagrams/hld-tenants.mmd)</sub>
+
+## Who sees what
+
+Roles come from Entra (app roles on the sign-in app, given through groups). `Admin` and `User` reach every tenant
+and every area; `Admin-<key>` and `User-<key>` reach one customer tenant; `<Area>.Read` reaches one area in every
+tenant and `<Area>.Read-<key>` one area in one tenant. The areas are Identity, Platform, Security and Cost; a scan
+can sit in two. Whoever may see a scan may also run it and accept its findings. Only `Admin` opens Settings, the
+tenant list and the audit log. The local admin account always counts as `Admin`. Old `<Area>.Run` roles still
+sign in and count as `<Area>.Read`.
+
+![Roles, what they reach, and what a person may do](diagrams/hld-roles.png)
+
+<sub>Source: [hld-roles.mmd](diagrams/hld-roles.mmd)</sub>
 
 ## Main design choices
 
@@ -81,7 +108,7 @@ flowchart LR
 | --- | --- |
 | Terraform module on App Service (recommended) | Everything in [lld-setup.md](lld-setup.md): managed identities, secretless SSO, storage, Key Vault, optional private network and alerts |
 | Docker anywhere | The image with a volume for `DATA_DIR`; an Azure identity by secret, managed identity or federated credential in `.env` |
-| From source | `npm start` with Node.js 22 or newer; for development |
+| From source | `npm start` with Node.js 22 or newer (the image uses 26); for development |
 
 ## Quality attributes
 

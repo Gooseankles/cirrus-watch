@@ -1,12 +1,15 @@
 // Markdown style checked in CI (docs.yml). Off: line length (prose wraps by
 // hand, tables cannot) and inline HTML (anchors and <br/> in tables).
+// Table pipe spacing (MD060, newer markdownlint) is left free: terraform-docs and
+// older tables use |---|.
 // A changelog repeats "Added" under each version, so only siblings must differ.
 {
   "config": {
     "default": true,
     "MD013": false,
     "MD033": false,
-    "MD024": { "siblings_only": true }
+    "MD024": { "siblings_only": true },
+    "MD060": false
   },
   "ignores": ["node_modules/**", "data/**", "logs/**", "stack-report.md", "public/icons/**", "docs/research/**"]
 }

@@ -42,6 +42,26 @@ marked with that input.
 Terraform never touches a customer tenant. Each customer makes their own app registration by hand
 (`terraform output customer_onboarding` prints the steps).
 
+### Single tenant
+
+Many installations scan only the tenant they run in. Leave `customers` out; nothing else changes. Then no
+`dashboard-<key>` container is made, the app roles and groups are only `Admin`, `User` and `<Area>.Read`, and the
+`customer_containers` and `customer_onboarding` outputs are empty.
+
+![What Terraform creates with no customers, and what a later customer adds](diagrams/lld-single-tenant.png)
+
+<sub>Source: [lld-single-tenant.mmd](diagrams/lld-single-tenant.mmd)</sub>
+
+| What | Single tenant (no `customers`) | With customers |
+| --- | --- | --- |
+| Containers | `dashboard` | `dashboard`, plus `dashboard-<key>` per customer |
+| App roles and groups | `Admin`, `User`, and `<Area>.Read` for each area in `area_roles` | Plus `Admin-<key>`, `User-<key>` and `<Area>.Read-<key>` per customer |
+| App settings | No `DASHBOARD_TENANTS` | `DASHBOARD_TENANTS` lists the customers |
+| Key vault | Made as before (`create_secret_vault`); holds the SPN override secrets and webhook links typed into Settings. `false` keeps them in `DATA_DIR` | Also each customer's client secret |
+| Pages | No tenant tabs, no tenant name next to the rows. Settings → Customer tenants says "No customer tenants. Only this tenant is scanned." and keeps its Add tenant button | A tab per tenant and "All tenants"; the tenant list in Settings |
+
+A customer can be added later without rebuilding anything (section 9).
+
 ## 2. How the identities are wired
 
 ![How the identities are wired](diagrams/lld-identities.png)
@@ -58,6 +78,8 @@ Terraform never touches a customer tenant. Each customer makes their own app reg
   for a token with the audience `api://AzureADTokenExchange` and hands it to Entra as a client assertion. Entra
   accepts it because of the federated credential (issuer `https://login.microsoftonline.com/<tenant>/v2.0`, subject
   the identity's object ID).
+- **Single tenant:** the second point does not apply; the others are the same. The vault then holds the SPN
+  override secrets and webhook links typed into Settings.
 
 ## 3. The settings Terraform passes to the app
 
@@ -78,7 +100,7 @@ The web app's app settings become environment variables in the container. The ap
 | `DASHBOARD_AZURE_CLIENT_SECRET` | `sso_client_secret`, only when SSO uses a secret | `src/auth.js` |
 | `SECRET_VAULT_URL` | the vault URI (`create_secret_vault`) | `src/secretStore.js` |
 | `STORAGE_ACCOUNT_URL`, `STORAGE_CONTAINER`, `HISTORY_RETENTION_DAYS` | blob endpoint, `dashboard`, `history_retention_days` (730) | `src/findingsStore.js` |
-| `DASHBOARD_TENANTS` | JSON list of `customers` (key, name, tenant ID, client ID, subscriptions, enabled) | `src/tenants.js` |
+| `DASHBOARD_TENANTS` | JSON list of `customers` (key, name, tenant ID, client ID, subscriptions, enabled); not set without customers | `src/tenants.js` |
 | `AZURE_SUBSCRIPTION_IDS` | `scan_subscription_ids`, when set | the scans (blank = every subscription the identity can see) |
 | `DASHBOARD_ADMIN_PASSWORD` | `admin_password`, when set | the local admin account |
 | `DOCKER_ENABLE_CI` | `true` with `continuous_deployment` | App Service: pull the image when the deploy webhook is called |
@@ -169,10 +191,17 @@ Every request from the browser goes through the same chain of checks in `server.
   retry queue, sessions and the session key, 48 hours of load samples, the end-of-life dates, the activity log and
   the audit log (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default).
 - **The key vault** holds the secrets typed into Settings, named `dashboard-<kind>-<key>-<hash>`: customer client
-  secrets, SPN overrides and notification links. Without a vault they stay in `DATA_DIR` (`settings.json`,
-  `tenants.json`); the Settings page shows which of the two is in use.
+  secrets, SPN overrides and notification links (only the last two in a single-tenant setup). Without a vault they
+  stay in `DATA_DIR` (`settings.json`, `tenants.json`); the Settings page shows which of the two is in use.
 
 ## 9. Adding a customer tenant
+
+A single-tenant installation becomes a multi-tenant one the same way; nothing is rebuilt. The apply adds the
+container, the roles, the groups and the `DASHBOARD_TENANTS` app setting next to what is there, and the web app
+restarts because an app setting changed. The home tenant's results stay in `dashboard`. The tenant tabs appear as
+soon as a person may see more than one tenant. A tenant can also be added in Settings only (Add tenant): the app
+then makes its container at the first write, but there are no `Admin-<key>` or `User-<key>` roles for it, so only
+`Admin` and `User` see it.
 
 ![Adding a customer tenant, step by step](diagrams/lld-customer.png)
 

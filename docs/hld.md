@@ -68,13 +68,35 @@ A scan starts on its schedule or on **Run now**, reads the tenant, saves the fin
 
 ## Tenants
 
-One installation watches the home tenant and any number of customer tenants. Each tenant has its own identity for
-the scans (the home tenant a managed identity, a customer their own app registration) and its own storage
-container; roles decide who sees which.
+One installation watches the home tenant, alone or with any number of customer tenants. Each tenant has its own
+identity for the scans (the home tenant a managed identity, a customer their own app registration) and its own
+storage container; roles decide who sees which.
 
 ![Home and customer tenants, each with its own identity and container](diagrams/hld-tenants.png)
 
 <sub>Source: [hld-tenants.mmd](diagrams/hld-tenants.mmd)</sub>
+
+## Single tenant or several
+
+Most installations watch one tenant: their own. Nothing has to be turned off for that. Leave `customers` out of
+Terraform; the module then makes no customer containers, roles or groups, and the app gets no `DASHBOARD_TENANTS`.
+The web app scans the home tenant with its managed identity and keeps the results in the one container
+`dashboard`. The roles are `Admin`, `User` and `<Area>.Read`. The pages show no tenant tabs. The key vault is still
+made: it holds what is typed into Settings (a tool's own SPN secret, a webhook link); `create_secret_vault = false`
+keeps those in files instead. Customer tenants can be added at any time without rebuilding anything
+([setup low-level design, section 9](lld-setup.md#9-adding-a-customer-tenant)).
+
+![Single tenant: people, the web app, the home tenant, one container and the vault](diagrams/hld-single-tenant.png)
+
+<sub>Source: [hld-single-tenant.mmd](diagrams/hld-single-tenant.mmd)</sub>
+
+| What | Single tenant | With customer tenants |
+| --- | --- | --- |
+| Pick it when | You watch your own tenant (subscriptions delegated to you with Azure Lighthouse are scanned like your own; their Entra is not) | You watch other organizations' tenants from one installation |
+| Scan identity | The managed identity, no secret | Plus each customer's own app registration, its client secret in the key vault |
+| Roles | `Admin`, `User`, `<Area>.Read` | Plus `Admin-<key>`, `User-<key>`, `<Area>.Read-<key>` |
+| Storage | One container, `dashboard` | One container per tenant |
+| Pages | No tenant tabs | A tab per tenant and "All tenants" |
 
 ## Who sees what
 

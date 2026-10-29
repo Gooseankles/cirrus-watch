@@ -13,6 +13,7 @@
   "hld-context": "37e2b9ab65350f79",
   "hld-roles": "48e76815358e574c",
   "hld-scan-to-report": "9eed93041ae43e95",
+  "hld-single-tenant": "c0ccced87b7b6bfd",
   "hld-tenants": "5fd356d500b3ca35",
   "lld-customer": "48044bcc988cd72e",
   "lld-failure-points": "a1755b02936e4587",
@@ -20,6 +21,7 @@
   "lld-request-path": "39c4a69735f0b448",
   "lld-scan": "d1dc51f817228528",
   "lld-sign-in": "6f560098dac055be",
+  "lld-single-tenant": "bfe2ade551af07e8",
   "lld-startup": "e2930bf23e0e2fbf",
   "lld-storage-layout": "6278013570a4ef6a",
   "lld-update": "04c5565fa0da3a7e"

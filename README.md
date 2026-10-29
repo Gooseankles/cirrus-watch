@@ -123,6 +123,7 @@ Everything is listed by reader in **[docs/](docs/README.md)**. The most used pag
 | See what the Terraform setup creates and how it runs | [Setup low-level design](docs/lld-setup.md) |
 | Use the scans, reports and compliance pages | [Using the dashboard](docs/guides/using-the-dashboard.md), [tools](docs/tools.md) |
 | Give people access | [Sign-in and roles](docs/guides/sign-in-and-roles.md) |
+| Run it for your own tenant only, or for several | [Single tenant or several](docs/hld.md#single-tenant-or-several) |
 | Scan other organizations' tenants | [Customer tenants](docs/guides/customer-tenants.md) |
 | Get daily messages | [Notifications](docs/guides/notifications.md) |
 | Upgrade, back up, rotate secrets | [Operations](docs/operations.md), [changelog](CHANGELOG.md) |

@@ -3,7 +3,8 @@
 One dashboard can scan other organizations' tenants as well as its own, so it is hosted in one place. Each tenant
 gets a tab at the top of the page ("All tenants" shows them together, with the tenant next to each row), its own
 storage container, and its own roles ([Sign-in and roles](sign-in-and-roles.md)). Its scans run in that tenant as that tenant's app registration; the
-home tenant keeps using the shared SPN.
+home tenant keeps using the shared SPN. Running it for your own tenant only? Then nothing on this page is needed;
+see [Single tenant or several](../hld.md#single-tenant-or-several).
 
 Each customer tenant has its own app registration, made there by hand, with a client secret. Give that app the
 Graph application permissions (with admin consent) and Reader and Cost Management Reader on the

@@ -2,7 +2,7 @@
 // groups, app registrations, entitlement management). Each call takes an
 // optional toolId so it authenticates as that tool's own SPN (credentials.js).
 // Whichever SPN is used needs Graph API Application permissions with admin
-// consent — see README for which ones each tool needs.
+// consent — see docs/permissions.md for which ones each tool needs.
 const axios = require("axios");
 const { getCredential } = require("./credentials");
 

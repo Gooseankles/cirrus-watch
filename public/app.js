@@ -1342,10 +1342,16 @@ function groupHtml(r) {
 }
 
 /* ---------- scan pages ---------- */
+// Each scan's section in docs/tools.md (the heading is the tool's label; GitHub's anchor rule).
+const DOCS_TOOLS = "https://github.com/Gooseankles/azure-ops-dashboard/blob/main/docs/tools.md";
+function docLink(label) {
+  const anchor = String(label).toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s/g, "-");
+  return `<a class="page-doc" href="${DOCS_TOOLS}#${esc(anchor)}" target="_blank" rel="noopener">${icon("report")} What this scan checks</a>`;
+}
 function scanSkeleton(tool) {
   return `
     <div class="page-head">
-      <div><h1>${esc(tool.label)}</h1><p class="page-sub">${esc(tool.sub)}</p></div>
+      <div><h1>${esc(tool.label)}</h1><p class="page-sub">${esc(tool.sub)}</p>${docLink(tool.label)}</div>
       <div class="page-actions"><div class="last-run" id="scan-lastrun"></div><button class="btn primary" id="scan-run">${icon("play")} Run now</button></div>
     </div>
     <div class="status-msg" id="scan-status"></div>

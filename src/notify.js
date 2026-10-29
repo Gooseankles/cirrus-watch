@@ -334,7 +334,7 @@ async function sendMail(to, msg) {
     );
   } catch (err) {
     const m = String(err.message || err);
-    if (/\(403\)/.test(m)) throw new Error(`the dashboard may not send mail as ${from}: give the dashboard's identity the Exchange role Application Mail.Send in a scope that includes this mailbox (RBAC for Applications, see the README; a new role takes up to two hours)`);
+    if (/\(403\)/.test(m)) throw new Error(`the dashboard may not send mail as ${from}: give the dashboard's identity the Exchange role Application Mail.Send in a scope that includes this mailbox (RBAC for Applications, see docs/guides/notifications.md; a new role takes up to two hours)`);
     if (/\(404\)/.test(m)) throw new Error(`no mailbox ${from} in the home tenant`);
     throw new Error(m.slice(0, 300));
   }

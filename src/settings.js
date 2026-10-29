@@ -54,7 +54,7 @@ const FIELDS = [
 
   // One send time for all; each tenant's link is set in the Notifications card.
   { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's link or email addresses are set in the Notifications card on its tab" },
-  { key: "NOTIFY_MAIL_FROM", label: "Send email from (mailbox)", group: "Notifications", hint: "Only for tenants whose notifications go to email addresses: a mailbox in the home tenant (a shared mailbox is fine). The dashboard's identity needs the Exchange role Application Mail.Send scoped to this mailbox (RBAC for Applications; see the README), not Graph Mail.Send in Entra" },
+  { key: "NOTIFY_MAIL_FROM", label: "Send email from (mailbox)", group: "Notifications", hint: "Only for tenants whose notifications go to email addresses: a mailbox in the home tenant (a shared mailbox is fine). The dashboard's identity needs the Exchange role Application Mail.Send scoped to this mailbox (RBAC for Applications; see docs/guides/notifications.md), not Graph Mail.Send in Entra" },
 
   // Scans a tenant does not need. Unlike the other tenant fields, a customer's
   // list does not fall back to the home tenant's: blank = every scan runs.

@@ -21,6 +21,20 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.57.2.0] - 2026-10-29
+
+### Added
+
+- Each scan page links to what that scan checks in `docs/tools.md`.
+- Documentation by reader in `docs/`: guides (using the dashboard, sign-in and roles, customer tenants,
+  notifications), operations (upgrade, roll back, back up, rotate secrets), troubleshooting, where data is kept, a
+  high-level design, a setup low-level design and eight decision records. `CONTRIBUTING.md` says how to run it
+  locally, add a tool and what a change brings with it.
+
+### Changed
+
+- The README is now a short front door: tools, quick start and a map of the docs.
+
 ## [0.57.1.2] - 2026-10-29
 
 ### Fixed
@@ -159,7 +173,8 @@ Steps needed when moving past a version. Read this before you change the image t
 
 - Firewall reach map with downloads (CSV, PNG, SVG) and its own VM picker.
 
-[0.57.1.2]: https://github.com/Gooseankles/azure-ops-dashboard/compare/5ccfbc6...main
+[0.57.2.0]: https://github.com/Gooseankles/azure-ops-dashboard/compare/6c6c398...main
+[0.57.1.2]: https://github.com/Gooseankles/azure-ops-dashboard/compare/5ccfbc6...6c6c398
 [0.57.1.0]: https://github.com/Gooseankles/azure-ops-dashboard/compare/c5ac2f4...5ccfbc6
 [0.57.0.0]: https://github.com/Gooseankles/azure-ops-dashboard/commit/c5ac2f4
 [0.56.0.0]: https://github.com/Gooseankles/azure-ops-dashboard/commit/17e93d6

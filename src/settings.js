@@ -81,6 +81,7 @@ const FIELDS = [
   { key: "ACCESS_PACKAGE_EXPIRY_WARN_DAYS", label: "Assignment expiry warning (days)", group: "Access packages" },
   { key: "ACCESS_PACKAGE_STALE_PENDING_DAYS", label: "Pending request stale age (days)", group: "Access packages" },
   { key: "ACCESS_PACKAGE_UNUSED_AGE_DAYS", label: "Unused package age (days)", group: "Access packages" },
+  { key: "EOS_LIVE_DATES", label: "Fetch end-of-support dates", group: "End of support", hint: "on or off; blank = on. Daily from endoflife.date; off = the built-in dates only" },
   { key: "EOS_WARN_DAYS", label: "Warn before end of support (days)", group: "End of support", hint: "Runtimes and operating systems; blank = 180" },
   { key: "RETIREMENT_WARN_DAYS", label: "Warn before retirement (days)", group: "Service retirements", hint: "Later retirements are listed as planned; blank = 180" },
   { key: "BACKUP_MAX_AGE_HOURS", label: "Newest backup at most (hours) old", group: "Backup coverage", hint: "Blank = 48" },

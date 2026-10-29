@@ -1,17 +1,22 @@
 // Software that is out of support or soon will be: AKS Kubernetes versions,
 // App Service language runtimes, VM operating systems, and services that still
-// accept TLS 1.0/1.1. Reader is enough.
+// accept TLS 1.0/1.1. Reader is enough. Runtime and OS dates come from
+// endoflife.date when it can be reached (eolDates.js); the tables below are the
+// fallback and fill gaps.
 const { resourceGraphQuery, armGet } = require("../armClient");
 const { numberSetting, mapLimit, runChecks, itemErrors, scanError, daysUntil } = require("./util");
+const eolDates = require("../eolDates");
+const log = require("../log");
 
 const TOOL_ID = "end-of-support";
 const CONCURRENCY = 6;
 const MAX_SITES = 800;
 
-// Upstream end-of-life dates; App Service follows them. Update as new
-// versions ship (newer versions than these are not flagged).
+// Built-in upstream end-of-life dates (App Service follows them), used when
+// endoflife.date has none. Newer versions than these are only flagged with the
+// live dates.
 const RUNTIME_EOL = {
-  node: { 12: "2022-04-30", 14: "2023-04-30", 16: "2023-09-11", 18: "2025-04-30", 20: "2026-04-30", 22: "2027-04-30", 24: "2028-04-30" },
+  node: { 12: "2022-04-30", 14: "2023-04-30", 16: "2023-09-11", 18: "2025-04-30", 20: "2026-04-30", 22: "2027-04-30", 24: "2028-04-30", 26: "2029-04-30" },
   python: { "3.6": "2021-12-23", "3.7": "2023-06-27", "3.8": "2024-10-07", "3.9": "2025-10-31", "3.10": "2026-10-31", "3.11": "2027-10-31", "3.12": "2028-10-31", "3.13": "2029-10-31" },
   dotnet: { "3.1": "2022-12-13", 5: "2022-05-10", 6: "2024-11-12", 7: "2024-05-14", 8: "2026-11-10", 9: "2026-11-10", 10: "2028-11-14" },
   php: { "7.4": "2022-11-28", "8.0": "2023-11-26", "8.1": "2025-12-31", "8.2": "2026-12-31", "8.3": "2027-12-31", "8.4": "2028-12-31" },
@@ -19,7 +24,7 @@ const RUNTIME_EOL = {
 const RUNTIME_LABEL = { node: "Node.js", python: "Python", dotnet: ".NET", php: "PHP" };
 
 // Windows Server release year -> end of extended support.
-const WINDOWS_EOL = { 2008: "2020-01-14", 2012: "2023-10-10", 2016: "2027-01-12", 2019: "2029-01-09" };
+const WINDOWS_EOL = { 2008: "2020-01-14", 2012: "2023-10-10", 2016: "2027-01-12", 2019: "2029-01-09", 2022: "2031-10-14", 2025: "2034-11-14" };
 // [pattern on "offer sku osName osVersion", OS name, end of standard support]
 const LINUX_EOL = [
   [/ubuntu.*(14[._]04|trusty)/, "Ubuntu 14.04", "2019-04-30"],
@@ -34,6 +39,23 @@ const LINUX_EOL = [
   [/debian.*\b(11|bullseye)\b/, "Debian 11", "2026-08-31"],
   [/sles.*\b12\b/, "SUSE Linux Enterprise 12", "2024-10-31"],
 ];
+
+// Linux release from image text, for the live dates: [our product key, label, pattern]. The
+// pattern's first group is the release (endoflife.date's name); codenames are mapped first.
+const CODENAMES = {
+  trusty: "14.04", xenial: "16.04", bionic: "18.04", focal: "20.04", jammy: "22.04", noble: "24.04",
+  jessie: "8", stretch: "9", buster: "10", bullseye: "11", bookworm: "12", trixie: "13",
+};
+const LINUX_LIVE = [
+  ["ubuntu", "Ubuntu", /ubuntu/, /(?:^|\D)(\d{2})[._](04|10)(?:\D|$)/, (m) => `${m[1]}.${m[2]}`],
+  ["debian", "Debian", /debian/, /(?:^|[\s_-])(\d{1,2})(?=[\s._-]|$)/, (m) => m[1]],
+  ["rhel", "Red Hat Enterprise Linux", /rhel|red ?hat/, /(?:^|[\s_-])(\d{1,2})(?=[\s._-]|$)/, (m) => m[1]],
+  ["centos", "CentOS", /centos/, /(?:^|[\s_-])(\d{1,2})(?=[\s._-]|$)/, (m) => m[1]],
+  ["sles", "SUSE Linux Enterprise", /sles|suse/, /(?:^|\D)(1\d)(?:\D|$)/, (m) => m[1]],
+];
+
+// Dates for this run: endoflife.date's tables (empty when not reachable).
+let live = {};
 
 const warnDays = () => numberSetting("EOS_WARN_DAYS", 180, { min: 0, max: 3650 });
 
@@ -103,7 +125,7 @@ function runtimeOf(cfg) {
   return null;
 }
 function runtimeEol(rt) {
-  const table = RUNTIME_EOL[rt.stack];
+  const table = { ...RUNTIME_EOL[rt.stack], ...live[rt.stack] };
   const v = String(rt.version).replace(/^~/, "").toLowerCase();
   if (rt.stack === "node") return table[(v.match(/^(\d+)/) || [])[1]];
   if (rt.stack === "dotnet") {
@@ -168,10 +190,32 @@ function osEol(vm) {
   if (String(vm.osType).toLowerCase() === "windows" || /windows/.test(text)) {
     // SQL images name both versions ("sql2016-ws2019"): the ws part is Windows.
     const year = (text.match(/ws(20\d\d)/) || text.match(/windows server (20\d\d)/) || text.match(/(?:^|\s)(20\d\d)-/) || [])[1];
-    return year && WINDOWS_EOL[year] ? { os: `Windows Server ${year}`, end: WINDOWS_EOL[year] } : null;
+    const end = year && ((live.windows || {})[year] || WINDOWS_EOL[year]);
+    return end ? { os: `Windows Server ${year}`, end } : null;
   }
+  const fromLive = linuxLive(text);
+  if (fromLive) return fromLive;
   const hit = LINUX_EOL.find(([re]) => re.test(text));
   return hit ? { os: hit[1], end: hit[2] } : null;
+}
+
+// A Linux release found in the image text and known to endoflife.date.
+function linuxLive(text) {
+  for (const [key, label, distro, release, name] of LINUX_LIVE) {
+    const dates = live[key];
+    if (!dates || !distro.test(text)) continue;
+    const code = Object.keys(CODENAMES).find((c) => new RegExp(`\\b${c}\\b`).test(text));
+    const m = text.replace(distro, " ").match(release);
+    const rel = code && (key === "ubuntu") === CODENAMES[code].includes(".") ? CODENAMES[code] : m ? name(m) : null;
+    if (!rel) continue;
+    // SUSE: a major version ends with its last service pack.
+    const end =
+      key === "sles"
+        ? Object.entries(dates).filter(([n]) => n === rel || n.startsWith(`${rel}.`)).map(([, d]) => d).sort().pop()
+        : dates[rel];
+    if (end) return { os: `${label} ${rel}`, end };
+  }
+  return null;
 }
 
 async function vmFindings() {
@@ -194,7 +238,10 @@ async function vmFindings() {
   return findings;
 }
 
-function run() {
+async function run() {
+  const dates = await eolDates.load();
+  live = dates.tables;
+  log.record({ tool: TOOL_ID, level: dates.source === "endoflife.date" ? "info" : "warn", message: `End-of-support dates: ${dates.source}${dates.note ? ` (${dates.note})` : ""}` });
   return runChecks(TOOL_ID, {
     "AKS versions": aksFindings,
     "App Service runtimes": appServiceFindings,
@@ -208,5 +255,5 @@ module.exports = {
   label: "End of support",
   schedule: "0 6 * * 1", // weekly, Monday 06:00
   run,
-  _test: { runtimeOf, runtimeEol, osEol },
+  _test: { runtimeOf, runtimeEol, osEol, setLive: (t) => (live = t || {}) },
 };

@@ -21,7 +21,7 @@ are needed.
 | Role assignments | Daily | Assignments whose user, group or app was deleted, and subscriptions near Azure's limit of 4,000 role assignments |
 | Policy check | Daily | Whether Azure Policy actually works: probes ask Azure if risky resources would be allowed (nothing is created), and health checks find assignments that cannot work (enforcement off, identity missing roles, remediation never run, expired exemptions and more) |
 | Internet exposure | Daily | NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure |
-| End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support, services that still accept TLS 1.0/1.1 |
+| End of support | Weekly | AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily), services that still accept TLS 1.0/1.1 |
 | Service retirements | Daily | Azure features being retired that your resources still use (from Azure Advisor), with the date |
 | Defender for Cloud | Daily | Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others |
 | Safety nets | Daily | Subscriptions with no cost budget or a budget that alerts nobody (budgets set on a management group are not seen), and key vaults, backup vaults, VNets and DNS zones with no delete lock on them, their resource group or their subscription |

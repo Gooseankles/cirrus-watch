@@ -2,9 +2,16 @@
 /* Compliance mapping: the framework controls each kind of finding bears on, shown as tags on the scan pages, counted
    in the monthly report and laid out per control on the Compliance page. A pointer for auditors, not a full
    assessment: a finding shows a control is not met somewhere; no finding does not prove it is met.
-   cis = CIS Critical Security Controls v8 (safeguard numbers), nis2 = NIS2 Directive Article 21(2) (point letters),
+   cis = CIS Critical Security Controls v8.1 (safeguard numbers), nis2 = NIS2 Directive Article 21(2) (point letters),
    nsm = NSM Grunnprinsipper for IKT-sikkerhet v2.1 (principle numbers; Norway's baseline, also for the public sector). */
-const FRAMEWORKS = { nis2: "NIS2 Art. 21(2)", nsm: "NSM ICT security principles 2.1", cis: "CIS Controls v8" };
+const FRAMEWORKS = { nis2: "NIS2 Art. 21(2)", nsm: "NSM ICT security principles 2.1", cis: "CIS Controls v8.1" };
+// The text each mapping follows and when it was last checked against it. The weekly stack report watches the sources
+// (.github/frameworks.json) and says when one changes; after a review, update reviewed here and the value there.
+const FRAMEWORK_INFO = {
+  nis2: { source: "Directive (EU) 2022/2555, Article 21(2), not amended", url: "https://eur-lex.europa.eu/eli/dir/2022/2555/oj", reviewed: "2026-10-29" },
+  nsm: { source: "NSM Grunnprinsipper for IKT-sikkerhet, version 2.1", url: "https://nsm.no/regelverk-og-hjelp/rad-og-anbefalinger/grunnprinsipper-for-ikt-sikkerhet/", reviewed: "2026-10-29" },
+  cis: { source: "CIS Critical Security Controls v8.1", url: "https://www.cisecurity.org/controls/v8-1", reviewed: "2026-10-29" },
+};
 
 const CONTROLS = {
   "cis:1.1": "Detailed enterprise asset inventory",
@@ -397,6 +404,7 @@ const MANUAL = {
 const byRef = (a, b) => a.fw.localeCompare(b.fw) || a.ref.localeCompare(b.ref, "en", { numeric: true });
 const Compliance = {
   FRAMEWORKS,
+  FRAMEWORK_INFO,
   CONTROLS,
   MANUAL,
   // [{ id: "cis:5.3", fw: "cis", ref: "5.3", label: "CIS 5.3", title }]

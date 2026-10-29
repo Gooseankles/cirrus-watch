@@ -200,9 +200,56 @@ async function trivyPart() {
   };
 }
 
+/* --- compliance frameworks (the mapping in public/compliance.js) --- */
+// Each framework's live version is compared with the one the mapping was reviewed against (.github/frameworks.json).
+async function eurLexVersions(celex) {
+  // Consolidated versions share the CELEX number with a leading 0 and a date: 02022L2555-20221227.
+  const q = `PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> SELECT DISTINCT ?celex WHERE { ?w cdm:resource_legal_id_celex ?celex . FILTER(STRSTARTS(STR(?celex), "0${celex.slice(1)}")) }`;
+  const r = await fetch(`https://publications.europa.eu/webapi/rdf/sparql?query=${encodeURIComponent(q)}`, { headers: { Accept: "application/sparql-results+json" } });
+  if (!r.ok) throw new Error(`EUR-Lex: ${r.status}`);
+  return (await r.json()).results.bindings.map((b) => b.celex.value).sort();
+}
+const consolidated = (list) => `${list.length} version${list.length > 1 ? "s" : ""}, newest ${list[list.length - 1].replace(/^.*-(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3")}`;
+async function frameworksPart() {
+  const f = ".github/frameworks.json";
+  if (!existsSync(f)) return { outdated: 0, md: "### Compliance frameworks\n\nNo .github/frameworks.json." };
+  const rows = [], changed = [];
+  for (const w of JSON.parse(readFileSync(f, "utf8")).watch) {
+    const shown = (v) => (Array.isArray(v) ? consolidated(v) : v);
+    let now;
+    try {
+      if (w.celex) {
+        now = await eurLexVersions(w.celex);
+        if (!now.length) throw new Error("no versions listed");
+      } else {
+        const page = await get(w.url, { json: false });
+        if (!page) throw new Error("page not found");
+        const found = [...page.matchAll(new RegExp(w.pattern, "gi"))].map((m) => m[1]);
+        // The pattern stopped matching: the page changed, so the watch itself needs a look.
+        if (!found.length) throw new Error(`the page no longer names the version (pattern ${w.pattern})`);
+        now = found.sort((a, b) => cmp(parse(b), parse(a)))[0];
+      }
+    } catch (e) {
+      rows.push(`| [${w.name}](${w.link}) | ${shown(w.reviewed)} | ⚠️ could not check: ${e.message} | |`);
+      changed.push(w);
+      continue;
+    }
+    const same = Array.isArray(now) ? now.join() === [...w.reviewed].sort().join() : now === w.reviewed;
+    rows.push(`| [${w.name}](${w.link}) | ${shown(w.reviewed)} | ${shown(now)} | ${same ? "✅" : "**changed: review the mapping**"} |`);
+    if (!same) changed.push(w);
+  }
+  const advice = changed.length
+    ? `**Look at: ${changed.map((w) => w.name).join(", ")}.** Check \`public/compliance.js\` (the controls, the groups each kind of finding maps to, the \`FRAMEWORKS\` labels) against the new text, then set \`FRAMEWORK_INFO\` there and \`reviewed\` in \`.github/frameworks.json\` to what you checked. If a check could not run, fix its entry in that file.`
+    : "The mapping follows the current text of every framework. ✅";
+  return {
+    outdated: changed.length,
+    md: `### Compliance frameworks\n\nWhat the Compliance page maps findings to, compared with the text the mapping was last reviewed against (\`.github/frameworks.json\`).\n\n| Framework | Reviewed against | Now | |\n|---|---|---|---|\n${rows.join("\n")}\n\n${advice}`,
+  };
+}
+
 /* --- the report --- */
 const parts = [];
-for (const [name, fn] of [["npm", npmPart], ["node", nodePart], ["actions", actionsPart], ["trivy", trivyPart]]) {
+for (const [name, fn] of [["npm", npmPart], ["node", nodePart], ["actions", actionsPart], ["trivy", trivyPart], ["frameworks", frameworksPart]]) {
   try {
     parts.push(await fn());
   } catch (e) {
@@ -210,7 +257,7 @@ for (const [name, fn] of [["npm", npmPart], ["node", nodePart], ["actions", acti
   }
 }
 const outdated = parts.reduce((n, p) => n + p.outdated, 0);
-let md = `## Stack report ${new Date().toISOString().slice(0, 10)}\n\n${outdated ? `**${outdated} part${outdated > 1 ? "s" : ""} can be updated.** Patch and minor npm updates, Docker and Actions also come as Dependabot pull requests; new majors of Node and Trivy are changed by hand.` : "Everything is up to date. ✅"}\n\n${parts.map((p) => p.md).join("\n\n---\n\n")}\n`;
+let md = `## Stack report ${new Date().toISOString().slice(0, 10)}\n\n${outdated ? `**${outdated} part${outdated > 1 ? "s" : ""} can be updated.** Patch and minor npm updates, Docker and Actions also come as Dependabot pull requests; new majors of Node and Trivy, and framework mappings, are changed by hand.` : "Everything is up to date. ✅"}\n\n${parts.map((p) => p.md).join("\n\n---\n\n")}\n`;
 if (md.length > 64000) md = md.slice(0, 63800) + "\n\n_(Report cut short: GitHub issues hold 65,536 characters. Run the workflow log or the script for the rest.)_\n";
 writeFileSync("stack-report.md", md);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);

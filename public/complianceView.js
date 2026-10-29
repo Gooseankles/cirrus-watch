@@ -9,7 +9,7 @@ const ComplianceView = (() => {
   const NOTES = {
     nis2: "NIS2 Article 21(2) lists the measures an essential or important entity must take. In Norway it is expected to replace the Digital Security Act (the NIS1 law); until then use it as a checklist.",
     nsm: "NSM's ICT security principles are the Norwegian baseline: what the National Security Authority expects of public bodies, municipalities included, and what auditors often check against. Principle 2.6.7 is MFA.",
-    cis: "CIS Controls v8 safeguards that the scans can see. Many safeguards (training, physical, endpoint) are outside what an Azure scan can check and are not listed.",
+    cis: "CIS Controls v8.1 safeguards that the scans can see. Many safeguards (training, physical, endpoint) are outside what an Azure scan can check and are not listed.",
   };
 
   function show() {
@@ -125,7 +125,15 @@ const ComplianceView = (() => {
           ])
         )}
         <div class="note">${esc(NOTES[st.fw])} "No findings" means the scans that look at a control found nothing in the latest run; it does not prove the control is met. Accepted findings are left out.</div>
+        ${sourceNote()}
       </div>`;
+  }
+
+  // Which text the mapping follows and when it was last checked against it.
+  function sourceNote() {
+    const info = Compliance.FRAMEWORK_INFO[st.fw];
+    if (!info) return "";
+    return `<div class="note cp-source">Mapped against <a href="${esc(info.url)}" target="_blank" rel="noopener">${esc(info.source)}</a> · mapping reviewed ${esc(fmt.date(info.reviewed))}</div>`;
   }
 
   return { show };

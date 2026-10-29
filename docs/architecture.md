@@ -299,11 +299,12 @@ flowchart LR
   snpe --- pekv
   pest --> st[("Storage<br/>public access off")]
   pekv --> kv[("Key vault<br/>public access off")]
-  app -- "public internet<br/>(or via VNet with vnet_route_all + NAT)" --> azure["ARM, Graph, Entra,<br/>Docker Hub"]
+  app -- "public internet<br/>(or via VNet with vnet_route_all + NAT)" --> azure["ARM, Graph, Entra,<br/>Docker Hub, endoflife.date"]
 ```
 
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
-firewall to reach Docker Hub, ARM and Graph.
+firewall to reach Docker Hub, ARM and Graph. The End of support scan also fetches dates from `endoflife.date`
+once a day (no tenant data is sent); if it is blocked, the scan uses its last copy or the built-in dates.
 
 ## 8. Build and release
 

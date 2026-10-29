@@ -1,0 +1,31 @@
+{
+  "_about": "What the compliance mapping (public/compliance.js) was last reviewed against. The weekly stack report compares these with the live sources; when one differs, review the mapping, then update the value here and FRAMEWORK_INFO.reviewed in compliance.js.",
+  "watch": [
+    {
+      "key": "nis2",
+      "name": "NIS2 Directive (EU) 2022/2555",
+      "how": "consolidated versions on EUR-Lex (a new one means the directive was amended)",
+      "celex": "32022L2555",
+      "reviewed": ["02022L2555-20221227"],
+      "link": "https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32022L2555"
+    },
+    {
+      "key": "nsm",
+      "name": "NSM Grunnprinsipper for IKT-sikkerhet",
+      "how": "the version named on NSM's page",
+      "url": "https://nsm.no/regelverk-og-hjelp/rad-og-anbefalinger/grunnprinsipper-for-ikt-sikkerhet/",
+      "pattern": "versjon (\\d+\\.\\d+)",
+      "reviewed": "2.1",
+      "link": "https://nsm.no/regelverk-og-hjelp/rad-og-anbefalinger/grunnprinsipper-for-ikt-sikkerhet/"
+    },
+    {
+      "key": "cis",
+      "name": "CIS Critical Security Controls",
+      "how": "the highest version named on the CIS Controls page",
+      "url": "https://www.cisecurity.org/controls",
+      "pattern": "Controls v(\\d+(?:\\.\\d+)?)",
+      "reviewed": "8.1",
+      "link": "https://www.cisecurity.org/controls"
+    }
+  ]
+}

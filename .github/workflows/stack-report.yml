@@ -4,6 +4,8 @@ name: Stack report
 # Node base image, GitHub Actions, the pinned Trivy scanner) for newer versions
 # and collects their release notes. The answer goes in one open issue labelled
 # stack-report, updated in place each week and closed when all is up to date.
+# It also watches the compliance frameworks (NIS2, NSM, CIS) and says when one
+# changed since the mapping was last reviewed (.github/frameworks.json).
 # Dependabot still opens the update pull requests; this is the overview, and it
 # also covers what Dependabot is told to skip (Node majors, the Trivy digest).
 on:

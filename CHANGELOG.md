@@ -21,6 +21,13 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.58.1.1] - 2026-10-30
+
+### Added
+
+- A note in the README and `docs/diagrams/README.md`: the Azure icons are Microsoft's, used under its terms for
+  architecture diagrams, and not covered by this repo's license.
+
 ## [0.58.1.0] - 2026-10-29
 
 ### Changed

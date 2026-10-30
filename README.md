@@ -149,3 +149,7 @@ Copyright (C) 2026 Gooseankles.
 Cirrus Watch is free software under the [GNU Affero General Public License, version 3](LICENSE) (AGPL-3.0-only).
 You may use, change and share it; if you change it and let others use your version, also over a network, you must
 offer them its source code under the same license. It comes with no warranty.
+
+The Azure icons in the pictures under [docs/diagrams](docs/diagrams/) are Microsoft's, used under
+[Microsoft's terms for architecture diagrams and documentation](https://learn.microsoft.com/en-us/azure/architecture/icons/).
+They are not covered by this repo's license.

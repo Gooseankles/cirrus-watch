@@ -28,7 +28,7 @@ const NEEDS = {
   "diagnostic-settings": { azure: READER },
   quotas: { azure: READER },
   ipam: { azure: READER },
-  architecture: { azure: READER },
+  architecture: { azure: READER, graph: ["Application.Read.All"] },
   "firewall-policies": { azure: READER },
   "change-log": { azure: READER },
   "privileged-roles": {

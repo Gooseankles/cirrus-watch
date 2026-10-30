@@ -3,7 +3,8 @@
    Pick resource groups (or whole subscriptions) on the left; the VNets and subnets their resources sit in are found
    by themselves, also when the network lives in another resource group. Two layouts: Network (VNets with their
    subnets, peerings, on-premises sites, everything else by resource group) and Resource groups (subscription,
-   resource group, resource). Pan by dragging, zoom with the wheel; download as SVG, PNG or a draw.io file to edit.
+   resource group, resource). In both, lines show what each managed identity may reach and an Entra ID box holds the
+   app registrations that sign people in to the drawn web apps. Pan by dragging, zoom with the wheel; download as SVG, PNG or a draw.io file to edit.
    Everything is worked out in the browser. Uses app.js helpers. */
 (() => {
   const ID = "architecture";
@@ -99,6 +100,7 @@
     ["network/publicipprefixes", "PIPP", "Public IP prefix", "network"],
     ["keyvault/vaults", "KV", "Key vault", "security"],
     ["managedidentity/userassignedidentities", "ID", "Managed identity", "security"],
+    ["entra/appregistrations", "APPREG", "App registration", "security"], // from Entra ID, not a resource
     ["operationalinsights/workspaces", "LAW", "Log Analytics", "monitor"],
     ["insights/components", "APPI", "Application Insights", "monitor"],
     ["automation/automationaccounts", "AUTO", "Automation account", "monitor"],
@@ -178,7 +180,18 @@
     const byId = new Map(d.resources.map((r) => [r.id, r]));
     const subnetById = new Map();
     for (const v of d.vnets) for (const s of v.subnets) subnetById.set(s.id, { s, v });
-    return { ...d, subName, tenantName, groups, byId, subnetById };
+    // Identity lines by where they start and end, and who uses each user-assigned identity.
+    const multiMap = () => {
+      const m = new Map();
+      m.add = (k, v) => (m.has(k) ? m.get(k).push(v) : m.set(k, [v]), m);
+      return m;
+    };
+    const access = d.access || [], signIns = d.signIns || [];
+    const accessFrom = multiMap(), accessTo = multiMap(), usersOf = multiMap(), signInTo = multiMap();
+    for (const a of access) accessFrom.add(a.from, a) && accessTo.add(a.to.startsWith("rg:") ? `rg:${a.tenant}|${a.to.slice(3)}` : a.to, a);
+    for (const r of d.resources) for (const id of r.identities || []) usersOf.add(id, r);
+    for (const x of signIns) for (const id of x.to) signInTo.add(id, x);
+    return { ...d, access, signIns, unread: d.unread || [], subName, tenantName, groups, byId, subnetById, accessFrom, accessTo, usersOf, signInTo };
   }
 
   /* --- the viewer's choices --- */
@@ -199,6 +212,8 @@
       onprem: saved.onprem !== false,
       publicIps: saved.publicIps !== false,
       peLinks: saved.peLinks !== false,
+      idLinks: saved.idLinks !== false,
+      signIn: saved.signIn !== false,
       wholeVnets: !!saved.wholeVnets,
       grouped: saved.grouped || "auto",
       traffic: TRAFFIC.some(([k]) => k === saved.traffic) ? saved.traffic : "",
@@ -223,7 +238,7 @@
     store.set("scope", [...o.scope]);
     store.set("pick", [...o.pick]);
     store.set("hide", [...o.hide]);
-    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor, flowSame: o.flowSame, fwVms: o.fwVms });
+    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, idLinks: o.idLinks, signIn: o.signIn, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor, flowSame: o.flowSame, fwVms: o.fwVms });
   }
 
   /* --- traffic lines: can the picked tile talk to the others on these ports? --- */
@@ -544,12 +559,68 @@
         }
       }
     }
+    identityParts(inv, o, roots, tenantBox, links, () => leaves++);
     const tops = [...roots.values()];
     const root = multi ? box("root", "root", "", "", { children: tops }) : tops[0] || box("root", "root", "", "");
     root.kind = "root"; // the outer box draws no frame of its own
     const grouped = o.grouped === "type" || (o.grouped === "auto" && leaves > 400);
     if (grouped) groupByType(root);
     return { root, links, leaves, grouped, multi };
+  }
+  // Sign-in: per tenant a Microsoft Entra ID box with the app registrations whose redirect URIs point at a drawn web
+  // app, and a line to each. Identity access: a line from each drawn holder of a managed identity to what its roles
+  // or vault access policies reach (a resource, or a resource group box). A user-assigned identity that is not drawn
+  // hands its lines to the drawn resources that use it; one that is drawn gets a dotted line from each of them.
+  const nameOf = (inv, id) => (inv.byId.get(id) || {}).name || String(id).split("/").pop();
+  function identityParts(inv, o, roots, tenantBox, links, count) {
+    const keys = new Set();
+    const walk = (n) => {
+      keys.add(n.key);
+      for (const c of n.children || []) walk(c);
+    };
+    for (const t of roots.values()) walk(t);
+    if (o.signIn) {
+      const boxes = new Map();
+      for (const x of inv.signIns) {
+        const to = x.to.filter((id) => keys.has(id));
+        if (!to.length) continue;
+        if (!boxes.has(x.tenant)) {
+          boxes.set(x.tenant, box(`entra:${x.tenant}`, "entra", "Microsoft Entra ID", "sign-in", { prio: -5000 }));
+          tenantBox(x.tenant).children.push(boxes.get(x.tenant));
+        }
+        const r = { id: `appreg:${x.tenant}|${x.appId}`, name: x.name, type: "microsoft.entra/appregistrations", tenant: x.tenant, resourceGroup: "", appId: x.appId, signsIn: x.to };
+        r.t = typeOf(r);
+        boxes.get(x.tenant).children.push({ ...leaf(r), sub: "App registration · sign-in" });
+        count();
+        for (const w of to) links.push({ a: r.id, b: w, kind: "signin", arrow: true, on: [r.id, w], title: `${x.name} signs people in to ${nameOf(inv, w)} (Microsoft Entra ID app registration)` });
+      }
+    }
+    if (o.idLinks) {
+      const lines = new Map();
+      const add = (a, b, roles, kind, via) => {
+        const k = `${a}>${b}`;
+        if (!lines.has(k)) lines.set(k, { a, b, roles: [], kind: "id-ctl", via: [] });
+        const l = lines.get(k);
+        for (const x of roles) if (!l.roles.includes(x)) l.roles.push(x);
+        if (kind === "data") l.kind = "id-data";
+        if (via && !l.via.includes(via)) l.via.push(via);
+      };
+      for (const x of inv.access) {
+        const to = x.to.startsWith("rg:") ? `rg:${x.tenant}|${x.to.slice(3)}` : x.to;
+        if (!keys.has(to)) continue;
+        if (keys.has(x.from)) add(x.from, to, x.roles, x.kind);
+        else for (const u of inv.usersOf.get(x.from) || []) if (keys.has(u.id) && u.id !== to) add(u.id, to, x.roles, x.kind, x.from);
+      }
+      for (const l of lines.values()) {
+        const target = l.b.startsWith("rg:") ? `resource group ${l.b.split("|").pop()}` : nameOf(inv, l.b);
+        const via = l.via.length ? ` through ${l.via.map((id) => nameOf(inv, id)).join(", ")}` : "";
+        links.push({ a: l.a, b: l.b, kind: l.kind, arrow: true, on: [l.a, l.b], title: `${nameOf(inv, l.a)}${via} → ${target}: ${l.roles.join(", ")}` });
+      }
+      for (const [id, users] of inv.usersOf) {
+        if (!keys.has(id)) continue;
+        for (const u of users) if (keys.has(u.id)) links.push({ a: u.id, b: id, kind: "uses", on: [u.id, id], title: `${u.name} uses the managed identity ${nameOf(inv, id)}` });
+      }
+    }
   }
   // Big drawings: one tile per type in each box ("VM ×12").
   function groupByType(n) {
@@ -774,13 +845,14 @@
     vnet: (p) => ({ fill: "rgba(57,135,229,0.07)", stroke: p["--accent"], dash: "", title: p["--accent-text"] }),
     subnet: (p) => ({ fill: p["--surface"], stroke: p["--accent"], dash: "4 3", title: p["--text"] }),
     onprem: (p) => ({ fill: "rgba(250,178,25,0.06)", stroke: p["--warning"], dash: "6 4", title: p["--warning"] }),
+    entra: (p) => ({ fill: "rgba(57,135,229,0.05)", stroke: p["--accent-text"], dash: "6 4", title: p["--accent-text"] }),
   };
   const trunc = (s, n) => (String(s || "").length > n ? String(s).slice(0, n - 1) + "…" : String(s || ""));
   function drawBox(n, p, out) {
     if (n.kind !== "root") {
       const st = BOX_STYLE[n.kind](p);
       out.push(`<g data-arch-box="${esc(n.key)}"><rect x="${n.ax}" y="${n.ay}" width="${n.w}" height="${n.h}" rx="8" fill="${st.fill}" stroke="${st.stroke}" stroke-width="1.2"${st.dash ? ` stroke-dasharray="${st.dash}"` : ""}/>`);
-      const kindWord = { tenant: "TENANT", sub: "SUBSCRIPTION", rg: "RESOURCE GROUP", vnet: "VNET", subnet: "SUBNET", onprem: "" }[n.kind];
+      const kindWord = { tenant: "TENANT", sub: "SUBSCRIPTION", rg: "RESOURCE GROUP", vnet: "VNET", subnet: "SUBNET", onprem: "", entra: "" }[n.kind];
       let tx = n.ax + PAD;
       out.push(`<text x="${tx}" y="${n.ay + 19}" font-size="13" font-weight="600" fill="${st.title}"><title>${esc(kindWord ? kindWord.toLowerCase() + " " : "")}${esc(n.label)}</title>${esc(trunc(n.label, 60))}</text>`);
       tx += textW(trunc(n.label, 60), 7.4) + 10;
@@ -800,7 +872,7 @@
     const r = n.r;
     const col = p[r.t.cat] || p["--muted"];
     const pub = (n.many || [r]).some((x) => x.publicIps && x.publicIps.length);
-    const title = n.many ? `${n.label}: ${n.many.map((x) => x.name).join(", ")}` : `${r.name}\n${r.t.label}\nrg ${r.resourceGroup}${pub ? `\npublic IP ${r.publicIps.join(", ")}` : ""}`;
+    const title = n.many ? `${n.label}: ${n.many.map((x) => x.name).join(", ")}` : `${r.name}\n${r.t.label}${r.resourceGroup ? `\nrg ${r.resourceGroup}` : ""}${pub ? `\npublic IP ${r.publicIps.join(", ")}` : ""}`;
     out.push(`<g data-arch-node="${esc(n.key)}" class="arch-leaf"${n.context ? ' opacity="0.7"' : ""}><title>${esc(title)}</title>`);
     out.push(`<rect class="arch-leaf-bg" x="${n.ax}" y="${n.ay}" width="${LW}" height="${LH}" rx="6" fill="${p["--surface-2"]}" stroke="${p["--border-strong"]}"${n.context ? ' stroke-dasharray="3 3"' : ""}/>`);
     const ic = iconOf(r.t.abbr);
@@ -833,6 +905,10 @@
     "peer-bad": (p) => [p["--critical-text"], "6 4", 2],
     vpn: (p) => [p["--warning"], "8 4", 2],
     pe: (p) => [p["--muted"], "2 4", 1.4],
+    "id-data": (p) => [p.security, "", 1.8],
+    "id-ctl": (p) => [p.security, "6 4", 1.4],
+    uses: (p) => [p.security, "2 3", 1.4],
+    signin: (p) => [p["--accent-text"], "7 3", 1.8],
     "flow-allow": (p) => [p["--good-text"], "", 2.2],
     "flow-part": (p) => [p["--warning"], "", 2.2],
     "flow-deny": (p) => [p["--critical-text"], "", 2.2],
@@ -845,6 +921,17 @@
     for (const l of m.links) {
       const a = at.get(l.a), b = at.get(l.b);
       if (a && b) segs.push({ l, a, b, s: anchor(a, b), e: anchor(b, a) });
+    }
+    // Two tiles in one row with tiles between them (a resource group): the line goes over the row, not through them.
+    const leaves = [...at.values()].filter((n) => n.leaf);
+    for (const g of segs) {
+      const { a, b } = g;
+      if (!a.leaf || !b.leaf || Math.abs(a.ay - b.ay) > 1) continue;
+      const [lo, hi] = a.ax < b.ax ? [a.ax, b.ax] : [b.ax, a.ax];
+      if (!leaves.some((n) => n !== a && n !== b && Math.abs(n.ay - a.ay) <= 1 && n.ax > lo && n.ax < hi)) continue;
+      g.s = { x: a.ax + a.w / 2, y: a.ay, h: false };
+      g.e = { x: b.ax + b.w / 2, y: b.ay, h: false };
+      g.over = true;
     }
     segs.forEach((g, i) => {
       for (const [n, q, other] of [[g.a, g.s, g.b], [g.b, g.e, g.a]]) {
@@ -864,19 +951,20 @@
         else u.q.x += off;
       });
     }
-    const traffic = m.links.some((l) => l.on);
+    const isFlow = (l) => l.kind.startsWith("flow");
+    const traffic = m.links.some((l) => l.on && isFlow(l));
     // Where a pill or chevron may not sit: box titles and tiles.
     const busy = [...at.values()].filter((n) => n.kind !== "root").map((n) => (n.leaf ? [n.ax, n.ay, n.w, n.h] : [n.ax, n.ay, n.w, headH(n)]));
     const free = (x, y) => !busy.some(([bx, by, bw, bh]) => x > bx - 10 && x < bx + bw + 10 && y > by - 10 && y < by + bh + 10);
-    for (const { l, s, e } of segs) {
+    for (const { l, s, e, over } of segs) {
       // Ends that face each other across a narrow gap (two VNets side by side) would make the curve loop back: keep it inside the gap.
-      const gap = s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
-      const bend = Math.min(Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3), Math.max(12, gap / 2));
+      const gap = over ? Infinity : s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
+      const bend = over ? 30 : Math.min(Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3), Math.max(12, gap / 2));
       const c1 = s.h ? { x: s.x + (e.x > s.x ? bend : -bend), y: s.y } : { x: s.x, y: s.y + (e.y > s.y ? bend : -bend) };
       const c2 = e.h ? { x: e.x + (s.x > e.x ? bend : -bend), y: e.y } : { x: e.x, y: e.y + (s.y > e.y ? bend : -bend) };
       const [col0, dash0, w] = LINK_STYLE[l.kind](p);
       // With traffic lines on, the network lines (peerings, VPN, endpoints) step back.
-      const op = traffic && !l.on ? 0.4 : 0.85;
+      const op = traffic && !isFlow(l) ? 0.4 : 0.85;
       const col = l.col === "grey" ? p["--text-2"] : l.col || col0;
       const dash = l.col ? FLOW_DASH[l.flow] : l.dash ? "7 4" : dash0;
       const g = l.on ? ` class="arch-ln" data-on="${esc(l.on.join(" "))}"` : "";
@@ -1006,6 +1094,8 @@
       <div class="seg">${lay("hubs", "Hub and spoke", "Each hub VNet in the middle, its peered spokes around it, on-premises on the left")}${lay("network", "Network", "VNets with their subnets, packed in rows")}${lay("groups", "Resource groups", "Subscription, resource group, resource")}</div>
       <div class="arch-opts">
         ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
+        ${chk("idLinks", "Identity access", "A line from each managed identity to what its roles or Key Vault access policies reach (solid: data, like reading blobs or secrets; dashed: managing the resource)")}
+        ${chk("signIn", "Sign-in", "An Entra ID box with the app registrations that sign people in to the drawn web apps")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}
         ${o.hasFwVms ? chk("fwVms", "Firewall VMs", "VMs that forward traffic for others (Palo Alto, Fortinet...). Left out, traffic through them is drawn straight, dashed") : ""}
         <select class="select" data-arch-grouped title="One tile per resource, or one per type in each box">
@@ -1067,6 +1157,7 @@
       <div class="arch-legend">
         ${m.grouped ? "<span>One tile per type (many resources). Switch Tiles to One per resource to see each.</span>" : ""}
         <span><i class="ln peer"></i>peering</span><span><i class="ln bad"></i>peering not connected</span><span><i class="ln vpn"></i>VPN / ExpressRoute</span><span><i class="ln pe"></i>private endpoint</span>
+        ${m.links.some((l) => l.kind === "id-data") ? `<span><i class="ln idd"></i>identity reads or writes data</span>` : ""}${m.links.some((l) => l.kind === "id-ctl") ? `<span><i class="ln idc"></i>identity manages it</span>` : ""}${m.links.some((l) => l.kind === "uses") ? `<span><i class="ln uses"></i>uses a managed identity</span>` : ""}${m.links.some((l) => l.kind === "signin") ? `<span><i class="ln sso"></i>sign-in (Entra ID)</span>` : ""}
         ${o.traffic && o.flowColor === "vm" ? `<span><i class="ln vmc"></i>traffic, in the colour of the VM it comes from (stripe on its tile)</span><span><i class="ln vmc part"></i>some ports open</span><span><i class="ln vmc no"></i>blocked or unknown</span>` : ""}
         ${o.traffic && o.flowColor !== "vm" ? `<span><i class="ln ok"></i>traffic gets through</span><span><i class="ln part"></i>some ports open</span><span><i class="ln no"></i>blocked</span><span><i class="ln fwl"></i>through a firewall</span>` : ""}
         ${o.traffic && m.links.some((l) => l.trunk > 1) ? `<span><i class="arch-count">3</i>pairs on one line through the firewall (click a VM to see each)</span>` : ""}
@@ -1078,7 +1169,10 @@
       </div>
       <div id="arch-detail">${detail(inv, o, find)}${trafficTable(inv, o, flow)}</div>`;
     }
-    const note = `<div class="note">Saved by the scan ${esc(fmt.rel(inv.updatedAt))}.${inv.truncated ? " Only the first 20,000 resources per tenant were read." : ""} A resource sits in the subnet of its first NIC or IP configuration; App Service apps sit in the subnet of their VNet integration.</div>`;
+    const unread = (part) => inv.unread.filter((u) => u.part === part).map((u) => inv.tenantName.get(u.tenant) || u.tenant);
+    const noAccess = unread("access"), noSignIn = unread("signIns");
+    const idNote = (noAccess.length ? ` Identity access is missing for ${esc(noAccess.join(", "))}: run the scan again (it needs Reader).` : "") + (noSignIn.length ? ` Sign-in is missing for ${esc(noSignIn.join(", "))}: run the scan again; the scan identity needs Application.Read.All on Microsoft Graph.` : "");
+    const note = `<div class="note">Saved by the scan ${esc(fmt.rel(inv.updatedAt))}.${inv.truncated ? " Only the first 20,000 resources per tenant were read." : ""}${idNote} A resource sits in the subnet of its first NIC or IP configuration; App Service apps sit in the subnet of their VNet integration.</div>`;
     requestAnimationFrame(() => afterRender(t));
     return `<div class="arch-wrap">${scopePanel(inv, o)}<div class="arch-main">${toolbar(o, m)}${canvas}</div></div>${note}`;
   }
@@ -1132,8 +1226,22 @@
       return `<div class="arch-detail"><b>${esc(n.label)}</b><ul>${n.many.slice(0, 100).map((r) => `<li><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted">rg ${esc(r.resourceGroup)}</span></li>`).join("")}</ul></div>`;
     }
     const r = n.r;
+    if (r.appId) {
+      const page = `https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/${encodeURIComponent(r.appId)}`;
+      return `<div class="arch-detail"><div class="arch-detail-head"><b>${esc(r.name)}</b><a href="${esc(page)}" target="_blank" rel="noopener">Open in the Azure portal</a></div><dl><dt>Type</dt><dd>App registration (Microsoft Entra ID)</dd><dt>Application ID</dt><dd class="mono">${esc(r.appId)}</dd><dt>Signs people in to</dt><dd>${r.signsIn.map((id) => esc(nameOf(inv, id))).join(", ")} <span class="muted">(a redirect URI on its host name)</span></dd></dl></div>`;
+    }
     const at = r.subnet && inv.subnetById.get(r.subnet);
-    const target = r.type === "microsoft.network/privateendpoints" && r.link ? inv.byId.get(r.link.split("/").slice(0, 9).join("/")) : null;
+    const roleList = (list, side) =>
+      `<ul class="arch-roles">${list
+        .slice(0, 40)
+        .map((x) => `<li>${esc(side(x))} <span class="muted">${esc(x.roles.join(", "))}</span>${x.via ? ` <span class="muted">(through ${esc(nameOf(inv, x.via))})</span>` : ""}</li>`)
+        .join("")}${list.length > 40 ? `<li class="muted">and ${list.length - 40} more</li>` : ""}</ul>`;
+    const target = (x) => (x.to.startsWith("rg:") ? `resource group ${x.to.split("|").pop()}` : nameOf(inv, x.to));
+    const reach = [...(inv.accessFrom.get(r.id) || []), ...(r.identities || []).flatMap((id) => (inv.accessFrom.get(id) || []).map((x) => ({ ...x, via: id })))];
+    const reachedBy = inv.accessTo.get(r.id) || [];
+    const users = inv.usersOf.get(r.id) || [];
+    const signIns = inv.signInTo.get(r.id) || [];
+    const peTarget = r.type === "microsoft.network/privateendpoints" && r.link ? inv.byId.get(r.link.split("/").slice(0, 9).join("/")) : null;
     const rows = [
       ["Type", `${r.t.label}${r.kind ? ` <span class="muted">(${esc(r.kind)})</span>` : ""}${r.sku ? ` · ${esc(r.sku)}` : ""}`],
       ["Resource group", esc(r.resourceGroup)],
@@ -1143,7 +1251,12 @@
       r.subnetOutside ? ["Network", `a subnet this scan cannot read: <span class="mono">${esc(r.subnet)}</span>`] : null,
       r.publicIps ? ["Public IP", r.publicIps.map((x) => `<span class="mono">${esc(x)}</span>`).join(", ")] : null,
       r.mgmtIps ? ["Management IP", `${r.mgmtIps.map((x) => `<span class="mono">${esc(x)}</span>`).join(", ")} <span class="muted">(Azure manages it through this; it takes no traffic)</span>`] : null,
-      r.link && r.type === "microsoft.network/privateendpoints" ? ["Opens", target ? `${esc(target.name)} <span class="muted">${esc(target.t.label)}</span>` : `<span class="mono">${esc(r.link.split("/").slice(0, 9).join("/"))}</span>`] : null,
+      r.link && r.type === "microsoft.network/privateendpoints" ? ["Opens", peTarget ? `${esc(peTarget.name)} <span class="muted">${esc(peTarget.t.label)}</span>` : `<span class="mono">${esc(r.link.split("/").slice(0, 9).join("/"))}</span>`] : null,
+      r.principal || r.identities ? ["Identity", [r.principal && r.type !== "microsoft.managedidentity/userassignedidentities" ? "system-assigned" : "", ...(r.identities || []).map((id) => `user-assigned ${esc(nameOf(inv, id))}`)].filter(Boolean).join(", ") || "managed identity"] : null,
+      users.length ? ["Used by", users.map((u) => esc(u.name)).join(", ")] : null,
+      reach.length ? ["Its identity may reach", roleList(reach, target)] : null,
+      reachedBy.length ? ["Identities with access", roleList(reachedBy, (x) => nameOf(inv, x.from))] : null,
+      signIns.length ? ["Sign-in", signIns.map((x) => `${esc(x.name)} <span class="muted">app registration</span>`).join(", ")] : null,
     ].filter(Boolean);
     return `<div class="arch-detail"><div class="arch-detail-head"><b>${esc(r.name)}</b><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">Open in the Azure portal</a></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>`;
   }
@@ -1235,7 +1348,7 @@
     const ids = new Map();
     let next = 2;
     const catCol = { compute: "#3987e5", web: "#9085e9", data: "#199e70", network: "#c98500", security: "#d55181", monitor: "#d95926", other: "#6b7380", support: "#6b7380" };
-    const boxCol = { tenant: ["#ffffff", "#666666"], sub: ["#ffffff", "#888888"], rg: ["#f7f7f7", "#999999"], vnet: ["#eef5fd", "#3987e5"], subnet: ["#ffffff", "#3987e5"], onprem: ["#fff8e6", "#c98500"] };
+    const boxCol = { tenant: ["#ffffff", "#666666"], sub: ["#ffffff", "#888888"], rg: ["#f7f7f7", "#999999"], vnet: ["#eef5fd", "#3987e5"], subnet: ["#ffffff", "#3987e5"], onprem: ["#fff8e6", "#c98500"], entra: ["#f2f7fd", "#2f6fbf"] };
     const walk = (n, parent) => {
       for (const c of n.children) {
         const id = `n${next++}`;
@@ -1251,19 +1364,20 @@
           const [fill, stroke] = boxCol[c.kind] || ["#ffffff", "#999999"];
           const tags = c.tags.map(([t]) => t).join(" · ");
           const label = `<b>${esc(c.label)}</b>${tags ? ` <font color="#888888" style="font-size:9px">${esc(tags)}</font>` : ""}${c.sub ? `<br><font color="#777777" style="font-size:10px">${esc(c.sub)}</font>` : ""}`;
-          const dashed = c.kind === "sub" || c.kind === "subnet" || c.kind === "onprem" ? "dashed=1;" : "";
+          const dashed = c.kind === "sub" || c.kind === "subnet" || c.kind === "onprem" || c.kind === "entra" ? "dashed=1;" : "";
           cells.push(`<mxCell id="${id}" value="${esc(label)}" style="rounded=1;arcSize=2;absoluteArcSize=1;whiteSpace=wrap;html=1;container=1;collapsible=0;verticalAlign=top;align=left;spacingLeft=10;spacingTop=2;fontSize=12;fillColor=${fill};strokeColor=${stroke};${dashed}" vertex="1" parent="${parent}">${geo}</mxCell>`);
           walk(c, id);
         }
       }
     };
     walk(m.root, "1");
-    const edgeCol = { peer: "#3987e5", "peer-bad": "#d03b3b", vpn: "#c98500", pe: "#888888", "flow-allow": "#0ca30c", "flow-part": "#c98500", "flow-deny": "#d03b3b", "flow-unknown": "#888888" };
+    const edgeCol = { peer: "#3987e5", "peer-bad": "#d03b3b", vpn: "#c98500", pe: "#888888", "flow-allow": "#0ca30c", "flow-part": "#c98500", "flow-deny": "#d03b3b", "flow-unknown": "#888888", "id-data": "#d55181", "id-ctl": "#d55181", uses: "#d55181", signin: "#2f6fbf" };
+    const dashedKind = new Set(["id-ctl", "uses", "signin"]);
     for (const l of m.links) {
       if (!ids.has(l.a) || !ids.has(l.b)) continue;
       const fd = l.col && FLOW_DASH[l.flow];
-      const dash = l.col ? (fd ? `dashed=1;dashPattern=${fd};` : "") : l.arrow ? (l.dash ? "dashed=1;" : "") : l.kind === "peer" ? "" : "dashed=1;";
-      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? `endArrow=block;endFill=1;${l.both ? "startArrow=block;startFill=1;" : ""}noLabel=1;` : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" ? 1 : 2};strokeColor=${l.col || edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+      const dash = l.col ? (fd ? `dashed=1;dashPattern=${fd};` : "") : dashedKind.has(l.kind) ? "dashed=1;" : l.arrow ? (l.dash ? "dashed=1;" : "") : l.kind === "peer" || l.kind === "id-data" ? "" : "dashed=1;";
+      cells.push(`<mxCell id="e${next++}" value="${l.arrow ? esc(l.title) : ""}" style="${l.arrow ? `endArrow=block;endFill=1;${l.both ? "startArrow=block;startFill=1;" : ""}noLabel=1;` : "endArrow=none;"}html=1;curved=1;strokeWidth=${l.kind === "pe" || l.kind === "uses" ? 1 : 2};strokeColor=${l.col || edgeCol[l.kind]};${dash}" edge="1" parent="1" source="${ids.get(l.a)}" target="${ids.get(l.b)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
     }
     return `<mxfile host="azure-ops-dashboard"><diagram name="Architecture" id="arch"><mxGraphModel dx="${Math.round(d.w)}" dy="${Math.round(d.h)}" grid="0" gridSize="10" guides="1" page="0" math="0" shadow="0"><root>${cells.join("")}</root></mxGraphModel></diagram></mxfile>`;
   }

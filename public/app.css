@@ -864,6 +864,12 @@ tr.pa-hit td { background: var(--accent-soft); }
 .arch-legend .ln.bad { border-top: 2px dashed var(--critical-text); }
 .arch-legend .ln.vpn { border-top: 2px dashed var(--warning); }
 .arch-legend .ln.pe { border-top: 2px dotted var(--muted); }
+.arch-legend .ln.idd { border-top: 2px solid var(--s5); }
+.arch-legend .ln.idc { border-top: 2px dashed var(--s5); }
+.arch-legend .ln.uses { border-top: 2px dotted var(--s5); }
+.arch-legend .ln.sso { border-top: 2px dashed var(--accent-text); }
+.arch-roles { margin: 0; padding-left: 1.1em; }
+.arch-roles li { margin: 1px 0; }
 .arch-legend .ln.ok { border-top-color: var(--good-text); }
 .arch-legend .ln.part { border-top-color: var(--warning); }
 .arch-legend .ln.no { border-top-color: var(--critical-text); }

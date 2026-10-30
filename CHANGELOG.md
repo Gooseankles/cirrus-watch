@@ -21,6 +21,27 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.59.0.0] - 2026-10-30
+
+### Added
+
+- Architecture: lines from a managed identity to what its Azure roles reach (a resource, a part of one such as a blob
+  container, or a resource group) and to Key Vaults whose access policies let it in. A solid line when the role reads
+  or writes data, dashed when it manages the resource. A user-assigned identity that is not drawn hands its lines to
+  the resources that use it. Roles on a whole subscription or management group are left out.
+- Architecture: a Microsoft Entra ID box with the app registrations that sign people in to a drawn web app (found by
+  a redirect URI on the web app's host name, which covers both the dashboard's own SSO and App Service
+  authentication). Needs `Application.Read.All` on the scan identity.
+- "Identity access" and "Sign-in" switches, legend entries, details panel rows (identity, what it may reach, which
+  identities have access, sign-in) and the same lines in the draw.io download.
+- The drawing says which tenants the last scan could not read these for. Both appear after the next Architecture
+  scan.
+
+### Changed
+
+- Architecture: a line between two tiles in one row, with tiles between them, goes over the row instead of through
+  the tiles.
+
 ## [0.58.1.1] - 2026-10-30
 
 ### Added

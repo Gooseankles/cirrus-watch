@@ -72,6 +72,7 @@ const MAP = {
   PIPP: ["10069", "networking/Public_IP_Prefixes.svg"], // its own icon (10372) embeds a picture
   KV: ["10245", "security/Key_Vaults.svg"],
   ID: ["10227", "identity/Managed_Identities.svg"],
+  APPREG: ["10232", "identity/App_Registrations.svg"], // sign-in tiles (Entra ID app registrations)
   LAW: ["00009", "analytics/Log_Analytics_Workspaces.svg"],
   APPI: ["00012", "devops/Application_Insights.svg"],
   AUTO: ["00022", "management_governance/Automation_Accounts.svg"],

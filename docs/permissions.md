@@ -35,7 +35,7 @@ keys and certificates instead of Key Vault Reader. A vault whose firewall keeps 
 | --- | --- |
 | `User.Read.All` | Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access |
 | `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; access packages: who is in each approver group; PIM: members and owners of groups that hold a role) |
-| `Application.Read.All` | App registration secret and certificate expiry, app owners and federated credentials |
+| `Application.Read.All` | App registration secret and certificate expiry, app owners and federated credentials; Architecture: which app registration signs people in to which web app |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings, eligibility and activation history; access lookup: a person's or group's Entra roles |
 | `AuditLog.Read.All` | Stale accounts (last sign-in), MFA coverage and admins' MFA registration; all need Entra ID P1 or P2 |

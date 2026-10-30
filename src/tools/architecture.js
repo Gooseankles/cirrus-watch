@@ -1,15 +1,20 @@
 // Architecture: a drawing of the environment. Each run reads every resource
 // with the subnet it sits in (through its NIC, its IP configuration or its
 // VNet integration), the VNets with their subnets and peerings, on-premises
-// sites with their VPN and ExpressRoute connections, and which resources have
-// a public IP, and saves that as architecture/inventory.json in the tenant's
+// sites with their VPN and ExpressRoute connections, which resources have
+// a public IP, what each managed identity may reach (its Azure roles on a
+// resource or resource group, Key Vault access policies) and which Entra app
+// registrations sign people in to a web app (a redirect URI on its host
+// name), and saves that as architecture/inventory.json in the tenant's
 // history storage. The page draws it with the layers the viewer picks
 // (subscriptions, resource groups, VNets, subnets, kinds of resource). For
-// information only: no findings. Reader is enough.
+// information only: no findings. Reader is enough; Application.Read.All on
+// Microsoft Graph adds the sign-in tiles.
 const store = require("../findingsStore");
 const flows = require("./trafficFlow");
 const tenants = require("../tenants");
 const { resourceGraphQuery } = require("../armClient");
+const { graphGetAll } = require("../graphClient");
 
 const TOOL_ID = "architecture";
 const INVENTORY_KEY = "architecture/inventory.json";
@@ -18,6 +23,7 @@ const FIREWALL_KEY = "firewall/inventory.json"; // saved by the Firewall policie
 const MAX_IDS = 2000;
 const MAX_PAIRS = 6000; // the whole drawing at once: about 75 VMs
 const MAX_RESOURCES = 20000;
+const MAX_ACCESS = 20000; // identity access lines kept per tenant
 
 // The subnet a resource sits in, by type, and what it points at (a NIC's VM,
 // a private endpoint's target, a public IP's IP configuration, a disk's VM).
@@ -46,7 +52,10 @@ const RESOURCES_KQL = `Resources
     ''))
 | extend ip = iff(t == 'microsoft.network/publicipaddresses', tostring(properties.ipAddress), '')
 | extend rs = t == 'microsoft.network/virtualhubs' and isempty(tostring(properties.virtualWan.id))
-| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip, rs`;
+| extend principal = tolower(coalesce(tostring(identity.principalId), iff(t == 'microsoft.managedidentity/userassignedidentities', tostring(properties.principalId), '')))
+| extend uamis = iff(isnull(identity.userAssignedIdentities), dynamic(null), bag_keys(identity.userAssignedIdentities))
+| extend hosts = iff(t == 'microsoft.web/sites', properties.hostNames, dynamic(null))
+| project id, name, resType = t, resKind = tostring(kind), location, resourceGroup, subscriptionId, sku = tostring(sku.name), subnet, link, ip, rs, principal, uamis, hosts`;
 
 const parentOf = (id) => String(id || "").toLowerCase().split("/").slice(0, 9).join("/");
 const vnetOfSubnet = (id) => String(id || "").toLowerCase().split("/subnets/")[0];
@@ -57,7 +66,7 @@ async function read() {
   const q = (kql, opts = {}) => resourceGraphQuery(kql, { toolId: TOOL_ID, ...opts });
   // The traffic lines need these; a drawing still comes without them.
   const soft = (kql) => q(kql).catch(() => null);
-  const [resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls] = await Promise.all([
+  const [resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls, roles, roleDefs, vaultPolicies, apps] = await Promise.all([
     q(RESOURCES_KQL),
     q(`Resources | where type =~ 'microsoft.network/virtualnetworks'
       | project id = tolower(id), name, resourceGroup, subscriptionId, location, prefixes = properties.addressSpace.addressPrefixes,
@@ -83,8 +92,16 @@ async function read() {
       | project id = tolower(id), name, policy = tolower(tostring(properties.firewallPolicy.id)),
           fwIp = tostring(coalesce(properties.ipConfigurations[0].properties.privateIPAddress, properties.hubIPAddresses.privateIPAddress)),
           fwSubnet = tolower(tostring(properties.ipConfigurations[0].properties.subnet.id))`),
+    // Identity lines: roles given to service principals (managed identities are among them) and vault access policies.
+    soft(`AuthorizationResources | where type =~ 'microsoft.authorization/roleassignments' and tostring(properties.principalType) =~ 'ServicePrincipal'
+      | project principalId = tolower(tostring(properties.principalId)), roleDefinitionId = tolower(tostring(properties.roleDefinitionId)), scope = tolower(tostring(properties.scope))`),
+    q(`AuthorizationResources | where type =~ 'microsoft.authorization/roledefinitions' | project id = tolower(id), roleName = tostring(properties.roleName)`, { subscriptions: [] }).catch(() => null),
+    soft(`Resources | where type =~ 'microsoft.keyvault/vaults' and tobool(properties.enableRbacAuthorization) != true
+      | project id = tolower(id), policies = properties.accessPolicies`),
+    // Sign-in: app registrations with a redirect URI on a web app's host name. Needs Application.Read.All.
+    graphGetAll("/applications?$select=appId,displayName,web,spa,publicClient&$top=999", TOOL_ID).catch(() => null),
   ]);
-  return { resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls };
+  return { resources, vnets, groups, subs, sites, connections, nsgs, routeTables, nics, firewalls, roles, roleDefs, vaultPolicies, apps };
 }
 
 // Resources a drawing shows on their own, with their subnet and public IPs
@@ -105,6 +122,9 @@ function build(d) {
     ...(r.ip && { ip: r.ip }),
     // Route Server is a virtual hub without a Virtual WAN.
     ...(r.rs && { routeServer: true }),
+    ...(r.principal && { principal: r.principal }),
+    ...(list(r.uamis).length && { identities: list(r.uamis).map(lc) }),
+    ...(list(r.hosts).length && { hosts: list(r.hosts).map(lc) }),
   }));
   const byId = new Map(res.map((r) => [r.id, r]));
   // A VM sits where its first NIC sits.
@@ -134,6 +154,7 @@ function build(d) {
     // Route Server's public IP is only for Azure to manage it: it takes no traffic.
     if (owner) (owner[owner.routeServer ? "mgmtIps" : "publicIps"] = owner[owner.routeServer ? "mgmtIps" : "publicIps"] || []).push(pip.ip || pip.name);
   }
+  const { access, signIns } = identityLinks(d, res);
   const vnets = d.vnets.map((v) => ({
     id: v.id,
     name: v.name,
@@ -171,7 +192,80 @@ function build(d) {
       prefixes: list(s.prefixes).map(String), ...(s.siteAddress && { address: s.siteAddress }), ...(s.siteProvider && { provider: s.siteProvider }), ...(s.sitePeering && { peering: s.sitePeering }),
     })),
     connections: d.connections.filter((c) => c.gateway && c.site).map((c) => ({ id: c.id, name: c.name, kind: c.connKind, gateway: c.gateway, site: c.site })),
+    // null: could not be read (no access); []: read, nothing found.
+    access: access && access.slice(0, MAX_ACCESS),
+    signIns,
   };
+}
+
+// What each managed identity may reach, and which app registrations sign people in to which web app.
+//  access:  { from: the resource holding the identity (a user-assigned identity is its own resource), to: a resource
+//             id or "rg:<subscription>|<group>" (lower case), roles: [names], kind: "data" or "control" }
+//  signIns: { appId, name, to: [web app ids] }
+// A role on a part of a resource (a blob container, a secret) counts for the resource. Roles on a subscription or a
+// management group are left out: they reach everything and would draw a line to every tile.
+const DATA_ROLE = /data|secret|keys|certificate|crypto|queue|blob|file|table|message|sender|receiver|access policy/i;
+function identityLinks(d, res) {
+  const owner = new Map(); // principal id -> resource id
+  for (const r of res) if (r.principal) owner.set(r.principal, r.id);
+  const known = new Set(res.map((r) => r.id));
+  const names = new Map((d.roleDefs || []).map((x) => [String(x.id).split("/").pop(), x.roleName]));
+  let access = null;
+  if (d.roles || d.vaultPolicies) {
+    const pairs = new Map();
+    const add = (from, to, role) => {
+      const k = `${from}>${to}`;
+      if (!pairs.has(k)) pairs.set(k, { from, to, roles: [], kind: "control" });
+      const p = pairs.get(k);
+      if (!p.roles.includes(role)) p.roles.push(role);
+      if (DATA_ROLE.test(role)) p.kind = "data";
+    };
+    for (const a of d.roles || []) {
+      const from = owner.get(a.principalId);
+      if (!from || !a.scope) continue;
+      const guid = String(a.roleDefinitionId).split("/").pop();
+      const role = names.get(guid) || guid;
+      const parts = a.scope.split("/");
+      // /subscriptions/<s>/resourcegroups/<g> has 5 parts; a resource 9 or more.
+      if (parts[3] !== "resourcegroups") continue;
+      if (parts.length >= 9) {
+        const to = parentOf(a.scope);
+        if (known.has(to) && to !== from) add(from, to, role);
+      } else if (parts.length === 5) add(from, `rg:${parts[2]}|${parts[4]}`, role);
+    }
+    for (const v of d.vaultPolicies || []) {
+      if (!known.has(v.id)) continue;
+      for (const p of list(v.policies)) {
+        const from = owner.get(lc(p.objectId));
+        if (!from) continue;
+        const perms = p.permissions || {};
+        const what = ["secrets", "keys", "certificates"].filter((k) => list(perms[k]).length).map((k) => `${k}: ${list(perms[k]).map(lc).join(", ")}`);
+        add(from, v.id, `Access policy${what.length ? ` (${what.join("; ")})` : ""}`);
+      }
+    }
+    access = [...pairs.values()];
+  }
+  let signIns = null;
+  if (d.apps) {
+    const hostOwner = new Map();
+    for (const r of res) for (const h of r.hosts || []) hostOwner.set(h, r.id);
+    signIns = [];
+    for (const app of d.apps) {
+      const uris = [app.web, app.spa, app.publicClient].flatMap((x) => list((x || {}).redirectUris));
+      const to = new Set();
+      for (const u of uris) {
+        let host;
+        try {
+          host = new URL(u).hostname.toLowerCase();
+        } catch {
+          continue;
+        }
+        if (hostOwner.has(host)) to.add(hostOwner.get(host));
+      }
+      if (to.size) signIns.push({ appId: app.appId, name: app.displayName || app.appId, to: [...to] });
+    }
+  }
+  return { access, signIns };
 }
 
 // The network as the traffic lines need it, in short: ids in lower case, NSG rules with one-letter keys.
@@ -298,7 +392,7 @@ async function trafficLines(keys, body) {
 }
 
 async function inventory(keys) {
-  const out = { updatedAt: null, tenants: [], resources: [], vnets: [], groups: [], subscriptions: [], sites: [], connections: [], truncated: false, failures: [] };
+  const out = { updatedAt: null, tenants: [], resources: [], vnets: [], groups: [], subscriptions: [], sites: [], connections: [], access: [], signIns: [], unread: [], truncated: false, failures: [] };
   for (const k of keys) {
     let doc;
     try {
@@ -312,7 +406,9 @@ async function inventory(keys) {
     out.tenants.push({ key: k, name: tenants.nameOf(k) });
     out.truncated = out.truncated || !!doc.truncated;
     const tag = (x) => ({ ...x, tenant: k });
-    for (const part of ["resources", "vnets", "groups", "subscriptions", "sites", "connections"]) out[part].push(...(doc[part] || []).map(tag));
+    for (const part of ["resources", "vnets", "groups", "subscriptions", "sites", "connections", "access", "signIns"]) out[part].push(...(doc[part] || []).map(tag));
+    // What the last scan could not read in this tenant (a scan from before this was added saved neither).
+    for (const part of ["access", "signIns"]) if (!Array.isArray(doc[part])) out.unread.push({ tenant: k, part });
   }
   return out;
 }
@@ -343,5 +439,5 @@ module.exports = {
   info: true,
   run,
   registerRoutes,
-  _test: { build, buildNetwork, trafficLines, parentOf },
+  _test: { build, buildNetwork, trafficLines, parentOf, identityLinks },
 };

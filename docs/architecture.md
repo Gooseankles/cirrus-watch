@@ -141,9 +141,9 @@ reached only with Entra tokens. Three optional layers:
 - `private_network = true`: the web app joins a VNet and reaches storage and vault through private endpoints. Their
   public access stays on, but their firewalls deny every network, so only the private endpoints get through.
 - `app_private_endpoint = true` (needs `private_network`): the web app itself gets an inbound private endpoint and
-  its public address is turned off, so the site answers only inside the VNet and from networks joined to it (VPN,
-  ExpressRoute or peering) that resolve `privatelink.azurewebsites.net`. Not together with the access restrictions
-  or `continuous_deployment`.
+  its public access stays on behind access restrictions that deny every network, so the site answers only inside the
+  VNet and from networks joined to it (VPN, ExpressRoute or peering) that resolve `privatelink.azurewebsites.net`,
+  plus any allowed IPs or subnets. With `continuous_deployment` the Kudu (scm) site stays open for the deploy webhook.
 
 ![Network with private_network](diagrams/arch-network.png)
 

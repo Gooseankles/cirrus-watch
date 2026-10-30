@@ -267,13 +267,14 @@ only drops its Settings changes.
   means that scan uses its last kept copy; without one, End of support uses its built-in dates and the CVE scan
   ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call.
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
-  rules. `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
+  rules, except with `continuous_deployment`, which keeps it open for the deploy webhook (publishing credentials
+  still needed). `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
   it creates no private endpoint.
 - `app_private_endpoint = true`: the web app itself gets an inbound private endpoint (`pe-<name>`) in the private
-  endpoint subnet and its public network access is off, for the site and the scm site. A
+  endpoint subnet. Its public network access stays on (so deployments are not blocked), but the access
+  restrictions deny every network except `allowed_ip_ranges` and `allowed_subnet_ids` (module v1.7.0). A
   `privatelink.azurewebsites.net` zone is created and linked to the VNet, or `app_private_dns_zone_id` points at an
-  existing hub zone. Needs `private_network = true`; refused together with `allowed_ip_ranges`, `allowed_subnet_ids`
-  or `continuous_deployment`. Works with either `private_access` (with `"service_endpoint"` the private endpoint
+  existing hub zone. Needs `private_network = true`. Works with either `private_access` (with `"service_endpoint"` the private endpoint
   subnet is then created too, or set `private_endpoint_subnet_id` with an existing VNet). The `private_network`
   output gains `app_endpoint_id`, `app_private_ip` and `app_public_access`.
 - With it, people need a network path to the VNet (VPN, ExpressRoute or peering) and DNS that resolves

@@ -35,7 +35,7 @@ with picture(__file__):
     pekv >> link() >> kv
     app >> link("public internet\n(or via VNet with vnet_route_all + NAT)") >> azure
     vuser >> link("HTTPS 443", dashed=True) >> peapp
-    app << link("private IP; the public\naddress is then off", dashed=True) << peapp
+    app << link("private IP; public access\nthen denies all networks", dashed=True) << peapp
     same_rank(snapp, dns)
     same_rank(vuser, app)
     same_rank(pest, pekv, peapp)

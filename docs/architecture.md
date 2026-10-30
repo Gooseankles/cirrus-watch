@@ -138,8 +138,10 @@ reached only with Entra tokens. Three optional layers:
 
 - `allowed_ip_ranges` / `allowed_subnet_ids`: App Service access restrictions; everything else is refused before it
   reaches the app (the Kudu site follows the same rules).
-- `private_network = true`: the web app joins a VNet and reaches storage and vault through private endpoints. Their
-  public access stays on, but their firewalls deny every network, so only the private endpoints get through.
+- `private_network = true`: the web app joins a VNet. Storage and vault keep public access on, but their firewalls
+  deny every network except the app's integration subnet, let in through service endpoints (no extra cost; module
+  v1.9.0). `private_access = "private_endpoint"` uses private endpoints and private DNS zones instead (billed per
+  endpoint and per GB).
 - `app_private_endpoint = true` (needs `private_network`): the web app itself gets an inbound private endpoint and
   its public access stays on behind access restrictions that deny every network, so the site answers only inside the
   VNet and from networks joined to it (VPN, ExpressRoute or peering) that resolve `privatelink.azurewebsites.net`,

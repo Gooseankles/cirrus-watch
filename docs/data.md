@@ -8,8 +8,9 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
   set (reached with an Entra token; account keys can stay off), otherwise under `DATA_DIR` (default `./data`).
   Each customer tenant has its own container, `dashboard-<key>` (on disk `DATA_DIR/tenants/<key>`), so one
   customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365; the Terraform module sets 730).
-  With Terraform's `private_network = true` the storage account is reached only through a private endpoint:
-  its public network access stays on, but its firewall denies every network.
+  With Terraform's `private_network = true` the storage account's firewall denies every network except the web
+  app's integration subnet (a service endpoint; with `private_access = "private_endpoint"` only its private
+  endpoint); its public network access stays on.
 - **Client secrets and notification links entered in Settings** (SPN overrides, customer tenants, notifications): in an Azure key vault when
   `SECRET_VAULT_URL` is set (Terraform creates one; the app reads and writes it with its managed identity, as
   secrets named `dashboard-…`), otherwise in `settings.json` / `tenants.json` under `DATA_DIR`. Secrets already in

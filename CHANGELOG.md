@@ -21,6 +21,14 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.60.0.4] - 2026-10-30
+
+### Changed
+
+- Documentation: with `private_network` the storage account and key vault now let in the web app's subnet through
+  service endpoints by default (module v1.9.0, no extra cost); private endpoints are opt-in. The setup LLD,
+  architecture and data pages and the network diagram show this.
+
 ## [0.60.0.3] - 2026-10-30
 
 ### Changed

@@ -36,7 +36,7 @@ marked with that input.
 | Azure role assignments for the shared SPN | (none) | one per entry in `shared_spn_access` | Reader and Cost Management Reader on what is scanned |
 | Role assignments for the web app's own data | (none) | `create_history_storage`, `create_secret_vault` | Storage Blob Data Contributor on the storage account and Key Vault Secrets Officer on the vault, for the system-assigned identity |
 | Key Vault Secrets Officer for named people | (none) | `create_secret_vault` and `secret_vault_admin_ids` | Break-glass: those users or groups may see and change the stored secrets in the portal; nobody else can |
-| VNet, subnets, private endpoints, private DNS zones | `vnet-contoso-ops` … | `private_network` (`private_access`, `app_private_endpoint`) | Storage and vault reachable only from the app; with `app_private_endpoint` also the web app's own inbound endpoint `pe-contoso-ops`, so the site is reachable only from the VNet |
+| VNet, subnets, service endpoints (private endpoints and private DNS zones only when chosen) | `vnet-contoso-ops` … | `private_network` (`private_access`, `app_private_endpoint`) | Storage and vault reachable only from the app; with `app_private_endpoint` also the web app's own inbound endpoint `pe-contoso-ops`, so the site is reachable only from the VNet |
 | Action group + three metric alerts | `ag-contoso-ops` | `alert_emails` | Email when CPU, memory or HTTP errors stay high |
 
 Terraform never touches a customer tenant. Each customer makes their own app registration by hand
@@ -257,10 +257,16 @@ only drops its Settings changes.
 <sub>Source: [arch-network.py](diagrams/arch-network.py)</sub>
 
 - The web app joins a subnet (outbound VNet integration).
-- `private_access = "private_endpoint"` (default): the storage account and the vault get private endpoints and
-  private DNS zones linked to the VNet. Their public network access stays on ("Enabled from selected networks"),
-  but their firewalls deny every network (trusted Azure services allowed), so only the private endpoints get in.
-- `private_access = "service_endpoint"`: no private endpoints; their firewalls let in only the integration subnet.
+- `private_access = "service_endpoint"` (default since module v1.9.0): the integration subnet gets the
+  `Microsoft.Storage` and `Microsoft.KeyVault` service endpoints. The storage account and the vault keep public
+  network access on ("Enabled from selected networks"), but their firewalls deny every network (trusted Azure
+  services allowed) except that subnet. Service endpoints cost nothing; no private endpoints, DNS zones or second
+  subnet. An existing subnet needs both service endpoints turned on first, and the storage account should be in the
+  VNet's region. The web app is not a trusted Azure service; it gets in only through its subnet.
+- `private_access = "private_endpoint"`: the storage account and the vault get private endpoints and private DNS
+  zones linked to the VNet, and their firewalls let in only the private endpoints. Private endpoints are billed per
+  hour and per GB, so this is opt-in. Upgrading a deployment that relied on the old default removes its private
+  endpoints unless it sets this value.
 - `vnet_route_all` sends all outbound traffic through the VNet. Then the VNet needs a NAT gateway or firewall to reach
   Docker Hub, Entra, ARM and Graph, and the public data two scans fetch once a day: `endoflife.date` for End of
   support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids. A blocked host
@@ -281,13 +287,14 @@ only drops its Settings changes.
   `privatelink.azurewebsites.net` (on-premises DNS forwards it to Azure, for example through a Private DNS Resolver).
   SSO keeps working: the redirect goes through their browser, which is on that network.
 - `public_network_access = false` (module v1.8.0; default `true`): public network access is turned off on the storage
-  account and the vault (with private endpoints) and on the web app (with `app_private_endpoint`), so only the
-  private endpoints work. Terraform and deployments must then run from inside the VNet; `continuous_deployment`,
+  account and the vault (with `private_access = "private_endpoint"`) and on the web app (with `app_private_endpoint`), so only the
+  private endpoints work. Deployments must then run from inside the VNet (Terraform itself works from anywhere: it
+  creates the containers through Resource Manager); `continuous_deployment`,
   `allowed_ip_ranges` and `allowed_subnet_ids` are refused with the web app's public access off.
 - Subnet sizes: the integration subnet needs one address per app instance, twice that for a while during a scale
   operation or platform upgrade, and Azure keeps 5 addresses in every subnet. A /28 (11 usable) is enough for this
   app on one or a few instances; /26 if the plan scales out a lot or the subnet is shared. The private endpoint
-  subnet holds up to three endpoints, so a /28 is plenty there.
+  subnet (only with private endpoints) holds up to three endpoints, so a /28 is plenty there.
 
 ## 11. What an update changes
 

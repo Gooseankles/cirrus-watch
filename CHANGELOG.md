@@ -21,6 +21,14 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.59.0.1] - 2026-10-30
+
+### Changed
+
+- Documentation: the setup LLD, the architecture page, SECURITY.md and the network picture describe the Terraform
+  module's new `app_private_endpoint` option (module v1.6.0: the web app reached only through a private endpoint),
+  how it differs from `allowed_subnet_ids`, and subnet sizes.
+
 ## [0.59.0.0] - 2026-10-30
 
 ### Added

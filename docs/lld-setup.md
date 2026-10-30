@@ -36,7 +36,7 @@ marked with that input.
 | Azure role assignments for the shared SPN | (none) | one per entry in `shared_spn_access` | Reader and Cost Management Reader on what is scanned |
 | Role assignments for the web app's own data | (none) | `create_history_storage`, `create_secret_vault` | Storage Blob Data Contributor on the storage account and Key Vault Secrets Officer on the vault, for the system-assigned identity |
 | Key Vault Secrets Officer for named people | (none) | `create_secret_vault` and `secret_vault_admin_ids` | Break-glass: those users or groups may see and change the stored secrets in the portal; nobody else can |
-| VNet, subnets, private endpoints, private DNS zones | `vnet-contoso-ops` … | `private_network` (`private_access`) | Storage and vault reachable only from the app |
+| VNet, subnets, private endpoints, private DNS zones | `vnet-contoso-ops` … | `private_network` (`private_access`, `app_private_endpoint`) | Storage and vault reachable only from the app; with `app_private_endpoint` also the web app's own inbound endpoint `pe-contoso-ops`, so the site is reachable only from the VNet |
 | Action group + three metric alerts | `ag-contoso-ops` | `alert_emails` | Email when CPU, memory or HTTP errors stay high |
 
 Terraform never touches a customer tenant. Each customer makes their own app registration by hand
@@ -262,7 +262,22 @@ only drops its Settings changes.
 - `vnet_route_all` sends all outbound traffic through the VNet. Then the VNet needs a NAT gateway or firewall to reach
   Docker Hub, Entra, ARM and Graph.
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
-  rules.
+  rules. `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
+  it creates no private endpoint.
+- `app_private_endpoint = true`: the web app itself gets an inbound private endpoint (`pe-<name>`) in the private
+  endpoint subnet and its public network access is off, for the site and the scm site. A
+  `privatelink.azurewebsites.net` zone is created and linked to the VNet, or `app_private_dns_zone_id` points at an
+  existing hub zone. Needs `private_network = true`; refused together with `allowed_ip_ranges`, `allowed_subnet_ids`
+  or `continuous_deployment`. Works with either `private_access` (with `"service_endpoint"` the private endpoint
+  subnet is then created too, or set `private_endpoint_subnet_id` with an existing VNet). The `private_network`
+  output gains `app_endpoint_id`, `app_private_ip` and `app_public_access`.
+- With it, people need a network path to the VNet (VPN, ExpressRoute or peering) and DNS that resolves
+  `privatelink.azurewebsites.net` (on-premises DNS forwards it to Azure, for example through a Private DNS Resolver).
+  SSO keeps working: the redirect goes through their browser, which is on that network.
+- Subnet sizes: the integration subnet needs one address per app instance, twice that for a while during a scale
+  operation or platform upgrade, and Azure keeps 5 addresses in every subnet. A /28 (11 usable) is enough for this
+  app on one or a few instances; /26 if the plan scales out a lot or the subnet is shared. The private endpoint
+  subnet holds up to three endpoints, so a /28 is plenty there.
 
 ## 11. What an update changes
 

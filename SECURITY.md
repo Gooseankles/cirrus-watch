@@ -28,7 +28,9 @@ to the tenant.
 - **Session key:** set `SESSION_SECRET` to a long random value (the Terraform module does). Without one the app
   makes its own and keeps it in `DATA_DIR/session-secret`.
 - **Network:** serve it over HTTPS only, and let in only the addresses that need it (the Terraform module's
-  `allowed_ip_ranges` and `allowed_subnet_ids` refuse everything else before it reaches the app).
+  `allowed_ip_ranges` and `allowed_subnet_ids` refuse everything else before it reaches the app). The strictest
+  option is `app_private_endpoint`: the site has no public address at all and is reached only through the VNet
+  (VPN, ExpressRoute or peering).
 - **The app's own identity:** grant only what the scans need (Reader, Cost Management Reader and the Graph
   read permissions in [docs/permissions.md](docs/permissions.md)). It needs no write rights anywhere.
 - **Updates:** run the `stable` image and update it regularly. Every image is scanned by Trivy before it is pushed,

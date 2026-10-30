@@ -258,7 +258,8 @@ only drops its Settings changes.
 
 - The web app joins a subnet (outbound VNet integration).
 - `private_access = "private_endpoint"` (default): the storage account and the vault get private endpoints and
-  private DNS zones linked to the VNet, and their public network access is off.
+  private DNS zones linked to the VNet. Their public network access stays on ("Enabled from selected networks"),
+  but their firewalls deny every network (trusted Azure services allowed), so only the private endpoints get in.
 - `private_access = "service_endpoint"`: no private endpoints; their firewalls let in only the integration subnet.
 - `vnet_route_all` sends all outbound traffic through the VNet. Then the VNet needs a NAT gateway or firewall to reach
   Docker Hub, Entra, ARM and Graph, and the public data two scans fetch once a day: `endoflife.date` for End of

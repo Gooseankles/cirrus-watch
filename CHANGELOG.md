@@ -21,6 +21,14 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.60.0.1] - 2026-10-30
+
+### Changed
+
+- Documentation: with the Terraform module's private endpoints (module v1.6.1) the storage account and the key vault
+  keep public network access on, restricted by their firewalls (deny every network, trusted Azure services allowed),
+  instead of turning it off. The setup LLD, the architecture and data pages and the network picture say so.
+
 ## [0.60.0.0] - 2026-10-30
 
 ### Added

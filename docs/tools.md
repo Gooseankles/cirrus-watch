@@ -87,6 +87,12 @@ Low secure scores, unhealthy recommendations and Defender plans that are off.
 
 Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others.
 
+## Vulnerabilities (CVEs)
+
+Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation.
+
+One row per CVE and subscription with the resources it is on, from Defender for Cloud's vulnerability findings (machines through Defender for Servers or Defender CSPM, container images through Defender for Containers or Defender CSPM). CVEs on CISA's Known Exploited Vulnerabilities list are critical, then CVEs whose EPSS score says they are likely to be exploited soon (from 10% by default), then critical CVEs (the lowest severity listed is a setting). Each row says whether a fix is available. Subscriptions with machines or registries but no vulnerability assessment are flagged. The CISA list and EPSS scores are fetched once a day; only CVE ids are sent.
+
 ## Safety nets
 
 Subscriptions with no working budget and key resources with no delete lock.

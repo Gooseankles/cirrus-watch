@@ -150,8 +150,11 @@ reached only with Entra tokens. Three optional layers:
 <sub>Source: [arch-network.py](diagrams/arch-network.py)</sub>
 
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
-firewall to reach Docker Hub, ARM and Graph. The End of support scan also fetches dates from `endoflife.date`
-once a day (no tenant data is sent); if it is blocked, the scan uses its last copy or the built-in dates.
+firewall to reach Docker Hub, ARM and Graph. Two scans also fetch public data once a day (no tenant data is sent).
+The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
+built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
+`www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
+last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call.
 
 ## 8. Build and release
 

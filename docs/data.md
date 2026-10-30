@@ -21,6 +21,9 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
   and at the latest 24 hours after signing in. In Docker, map `DATA_DIR` to a volume, or every image update signs
   everyone out.
 - **Cleanup savings** (orphaned resources deleted after they were found): `savings/orphaned-resources.json` per tenant.
+- **Public data copies**: `eol-dates.json` (end-of-support dates from endoflife.date) and `cve-feeds.json` (CISA's
+  Known Exploited Vulnerabilities list and EPSS scores from FIRST) under `DATA_DIR`, refreshed at most once a day and
+  used as they are when a source cannot be reached. They hold no tenant data.
 - **Activity log** (scan runs): JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 - **Audit log** (who opened and changed what): `audit.jsonl` next to it, kept `AUDIT_RETENTION_DAYS`.
 - **A removed customer tenant** (Settings → Remove) leaves nothing behind: its secrets are purged from the vault,

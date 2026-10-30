@@ -21,7 +21,7 @@ with picture(__file__):
         d1 = text("settings.json\ntenant-settings.json\ntenants.json")
         d2 = text("notify.json (links)\nnotify-queue.json")
         d3 = text("sessions/\nsession-secret")
-        d4 = text("monitor.json (48 h of load)\neol-dates.json")
+        d4 = text("monitor.json (48 h of load)\neol-dates.json, cve-feeds.json")
         d5 = text("logs/runs.jsonl", "(activity log)")
         d6 = text("logs/audit.jsonl", "(audit log)")
     with group("Key vault (SECRET_VAULT_URL)", "plain", icon=KeyVaults):

@@ -32,6 +32,7 @@ const TOOL_AREAS = {
   "conditional-access": ["identity", "security"],
   "mfa-coverage": ["identity", "security"],
   defender: ["security", "platform"],
+  vulnerabilities: ["security", "platform"],
   "internet-exposure": ["security", "platform"],
   "exposure-paths": ["security", "platform"],
   "firewall-policies": ["security", "platform"],

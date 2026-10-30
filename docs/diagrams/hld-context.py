@@ -19,7 +19,7 @@ with picture(__file__, direction="LR", ranksep="1.1"):
     chan = icon(Teams, "Teams, Slack, webhook", "or email (Graph)")
     st = icon(StorageAccounts, "Azure Storage", "(or local disk)")
     kv = icon(KeyVaults, "Azure Key Vault", "(or local file)")
-    eol = icon(Internet, "endoflife.date")
+    feeds = icon(Internet, "Public data", "endoflife.date", "CISA KEV, FIRST EPSS")
 
     people >> link("HTTPS, Entra sign-in") >> cw
     entra >> link("ID token with roles") >> cw
@@ -29,5 +29,5 @@ with picture(__file__, direction="LR", ranksep="1.1"):
     cw >> link("daily message") >> chan
     cw >> link("results and history") >> st
     cw >> link("secrets from Settings") >> kv
-    cw >> link("end-of-support dates") >> eol
+    cw >> link("end-of-support dates,\nCVE ranking") >> feeds
     same_rank(people, entra)

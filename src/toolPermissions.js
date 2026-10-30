@@ -52,6 +52,7 @@ const NEEDS = {
     ],
   },
   defender: { azure: READER },
+  vulnerabilities: { azure: READER },
   "safety-nets": { azure: READER },
   "azure-monitor": { azure: ["Reader", "Log Analytics Reader on the workspaces, if Reader alone cannot query them (heartbeat check)"] },
   updates: { azure: READER },

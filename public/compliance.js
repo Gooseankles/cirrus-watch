@@ -143,6 +143,7 @@ const REVOKE = ["cis:6.2", "nis2:i", "nsm:2.6", "ir:11.2"];
 const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1", "ir:6.4"];
 const CONTINUITY = ["nis2:c", "nsm:2.2", "ir:4.2"];
 const PATCHING = ["cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6"];
+const VULNS = ["cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6"];
 const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1", "ir:2.2", "ir:6.9", "ir:6.10", "ir:7"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
@@ -368,6 +369,8 @@ const KIND_CONTROLS = {
   "app-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3", "ir:11.2"],
   "app-secret-only": KEYS,
   "app-secret-long-lived": ["cis:5.5", "nis2:h", "nsm:2.6", "ir:9", "ir:11.2"],
+  ...Object.fromEntries(["cve-known-exploited", "cve-likely-exploited", "cve-critical", "cve-high", "cve-medium", "cve-low"].map((k) => [k, VULNS])),
+  "cve-no-data": VULNS,
   ...Object.fromEntries(["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"].map((k) => [k, PATCHING])),
   "health-unavailable": ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"],
   "health-degraded": ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"],
@@ -433,6 +436,7 @@ const TOOL_KINDS = {
   "safety-nets": ["no-budget", "budget-no-alerts", "no-delete-lock"],
   defender: ["defender-low-score", "defender-high", "defender-medium", "defender-low", "defender-plan-off", "defender-plan-uneven"],
   "tenant-settings": ["tenant-users-create-apps", "tenant-users-create-tenants", "tenant-users-create-groups", "tenant-guest-invite-open", "tenant-guest-invite-members", "tenant-guest-access-member", "tenant-email-signup", "tenant-direct-connect-open"],
+  vulnerabilities: ["cve-known-exploited", "cve-likely-exploited", "cve-critical", "cve-high", "cve-medium", "cve-low", "cve-no-data"],
   updates: ["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"],
   "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],

@@ -188,8 +188,9 @@ Every request from the browser goes through the same chain of checks in `server.
   `DATA_DIR/tenants/<key>`). Each holds the latest result and last error per scan (`findings/`), the history
   snapshots (`history/`), accepted and snoozed findings (`suppressions/`) and the cost history (`cost/`).
 - **`DATA_DIR`** (`/home/data` on App Service) holds the settings, the tenant list, notification links and the
-  retry queue, sessions and the session key, 48 hours of load samples, the end-of-life dates, the activity log and
-  the audit log (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default). `removed-tenants.json` lists
+  retry queue, sessions and the session key, 48 hours of load samples, the end-of-life dates (`eol-dates.json`), the
+  CVE ranking data (`cve-feeds.json`: CISA's list and EPSS scores), the activity log and the audit log
+  (`logs/audit.jsonl`, kept `AUDIT_RETENTION_DAYS`, 365 by default). `removed-tenants.json` lists
   customer tenants removed in Settings that Terraform still sets (section 9); the file goes when the list is empty.
 - **The key vault** holds the secrets typed into Settings, named `dashboard-<kind>-<key>-<hash>`: customer client
   secrets, SPN overrides and notification links (only the last two in a single-tenant setup). Without a vault they
@@ -260,7 +261,10 @@ only drops its Settings changes.
   private DNS zones linked to the VNet, and their public network access is off.
 - `private_access = "service_endpoint"`: no private endpoints; their firewalls let in only the integration subnet.
 - `vnet_route_all` sends all outbound traffic through the VNet. Then the VNet needs a NAT gateway or firewall to reach
-  Docker Hub, Entra, ARM and Graph.
+  Docker Hub, Entra, ARM and Graph, and the public data two scans fetch once a day: `endoflife.date` for End of
+  support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids. A blocked host
+  means that scan uses its last kept copy; without one, End of support uses its built-in dates and the CVE scan
+  ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call.
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
   rules. `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
   it creates no private endpoint.

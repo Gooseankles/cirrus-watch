@@ -21,6 +21,20 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.60.0.0] - 2026-10-30
+
+### Added
+
+- Vulnerabilities (CVEs): a new scan that lists the known vulnerabilities Defender for Cloud found on machines and
+  container images, one row per CVE and subscription with the resources it is on, the severity, CVSS score and
+  whether a fix is available. CVEs on CISA's Known Exploited Vulnerabilities list are critical, then CVEs whose EPSS
+  score says they are likely to be exploited soon, then critical CVEs. Subscriptions with machines or registries
+  that Defender does not scan are flagged. Reader is enough; the data needs Defender for Servers, Defender CSPM or
+  Defender for Containers.
+- Settings `CVE_MIN_SEVERITY` (blank = critical), `CVE_EPSS_MIN` (blank = 0.1) and `CVE_FEEDS` (blank = on). The CISA
+  list and EPSS scores are fetched once a day from `www.cisa.gov` and `api.first.org` (only CVE ids are sent) and kept
+  in `DATA_DIR/cve-feeds.json`.
+
 ## [0.59.0.1] - 2026-10-30
 
 ### Changed

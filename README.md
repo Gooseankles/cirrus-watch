@@ -45,6 +45,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
 | [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations and Defender plans that are off. |
+| [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |
 | [Safety nets](docs/tools.md#safety-nets) | Daily | Subscriptions with no working budget and key resources with no delete lock. |
 | [Azure Monitor](docs/tools.md#azure-monitor) | Daily | Machines, alert rules, action groups and workspaces that Azure Monitor does not cover or that do not work. |
 | [Updates and patching](docs/tools.md#updates-and-patching) | Daily | Machines with pending Critical or Security updates, missing assessments or failed installations. |

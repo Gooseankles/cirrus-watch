@@ -38,6 +38,11 @@ weekly, resource health once an hour); being a SIEM or replacing Microsoft Defen
 
 <sub>Source: [hld-context.py](diagrams/hld-context.py)</sub>
 
+Besides Azure, the app reads three public data sources, each at most once a day: endoflife.date for end-of-support
+dates, and CISA's Known Exploited Vulnerabilities list and FIRST's EPSS scores to rank the CVEs that Defender for
+Cloud found. No tenant data is sent (the EPSS lookup sends CVE ids only). When a source cannot be reached, the last
+kept copy is used; the two CVE feeds can be turned off.
+
 ## Building blocks
 
 ![Building blocks inside the one container](diagrams/hld-building-blocks.png)

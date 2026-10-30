@@ -21,6 +21,14 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.60.0.3] - 2026-10-30
+
+### Changed
+
+- Documentation: the setup LLD describes the Terraform module's new `public_network_access` switch (module v1.8.0),
+  which turns public network access off on the storage account, key vault and web app where they have private
+  endpoints.
+
 ## [0.60.0.2] - 2026-10-30
 
 ### Changed

@@ -280,6 +280,10 @@ only drops its Settings changes.
 - With it, people need a network path to the VNet (VPN, ExpressRoute or peering) and DNS that resolves
   `privatelink.azurewebsites.net` (on-premises DNS forwards it to Azure, for example through a Private DNS Resolver).
   SSO keeps working: the redirect goes through their browser, which is on that network.
+- `public_network_access = false` (module v1.8.0; default `true`): public network access is turned off on the storage
+  account and the vault (with private endpoints) and on the web app (with `app_private_endpoint`), so only the
+  private endpoints work. Terraform and deployments must then run from inside the VNet; `continuous_deployment`,
+  `allowed_ip_ranges` and `allowed_subnet_ids` are refused with the web app's public access off.
 - Subnet sizes: the integration subnet needs one address per app instance, twice that for a while during a scale
   operation or platform upgrade, and Azure keeps 5 addresses in every subnet. A /28 (11 usable) is enough for this
   app on one or a few instances; /26 if the plan scales out a lot or the subnet is shared. The private endpoint

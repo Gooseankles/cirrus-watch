@@ -77,6 +77,10 @@ Four kinds of identity. Only the customer apps use a secret, and that secret liv
 - **Customer tenants**: Entra does not let an app trust a managed identity of another tenant, so each customer has
   its own app registration with a client secret, entered only in Settings and kept in the key vault.
 
+The app never uses a fifth one: with the module's `continuous_deployment` a user-assigned identity `id-<name>-deploy`
+lets this repo's Promote to stable workflow restart the web app (GitHub OIDC through a federated credential, no
+secret; a custom role that may only read and restart that web app). See [section 8](#8-build-and-release).
+
 ## 4. Signing in
 
 ![Sign-in sequence](diagrams/arch-sign-in.png)
@@ -150,7 +154,8 @@ reached only with Entra tokens. Three optional layers:
 - `app_private_endpoint = true` (needs `private_network`): the web app itself gets an inbound private endpoint and
   its public access stays on behind access restrictions that deny every network, so the site answers only inside the
   VNet and from networks joined to it (VPN, ExpressRoute or peering) that resolve `privatelink.azurewebsites.net`,
-  plus any allowed IPs or subnets. With `continuous_deployment` the Kudu (scm) site stays open for the deploy webhook.
+  plus any allowed IPs or subnets. The Kudu (scm) site follows the same rules (module v1.10.0, also with
+  `continuous_deployment`).
 
 ![Network with private_network](diagrams/arch-network.png)
 
@@ -175,9 +180,18 @@ registry RDAP servers it redirects to (for example `rdap.verisign.com`, `rdap.no
 - Versions are `major.minor.revision.package` (feature, small change, docs only). The image tag and the git tag carry
   the same number. The Terraform module has its own versions (`v<major>.<minor>.<patch>` in its repo); set
   `image = ...:<version>` to pin the app.
+- Every pushed image is signed with Sigstore cosign, keyless and by digest: GitHub's OIDC token gives `docker.yml` a
+  short-lived certificate naming the repo, workflow and ref, and the signature goes to the public Rekor log. The
+  job then checks that `:latest` and `:<version>` both name that signed digest. How to check it yourself is in
+  [SECURITY.md](../SECURITY.md#check-the-image-signature).
 - `stable` is moved by hand once a build has proven itself; nothing is rebuilt, the same image gets one more tag.
-  App Services deployed with the module's `continuous_deployment = true` pull it at once: the workflow calls each
-  URL in the `STABLE_DEPLOY_WEBHOOKS` secret (the module's `deploy_webhook_url` output, one per line).
+  The promote workflow first runs `cosign verify` on that digest (signed by `docker.yml` on `main` or a `v*` tag)
+  and stops if it fails, so images up to 0.64.1.0 (unsigned) cannot be promoted.
+- App Services deployed with the module's `continuous_deployment = true` then get the new stable at once: for each
+  entry in the `STABLE_DEPLOYMENTS` repository variable (the module's `stable_deployment` output; IDs and names, no
+  secret) a job in the GitHub environment `stable` signs in with `azure/login` (OIDC, as that app's deploy identity)
+  and runs `az webapp restart`. App Service pulls the image again on every restart. The site's publishing password
+  is never used.
 - `docker.yml` also runs every Tuesday so the image gets new base-image fixes; the Node base image is pinned by
   digest and Dependabot moves it.
 - The pushed image carries an SBOM and SLSA provenance as attestations (`sbom: true`, `provenance: mode=max`);
@@ -258,11 +272,12 @@ scheduler is in-process (every instance would run every scan), so run **one inst
 | Area | Control |
 |---|---|
 | Secrets | None for the home tenant (managed identities, federated credential); customer secrets only in the key vault; storage account keys off |
-| Least privilege | Read-only ARM roles and Graph permissions; optional per-tool identities; the vault role is on that one vault |
+| Least privilege | Read-only ARM roles and Graph permissions; Graph permissions beyond the default set only for the extra Graph checks a tenant turns on (`EXTRA_GRAPH_CHECKS`, never inherited by a customer tenant); optional per-tool identities; the vault role is on that one vault |
 | Sign-in | Entra with PKCE and state check; assignment required and an app role required; local admin limited per address and across all addresses; sign-in errors show a reference, the detail stays in the server log |
 | Sessions | Server-side, httpOnly, Secure on HTTPS, SameSite=Lax, 8 hours, regenerated at sign-in |
 | Browser | Strict Content-Security-Policy (own scripts only), no framing, nosniff, HSTS |
 | Tenant isolation | One container per customer; every read and run checks the person's tenant scope |
 | Traceability | Audit log of sign-ins, page views, lookups and changes (never secret values); activity log of every scan |
 | Network | HTTPS only, TLS 1.2+, FTPS off; optional IP restrictions and private endpoints |
-| Container | Alpine Node 26 with security updates, production dependencies only, no npm, runs as non-root `node`; Trivy scan before every push (results in the GitHub Security tab), SBOM and provenance attestations, actions pinned by commit SHA, Dependabot weekly |
+| Container | Alpine Node 26 with security updates, production dependencies only, no npm, runs as non-root `node`; Trivy scan before every push (results in the GitHub Security tab), SBOM and provenance attestations, cosign keyless signature checked before `stable` moves, actions pinned by commit SHA, Dependabot weekly |
+| Deployment | Continuous deployment through GitHub OIDC with a restart-only role; publishing credentials (basic authentication) off, Kudu site behind the same access restrictions |

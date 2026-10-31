@@ -144,6 +144,8 @@ const RETIRING = ["cis:2.2", "nis2:e", "nsm:3.1", "ir:6.4"];
 const CONTINUITY = ["nis2:c", "nsm:2.2", "ir:4.2"];
 const PATCHING = ["cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6"];
 const VULNS = ["cis:7.1", "nis2:e", "nsm:3.1", "ir:6.6"];
+const RISKY = ["cis:6.2", "nis2:b", "nis2:i", "nsm:3.3", "ir:3.2", "ir:11.2"];
+const SYNC = ["cis:6.2", "nis2:c", "nis2:i", "nsm:2.6", "ir:11.2"];
 const DEFENDER = ["cis:4.1", "cis:7.1", "nis2:a", "nis2:f", "nsm:2.3", "nsm:3.1", "ir:2.2", "ir:6.9", "ir:6.10", "ir:7"];
 const KIND_CONTROLS = {
   "unattached-disk": ASSETS,
@@ -334,6 +336,19 @@ const KIND_CONTROLS = {
   "user-no-mfa": USER_MFA,
   "mfa-weak-only": USER_MFA,
   "legacy-signin-used": MFA,
+  "guest-owner": ACCESS,
+  "guest-owner-role-group": ADMINS,
+  "risky-user-compromised": RISKY,
+  "risky-user-high": RISKY,
+  "risky-user-medium": RISKY,
+  "au-scoped-admin-guest": ADMINS,
+  "au-scoped-admin-disabled": ADMINS,
+  "au-restricted-empty": ACCESS,
+  "directory-sync-stale": SYNC,
+  "directory-sync-stopped": SYNC,
+  "secure-score-current": POLICY,
+  "secure-score-drop": POLICY,
+  "secure-score-control-open": POLICY,
   "ca-none": MFA,
   "ca-no-mfa-all-users": MFA,
   "ca-no-admin-mfa": ADMIN_MFA,
@@ -480,6 +495,11 @@ const TOOL_KINDS = {
   "stale-accounts": ["stale-user", "stale-guest", "never-signed-in", "guest-invite-pending"],
   "mfa-coverage": ["user-no-mfa", "mfa-weak-only"],
   "legacy-sign-ins": ["legacy-signin-used"],
+  "guest-owners": ["guest-owner", "guest-owner-role-group"],
+  "risky-users": ["risky-user-compromised", "risky-user-high", "risky-user-medium"],
+  "admin-units": ["au-scoped-admin-guest", "au-scoped-admin-disabled", "au-restricted-empty"],
+  "directory-sync": ["directory-sync-stale", "directory-sync-stopped"],
+  "secure-score": ["secure-score-current", "secure-score-drop", "secure-score-control-open"],
   "conditional-access": ["ca-none", "ca-no-mfa-all-users", "ca-no-admin-mfa", "ca-legacy-auth-not-blocked", "ca-report-only", "ca-many-exclusions", "ca-admin-excluded", "ca-device-code-not-blocked", "ca-no-admin-auth-strength", "security-defaults-only"],
   "safety-nets": ["no-budget", "budget-no-alerts", "no-delete-lock"],
   defender: ["defender-low-score", "defender-high", "defender-medium", "defender-low", "defender-plan-off", "defender-plan-uneven",

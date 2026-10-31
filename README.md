@@ -42,6 +42,11 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Stale accounts](docs/tools.md#stale-accounts) | Daily | Members and guests who have not signed in for a long time, or never. |
 | [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
 | [Legacy sign-ins](docs/tools.md#legacy-sign-ins) | Daily | Successful sign-ins with legacy clients that cannot do MFA. |
+| [Guest owners](docs/tools.md#guest-owners) | Daily | Groups that a guest owns, so someone outside the organisation decides who is in them. |
+| [Risky users](docs/tools.md#risky-users) | Daily | Users Entra ID Protection marks as compromised or at high or medium risk, not yet dealt with. |
+| [Administrative units](docs/tools.md#administrative-units) | Daily | Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing. |
+| [Directory sync](docs/tools.md#directory-sync) | Hourly | Sync from on-premises Active Directory that has fallen behind or stopped. |
+| [Microsoft Secure Score](docs/tools.md#microsoft-secure-score) | Daily | The tenant's Microsoft Secure Score, a drop against last week, and the open actions worth the most points. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
 | [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |

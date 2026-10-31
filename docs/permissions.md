@@ -37,8 +37,8 @@ part of Reader). Host pool registration tokens are not read, since that needs wr
 
 | Permission | Used for |
 | --- | --- |
-| `User.Read.All` | Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Domains and mail: the domains in member user names and mail addresses |
-| `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; Conditional Access: members of role groups and excluded groups, for the admins excluded from policies; access packages: who is in each approver group; PIM: members and owners of groups that hold a role) |
+| `User.Read.All` | Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Domains and mail: the domains in member user names and mail addresses; Guest owners and Administrative units: owners' and scoped admins' user type and account state |
+| `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; Conditional Access: members of role groups and excluded groups, for the admins excluded from policies; access packages: who is in each approver group; PIM: members and owners of groups that hold a role; Guest owners: every group's owners) |
 | `Application.Read.All` | App registration secret and certificate expiry, app owners, federated credentials (and their subjects), redirect URIs and supported account types; Architecture: which app registration signs people in to which web app; Enterprise apps: service principals (SAML signing certificates, credentials on the service principal, assignment required, owners) |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings, eligibility and activation history; access lookup: a person's or group's Entra roles; Conditional Access: which admins a policy leaves out |
@@ -52,6 +52,22 @@ Key Vault looks up who holds read access to each vault (`directoryObjects/getByI
 `GroupMember.Read.All` and `Application.Read.All`, for its deleted-identity and guest checks; without them those two
 checks are skipped and the log says why. Microsoft's page for that call lists `Directory.Read.All`, but the narrower
 set is accepted: each one returns the object types it covers.
+
+**Optional Graph permissions** for the extra Graph checks. They are not granted by default and those scans stay
+off (no requests) until a tenant turns them on in Settings → Extra Graph checks (`EXTRA_GRAPH_CHECKS`, a comma list
+or `all`). In the home tenant, Terraform's `extra_graph_checks` grants the permissions and turns the checks on; a
+customer tenant adds the permission to its own app registration and turns the check on on its own tab (it never
+uses the home tenant's list, so a customer who has not granted one is never scanned with it). If the permission is
+missing the scan reports one error entry naming it, nothing else.
+
+| Check (`extra_graph_checks` value) | Permission | Used for |
+| --- | --- | --- |
+| `risky-users` | `IdentityRiskyUser.Read.All` | Risky users: users at risk or confirmed compromised in Entra ID Protection. Needs Microsoft Entra ID P2; without it the scan writes an info line in the log and reports nothing |
+| `secure-score` | `SecurityEvents.Read.All` | Microsoft Secure Score: the daily score snapshots and the improvement actions |
+| `admin-units` | `AdministrativeUnit.Read.All` | Administrative units: the units and the members of restricted ones (scoped admins come through `RoleManagement.Read.Directory`) |
+| `directory-sync` | `Organization.Read.All` | Directory sync: whether the tenant syncs from on-premises and when it last did (with less, Graph returns the organization without those fields) |
+
+Guest owners needs no extra permission: listing groups with their owners works with `GroupMember.Read.All`.
 
 All of these only read. Without P1 the stale accounts and MFA coverage scans and the admin MFA check report that the licence is
 missing, and the legacy sign-ins scan notes it in the log and reports nothing; the other checks still run.
@@ -79,7 +95,8 @@ customer tenant). It needs **the same access as the shared SPN, granted in the c
    `GroupMember.Read.All`, `Application.Read.All`, `EntitlementManagement.Read.All`, `RoleManagement.Read.Directory`,
    `AuditLog.Read.All`, `Policy.Read.All`, `DelegatedPermissionGrant.Read.All`, `LicenseAssignment.Read.All`,
    `PrivilegedEligibilitySchedule.Read.AzureADGroup`, `PrivilegedAssignmentSchedule.Read.AzureADGroup`, then **Grant admin consent**
-   (needs a Privileged Role Administrator or Global Administrator in that tenant). No directory role.
+   (needs a Privileged Role Administrator or Global Administrator in that tenant). No directory role. Add the
+   [optional permissions](#shared-spn-home-tenant) only for the extra Graph checks that tenant turns on.
 4. **Subscriptions (Azure RBAC)**: `Reader` and `Cost Management Reader` (plus `Key Vault Reader` only for the
    optional Key Vault item check) for the app's
    service principal on each subscription to scan, or on a management group (the tenant root group's ID is the

@@ -59,6 +59,13 @@ const FIELDS = [
   // Scans a tenant does not need. Unlike the other tenant fields, a customer's
   // list does not fall back to the home tenant's: blank = every scan runs.
   { key: "SCANS_OFF", label: "Scans that are on", group: "Scans", scanPicker: true, noInherit: true, hint: "Untick the scans this tenant does not need: they do not run here and their results are hidden" },
+  // Opt-in checks that need extra Graph permissions (src/tools/extraChecks.js).
+  // Like SCANS_OFF, a customer's list never falls back to the home tenant's, so
+  // a customer is only scanned with what was granted in its own tenant.
+  { key: "EXTRA_GRAPH_CHECKS", label: "Extra Graph checks (need more permissions)", group: "Extra Graph checks", noInherit: true, hint: "Comma-separated: risky-users (IdentityRiskyUser.Read.All, Entra ID P2), secure-score (SecurityEvents.Read.All), admin-units (AdministrativeUnit.Read.All), directory-sync (Organization.Read.All), or all. Grant the permission in this tenant first (Terraform: extra_graph_checks). Blank = none; a customer tenant does not use the home tenant's list" },
+  { key: "RISKY_USERS_MAX", label: "Most risky users to list", group: "Extra Graph checks", hint: "Compromised and high risk first, then the oldest; blank = 50" },
+  { key: "SECURE_SCORE_DROP_POINTS", label: "Flag a Secure Score drop of (points) in a week", group: "Extra Graph checks", hint: "Percentage points against the score about 7 days earlier; blank = 5, 0 = off" },
+  { key: "DIRECTORY_SYNC_MAX_HOURS", label: "Flag directory sync older than (hours)", group: "Extra Graph checks", hint: "Entra Connect syncs every 30 minutes; blank = 3 (critical after 24)" },
 
   { key: "ROLE_ASSIGNMENT_LIMIT_WARN_PCT", label: "Warn at % of the 4,000 limit", group: "Role assignments", hint: "Blank = 80" },
   { key: "POLICY_PROBES", label: "Probe tests to run", group: "Policy check", hint: "Comma-separated: storage-public-blob, storage-http, storage-old-tls, public-ip, keyvault-no-purge-protection, sql-public-network, untagged-resource, denied-region. Blank = all, none = off" },
@@ -161,6 +168,11 @@ const TOOL_SPNS = [
   { id: "stale-accounts", label: "Stale accounts" },
   { id: "mfa-coverage", label: "MFA coverage" },
   { id: "legacy-sign-ins", label: "Legacy sign-ins" },
+  { id: "guest-owners", label: "Guest owners" },
+  { id: "risky-users", label: "Risky users" },
+  { id: "admin-units", label: "Administrative units" },
+  { id: "directory-sync", label: "Directory sync" },
+  { id: "secure-score", label: "Microsoft Secure Score" },
   { id: "conditional-access", label: "Conditional Access" },
   { id: "app-permissions", label: "App permissions" },
   { id: "enterprise-apps", label: "Enterprise apps" },
@@ -226,6 +238,7 @@ function writeTenantOverrides(all) {
 }
 
 const PER_TENANT_KEYS = new Set(FIELDS.filter((f) => f.perTenant).map((f) => f.key));
+const NO_INHERIT_KEYS = new Set(FIELDS.filter((f) => f.noInherit).map((f) => f.key));
 const isCustomer = (tenantKey) => Boolean(tenantKey) && tenantKey !== HOME;
 
 // A secret typed into Settings: from the key vault when one is set (a value
@@ -255,6 +268,8 @@ function get(key) {
   if (tenant && isCustomer(tenant.key) && PER_TENANT_KEYS.has(key)) {
     const own = (readTenantOverrides()[tenant.key] || {})[key];
     if (own !== undefined && own !== "") return own;
+    // A noInherit field (EXTRA_GRAPH_CHECKS) never takes the home tenant's value.
+    if (NO_INHERIT_KEYS.has(key)) return "";
   }
   return homeValue(key);
 }

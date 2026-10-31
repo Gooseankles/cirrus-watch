@@ -11,6 +11,16 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.65.0.0: images are signed, and Promote to stable only moves `stable` to a signed image.** 0.64.1.0 and older
+  are unsigned and can no longer be promoted; the first signed version is the first one to promote. Promote to
+  stable no longer calls deploy webhooks: it restarts the apps in the repo variable `STABLE_DEPLOYMENTS` through
+  GitHub OIDC (module v1.10.0 `continuous_deployment`). Delete a `STABLE_DEPLOY_WEBHOOKS` secret if you made one.
+- **0.65.0.0: Guest owners is a new default scan** and may bring new findings on its first run; it needs no new
+  permission. The other new scans are off until a tenant lists them in Settings, Extra Graph checks
+  (`EXTRA_GRAPH_CHECKS`), and each needs one more Graph permission: in the home tenant set the module's
+  `extra_graph_checks`; a customer grants it with admin consent first. A newly granted permission can take up to
+  24 hours to reach a managed identity; until then the scan shows which permission is missing.
+
 - **0.64.1.0: `/api/me` needs a sign-in.** A script that called it without a session gets 401; use
   `/auth/methods` to ask which sign-in methods are set up.
 - **0.64.0.0: the new Legacy sign-ins scan reads the sign-in log, which needs Entra ID P1 or P2.** Without it the
@@ -28,6 +38,36 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.65.0.0] - 2026-10-31
+
+### Added
+
+- Guest owners scan (daily): groups owned by guest accounts, critical when the group can hold Entra roles.
+- Extra Graph checks, off until a tenant turns them on (`EXTRA_GRAPH_CHECKS`, per tenant; a customer tenant never
+  takes the home tenant's list):
+  - Risky users: accounts confirmed compromised or at high or medium risk and not remediated (Entra ID P2,
+    `IdentityRiskyUser.Read.All`; at most `RISKY_USERS_MAX`, 50).
+  - Microsoft Secure Score: the current score, a drop of `SECURE_SCORE_DROP_POINTS` (5) or more in a week, and the
+    five open actions worth the most points (`SecurityEvents.Read.All`).
+  - Administrative units: guests or disabled accounts holding admin roles over a unit, and restricted units with no
+    members (`AdministrativeUnit.Read.All`).
+  - Directory sync (hourly): on-premises sync late by `DIRECTORY_SYNC_MAX_HOURS` (3) or stopped for a day
+    (`Organization.Read.All`).
+  - A scan that is on but lacks its permission shows one entry naming the permission.
+
+### Security
+
+- Images are signed with Sigstore cosign (keyless, by digest). SECURITY.md shows how to check one before you run or
+  pin it.
+- Promote to stable checks the signature before it moves `stable`.
+- Promote to stable restarts apps through GitHub OIDC instead of deploy webhooks that carried the publishing
+  password.
+- CodeQL is a required check on `main`, next to the image build.
+
+### Changed
+
+- Docs: ADR 0009, the build, release and update diagrams, HLD and LLD.
 
 ## [0.64.1.0] - 2026-10-31
 

@@ -2,11 +2,13 @@ name: Promote to stable
 
 # Run by hand once an image has been used long enough: points the "stable" tag
 # at the image another tag (default "latest") names. Nothing is rebuilt; the
-# exact same image gets one more tag.
-# Then it calls the deploy webhook of every App Service that runs :stable with
-# continuous deployment on (the Terraform module's continuous_deployment and its
-# deploy_webhook_url output), one URL per line in the STABLE_DEPLOY_WEBHOOKS
-# secret, so those sites pull the new stable at once.
+# exact same image gets one more tag. The image must carry a valid cosign
+# signature from this repo's docker.yml on main (or a v* tag), or nothing moves.
+# Images up to 0.64.1.0 were pushed before signing and cannot be promoted.
+# Then it restarts every App Service listed in the STABLE_DEPLOYMENTS variable
+# (the Terraform module's continuous_deployment and its stable_deployment
+# output), so they pull the new stable at once. It signs in to Azure with
+# GitHub's OIDC token as each app's deploy identity: no password anywhere.
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +30,8 @@ jobs:
     steps:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Log in to Docker Hub
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -47,28 +51,56 @@ jobs:
           tags=$(curl -fsS "https://hub.docker.com/v2/repositories/$IMAGE/tags?page_size=100" \
             | jq -r --arg d "$new" '[.results[] | select(.digest == $d) | .name] | join(", ")')
 
+          # Only an image this repo's docker.yml built and signed (keyless, Sigstore) may become stable.
+          # Checked by digest, the same digest that gets the tag below.
+          if ! cosign verify "$IMAGE@$new" \
+            --certificate-identity-regexp '^https://github\.com/Gooseankles/cirrus-watch/\.github/workflows/docker\.yml@refs/(heads/main|tags/v.+)$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null; then
+            echo "::error::$IMAGE@$new ($tags) has no valid signature from docker.yml; stable not moved. Images up to 0.64.1.0 are unsigned."
+            exit 1
+          fi
+
           docker buildx imagetools create -t "$IMAGE:stable" "$IMAGE@$new"
 
           {
             echo "### stable -> \`$SOURCE\`"
-            echo "- Image: \`$new\`"
+            echo "- Image: \`$new\` (signature verified)"
             echo "- Same image as: $tags"
             echo "- Previous stable: \`$old\`"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "stable now $new ($tags), was $old"
 
-      - name: Tell App Services to pull the new stable
+  # One run per app in STABLE_DEPLOYMENTS, a repository variable (IDs and names,
+  # no secret: access comes from each app's federated credential, which trusts
+  # only this repo's "stable" environment). Format, from the module's
+  # stable_deployment output:
+  # [{"clientId":"…","tenantId":"…","subscriptionId":"…","resourceGroup":"…","name":"…"}]
+  # Empty or unset: this job is skipped. A restart makes App Service pull the
+  # image again, so it gets the new stable.
+  restart:
+    needs: promote
+    if: vars.STABLE_DEPLOYMENTS != '' && vars.STABLE_DEPLOYMENTS != '[]'
+    name: Restart ${{ matrix.app.name }}
+    runs-on: ubuntu-latest
+    environment: stable
+    permissions:
+      id-token: write # GitHub's OIDC token, exchanged for the app's deploy identity
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(vars.STABLE_DEPLOYMENTS) }}
+    steps:
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ matrix.app.clientId }}
+          tenant-id: ${{ matrix.app.tenantId }}
+          subscription-id: ${{ matrix.app.subscriptionId }}
+
+      - name: Restart
         env:
-          HOOKS: ${{ secrets.STABLE_DEPLOY_WEBHOOKS }}
+          RG: ${{ matrix.app.resourceGroup }}
+          APP: ${{ matrix.app.name }}
         run: |
-          if [ -z "$HOOKS" ]; then echo "No STABLE_DEPLOY_WEBHOOKS secret; nothing to call."; exit 0; fi
-          n=0; failed=0
-          while IFS= read -r url; do
-            url=$(echo "$url" | tr -d '[:space:]')
-            [ -z "$url" ] && continue
-            n=$((n + 1))
-            # The URL holds the site's deploy password: never echo it.
-            if curl -fsS -o /dev/null -X POST --max-time 60 "$url"; then echo "Site $n: deploy started"; else echo "Site $n: webhook failed"; failed=$((failed + 1)); fi
-          done <<< "$HOOKS"
-          echo "- Deploy webhooks called: $n, failed: $failed" >> "$GITHUB_STEP_SUMMARY"
-          [ "$failed" -eq 0 ]
+          set -euo pipefail
+          az webapp restart --resource-group "$RG" --name "$APP"
+          echo "- $APP restarted; it pulls the new stable now" >> "$GITHUB_STEP_SUMMARY"

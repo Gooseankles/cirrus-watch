@@ -16,8 +16,11 @@ up (a bigger plan), not out.
    the new one. For a new module version, read the
    [module changelog](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard/blob/main/CHANGELOG.md) too.
 2. Pick the image:
-   - `stable` (the module default): promoted by hand once a build has proven itself. With
-     `continuous_deployment = true` the site pulls a new stable by itself; otherwise restart the web app.
+   - `stable` (the module default): promoted by hand once a build has proven itself and its signature checks out.
+     With `continuous_deployment = true` and the app listed in the repo's `STABLE_DEPLOYMENTS` variable, the promote
+     workflow restarts it, so it pulls the new stable at once; otherwise restart the web app.
+   - A digest (`trozity/azure-ops-dashboard@sha256:...`, module v1.10.0): the exact image. Check its signature first
+     ([SECURITY.md](../SECURITY.md#check-the-image-signature)); App Service does not.
    - A version tag such as `0.57.1.0`: set `image` in Terraform (or the web app's container settings) and apply.
      Nothing changes until you change it again.
    - `latest`: every push to `main`. For testing only.
@@ -129,8 +132,10 @@ failed request's error names it and Microsoft's `request-id`; give both to Micro
 
 ## Keep the image up to date
 
-Builds of `main` get new Alpine and Node.js fixes every week and are scanned with Trivy before they are pushed.
-Follow `stable` with `continuous_deployment`, or move your version tag along with the changelog. How the repository
+Builds of `main` get new Alpine and Node.js fixes every week, are scanned with Trivy before they are pushed and are
+signed with cosign. Follow `stable` with `continuous_deployment`, or move your version tag along with the changelog.
+To have Promote to stable restart an app, put its `terraform output -json stable_deployment` in the repo's
+`STABLE_DEPLOYMENTS` Actions variable (a JSON list; see the module README, Continuous deployment). How the repository
 keeps its own dependencies up to date is in [CONTRIBUTING.md](../CONTRIBUTING.md#how-the-repository-stays-up-to-date).
 
 ## When something is wrong

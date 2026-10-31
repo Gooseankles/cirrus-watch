@@ -1,10 +1,10 @@
 flowchart TB
-  push["Push to main"] --> build["Docker build<br/>+ Trivy gate"]
+  push["Push to main"] --> build["Docker build<br/>+ Trivy gate<br/>+ cosign sign"]
   build --> latest["Image :latest<br/>and :&lt;version&gt;"]
-  latest -- "Promote to stable<br/>(by hand)" --> stable["Image :stable"]
+  latest -- "Promote to stable<br/>(by hand, signature checked)" --> stable["Image :stable"]
   latest --> hub[("Docker Hub")]
   stable --> hub
-  hub -- "same tag, new image:<br/>continuous_deployment webhook,<br/>else the next restart" --> web["Web app pulls<br/>and restarts"]
+  hub -- "same tag, new image:<br/>continuous_deployment restart<br/>(GitHub OIDC), else the next restart" --> web["Web app pulls<br/>and restarts"]
   tf["terraform apply<br/>image tag or app setting changed"] --> web
   web --> keep[("DATA_DIR and storage<br/>are kept")]
 

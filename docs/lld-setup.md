@@ -23,6 +23,7 @@ marked with that input.
 | Linux web app | `contoso-ops` | always | The dashboard; pulls `image` from Docker Hub |
 | System-assigned identity on the web app | (none) | always | The **shared SPN**: scans, history storage, secret vault, Graph |
 | User-assigned identity | `id-contoso-ops-sso` | always | Only for SSO: the sign-in app trusts it, so there is no client secret |
+| Deploy identity + federated credential + custom role `Cirrus Watch deploy (contoso-ops)` | `id-contoso-ops-deploy` | `continuous_deployment` | GitHub Actions (Promote to stable) signs in as it with OIDC, no secret, and may only read and restart the web app |
 | Random password | (in state) | always | `SESSION_SECRET`, the key that signs sign-in cookies |
 | Storage account + container `dashboard` | `st…` + random suffix | `create_history_storage` | Scan results, run history, cost history, accepted findings |
 | Container `dashboard-<key>` per customer | (per customer) | `create_history_storage` and `customers` | One customer's data, apart from the others |
@@ -32,7 +33,7 @@ marked with that input.
 | Admin consent for `openid` and `profile` | (none) | `create_sso_app` and `grant_sso_consent` | Nobody sees "Need admin approval" at sign-in |
 | App roles | `Admin`, `User`, `Admin-<key>`, `User-<key>`, `<Area>.Read[-<key>]` | `create_sso_app` | What each person may see ([sign-in and roles](guides/sign-in-and-roles.md)) |
 | Security group per role | `Cirrus Watch (contoso-ops) <role>` | `create_role_groups` | Access is given by group membership |
-| Graph application permissions on the shared SPN | (none) | `grant_graph_permissions` | The Entra scans (`graph_permissions` lists them) |
+| Graph application permissions on the shared SPN | (none) | `grant_graph_permissions` | The Entra scans (`graph_permissions` lists them), plus the permissions of the opt-in checks in `extra_graph_checks` (also sets `EXTRA_GRAPH_CHECKS`) |
 | Azure role assignments for the shared SPN | (none) | one per entry in `shared_spn_access` | Reader and Cost Management Reader on what is scanned |
 | Role assignments for the web app's own data | (none) | `create_history_storage`, `create_secret_vault` | Storage Blob Data Contributor on the storage account and Key Vault Secrets Officer on the vault, for the system-assigned identity |
 | Key Vault Secrets Officer for named people | (none) | `create_secret_vault` and `secret_vault_admin_ids` | Break-glass: those users or groups may see and change the stored secrets in the portal; nobody else can |
@@ -78,6 +79,11 @@ A customer can be added later without rebuilding anything (section 9).
   for a token with the audience `api://AzureADTokenExchange` and hands it to Entra as a client assertion. Entra
   accepts it because of the federated credential (issuer `https://login.microsoftonline.com/<tenant>/v2.0`, subject
   the identity's object ID).
+- **Deploy** (only with `continuous_deployment`): the app itself never uses it. GitHub Actions asks GitHub for an
+  OIDC token and `azure/login` hands it to Entra for the deploy identity `id-<name>-deploy`; Entra accepts it because
+  of that identity's federated credential (issuer `https://token.actions.githubusercontent.com`, subject
+  `deploy_github_subject`, by default `repo:Gooseankles/cirrus-watch:environment:stable`). Its custom role allows
+  only `Microsoft.Web/sites/read` and `Microsoft.Web/sites/restart/action` on the web app.
 - **Single tenant:** the second point does not apply; the others are the same. The vault then holds the SPN
   override secrets and webhook links typed into Settings.
 
@@ -103,7 +109,6 @@ The web app's app settings become environment variables in the container. The ap
 | `DASHBOARD_TENANTS` | JSON list of `customers` (key, name, tenant ID, client ID, subscriptions, enabled); not set without customers | `src/tenants.js` |
 | `AZURE_SUBSCRIPTION_IDS` | `scan_subscription_ids`, when set | the scans (blank = every subscription the identity can see) |
 | `DASHBOARD_ADMIN_PASSWORD` | `admin_password`, when set | the local admin account |
-| `DOCKER_ENABLE_CI` | `true` with `continuous_deployment` | App Service: pull the image when the deploy webhook is called |
 | anything in `extra_app_settings` | as given | whatever reads it (`.env.example` lists every setting) |
 
 `SESSION_SECRET`, `admin_password` and `sso_client_secret` sit in the Terraform state; keep the state private.
@@ -297,8 +302,8 @@ only drops its Settings changes.
   and mail scan also needs outbound DNS and HTTPS to `rdap.org` and the registry RDAP servers it redirects to
   (`DOMAIN_CHECKS = dns` needs DNS only).
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
-  rules, except with `continuous_deployment`, which keeps it open for the deploy webhook (publishing credentials
-  still needed). `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
+  rules, always (module v1.10.0; before it, `continuous_deployment` kept it open for a deploy webhook).
+  `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
   it creates no private endpoint.
 - `app_private_endpoint = true`: the web app itself gets an inbound private endpoint (`pe-<name>`) in the private
   endpoint subnet. Its public network access stays on (so deployments are not blocked), but the access
@@ -313,8 +318,8 @@ only drops its Settings changes.
 - `public_network_access = false` (module v1.8.0; default `true`): public network access is turned off on the storage
   account and the vault (with `private_access = "private_endpoint"`) and on the web app (with `app_private_endpoint`), so only the
   private endpoints work. Deployments must then run from inside the VNet (Terraform itself works from anywhere: it
-  creates the containers through Resource Manager); `continuous_deployment`,
-  `allowed_ip_ranges` and `allowed_subnet_ids` are refused with the web app's public access off.
+  creates the containers through Resource Manager); `allowed_ip_ranges` and `allowed_subnet_ids` are refused with
+  the web app's public access off. `continuous_deployment` keeps working: its restart goes through Resource Manager.
 - Subnet sizes: the integration subnet needs one address per app instance, twice that for a while during a scale
   operation or platform upgrade, and Azure keeps 5 addresses in every subnet. A /28 (11 usable) is enough for this
   app on one or a few instances; /26 if the plan scales out a lot or the subnet is shared. The private endpoint
@@ -327,14 +332,16 @@ only drops its Settings changes.
 <sub>Source: [lld-update.mmd](diagrams/lld-update.mmd)</sub>
 
 Every push to the app's main branch builds the image and, once the Trivy scan passes, pushes it as `:latest` and
-`:<version>`, with an SBOM and build provenance attached; a `v*` git tag adds that version as a tag too. `:stable` moves only by hand (the promote workflow),
-which then calls the deploy webhooks it knows.
+`:<version>`, with an SBOM and build provenance attached, and signs that digest with cosign (keyless); a `v*` git
+tag adds that version as a tag too. `:stable` moves only by hand (the promote workflow), and only to an image whose
+signature verifies. The workflow then restarts every app in its `STABLE_DEPLOYMENTS` variable, signed in through
+GitHub OIDC as each app's deploy identity.
 
 | Change | What happens |
 | --- | --- |
-| New image under the same tag (`:stable` promoted, `:latest` pushed) | With `continuous_deployment`, the deploy webhook makes App Service pull it and restart; without it, the next restart does |
+| New image under the same tag (`:stable` promoted, `:latest` pushed) | With `continuous_deployment`, Promote to stable restarts the app, and App Service pulls the image on restart; otherwise the next restart does |
 | `image` set to another tag | Terraform updates the web app; it pulls that image and restarts |
-| `continuous_deployment` turned on or off | Also turns the Kudu site's basic authentication on or off: the deploy webhook signs in with the publishing credentials (FTP stays off) |
+| `continuous_deployment` turned on or off | Creates or removes the deploy identity, its federated credential for GitHub and its restart-only custom role. Basic authentication stays off either way (module v1.10.0) |
 | Module `?ref=` raised | Read the module [CHANGELOG](https://github.com/Gooseankles/terraform-azurerm-ops-dashboard/blob/main/CHANGELOG.md) Upgrading section first, then plan and apply |
 | Any app setting changed | App Service restarts the container |
 

@@ -87,8 +87,20 @@ pages (the content security policy blocks them).
   tag object: follow it with `gh api repos/<owner>/<repo>/git/tags/<sha>`).
 - **Weekly rebuild**: `docker.yml` also runs on Tuesdays, so the image picks up new Alpine and Node fixes and the
   merged updates, and the Trivy gate sees new CVEs. Promoting to `stable` stays a hand step.
+- **Signed images**: every image `docker.yml` pushes is signed by digest with cosign, keyless (the job's
+  `id-token: write` lets GitHub's OIDC token stand in for a signing key; nothing to store or rotate). The step then
+  checks that every pushed tag names the signed digest. **Promote to stable** (`promote-stable.yml`, run by hand)
+  runs `cosign verify` before it moves `stable` and stops when the signature is missing or comes from another
+  workflow or ref, then restarts the apps listed in the `STABLE_DEPLOYMENTS` variable through GitHub OIDC (job in
+  the `stable` environment; no deploy password). Keep the identity regexp in that workflow, in
+  [SECURITY.md](SECURITY.md#check-the-image-signature) and in the module README the same if `docker.yml` is renamed
+  or its triggers change.
 - **CodeQL** (`.github/workflows/codeql.yml`) scans the JavaScript and the workflows on every push and weekly;
   findings go to the Security tab.
+- **Required checks on `main`**: `build-and-push`, `analyze (javascript-typescript)` and `analyze (actions)`. A pull
+  request cannot merge until they pass. Admins are not held to them (the release pushes go straight to `main`); turn
+  on "Do not allow bypassing" in branch protection if that changes. Rename a job and the branch protection list must
+  follow, or every pull request waits for a check that never comes.
 - **Stack report** (`.github/workflows/stack-report.yml`, Mondays, or Run workflow by hand) checks every part the
   dashboard is built on, the version in use against the newest, with the release notes in between (breaking changes,
   deprecations and security fixes marked at the top of each). It keeps one open issue labelled `stack-report` up to

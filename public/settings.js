@@ -105,7 +105,8 @@ const Settings = (() => {
         f.isSet ? `<button type="button" class="btn small ghost" data-clear="${esc(f.key)}">Clear</button>` : ""
       }`;
     } else {
-      const ph = f.homeValue !== undefined ? (f.homeValue ? `Home: ${f.homeValue}` : "same as Home") : f.envDefault || "not set in .env";
+      // A noInherit field on a customer tab does not follow Home: blank is blank.
+      const ph = f.homeValue !== undefined ? (f.noInherit ? "none" : f.homeValue ? `Home: ${f.homeValue}` : "same as Home") : f.envDefault || "not set in .env";
       control = `<input class="input" type="text" data-setting="${esc(f.key)}" placeholder="${esc(ph)}" value="${esc(f.value || "")}" />`;
     }
     return `<div class="settings-row"${rowAttrs}>${labelHtml}<div class="field">${control}</div></div>`;

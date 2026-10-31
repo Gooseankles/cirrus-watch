@@ -17,3 +17,4 @@ Consequences. Add it to the table below and, if it changes the big picture, to t
 | [0006](0006-one-process-one-instance.md) | One process, one instance, no database | 2026-10-20 |
 | [0007](0007-versioning.md) | Four-part app version, semver for the module | 2026-10-23 |
 | [0008](0008-agpl-licence.md) | AGPL-3.0-only for the app | 2026-10-28 |
+| [0009](0009-signed-images-password-free-deploy.md) | Signed images, and deployment without the publishing password | 2026-10-31 |

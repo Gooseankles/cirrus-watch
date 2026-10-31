@@ -308,6 +308,36 @@ Successful sign-ins with legacy clients that cannot do MFA.
 
 Successful sign-ins in the last 7 days with legacy (basic authentication) clients: IMAP, POP, SMTP AUTH, Exchange ActiveSync, older Outlook protocols and "Other clients". One finding per user and client, with the count and the last time. Graph's sign-in list holds the interactive sign-ins, so legacy sign-ins Entra files as non-interactive are not seen and the counts are a floor; the client app field only takes an equals filter, so each client type is its own query, at most 3,000 sign-ins each (two at a time, since Entra allows five report requests per 10 seconds per tenant). Needs Entra ID P1 or P2 to read sign-in logs; without it the scan notes that in the log and reports nothing.
 
+## Guest owners
+
+Groups that a guest owns, so someone outside the organisation decides who is in them.
+
+Every Entra group with a guest among its owners: a warning, critical when the group is role-assignable (it can hold Entra admin roles). The detail says when no member of the organisation owns the group. Runs with the default permissions (`GroupMember.Read.All`, `User.Read.All`). Owners of groups synced from on-premises and of distribution or mail-enabled security groups made in Exchange are not in Graph and are not seen. A check for privileged groups and roles with no access review was left out: review scopes are free-form queries in several shapes, so it could not be told reliably without many false findings.
+
+## Risky users
+
+Users Entra ID Protection marks as compromised or at high or medium risk, not yet dealt with.
+
+Off until the tenant turns it on (Settings, Extra Graph checks: `risky-users`); needs the Graph permission `IdentityRiskyUser.Read.All` and Microsoft Entra ID P2. Users confirmed compromised and users at risk with a high risk level are critical, medium risk is a warning; remediated, dismissed, confirmed-safe, low-risk and deleted users are left out. Worst and longest left alone first, at most 50 findings (`RISKY_USERS_MAX`; the log says when more were found). Without P2 the scan writes an info line in the log and reports nothing.
+
+## Administrative units
+
+Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing.
+
+Off until the tenant turns it on (Settings, Extra Graph checks: `admin-units`); needs the Graph permission `AdministrativeUnit.Read.All`. Only findings that show risk: a guest with an admin role scoped to an administrative unit (critical), a disabled account that still holds one (warning), a restricted management administrative unit with no members (information). Plain units, their sizes and dynamic rules are not reported: they carry no risk on their own and would only be noise. Scoped admins that are groups or apps are left to Privileged roles.
+
+## Directory sync
+
+Sync from on-premises Active Directory that has fallen behind or stopped.
+
+Off until the tenant turns it on (Settings, Extra Graph checks: `directory-sync`); needs the Graph permission `Organization.Read.All`. Only for tenants that sync from on-premises (Microsoft Entra Connect Sync or Cloud Sync); cloud-only tenants report nothing. A warning when the last sync is older than 3 hours (`DIRECTORY_SYNC_MAX_HOURS`: Entra Connect syncs every 30 minutes, so 3 hours is six missed cycles, which rides out a server restart or an upgrade but not a stopped service), critical after 24 hours. Accounts disabled on-premises keep working in the cloud until sync runs again. Runs hourly (one small request).
+
+## Microsoft Secure Score
+
+The tenant's Microsoft Secure Score, a drop against last week, and the open actions worth the most points.
+
+Off until the tenant turns it on (Settings, Extra Graph checks: `secure-score`); needs the Graph permission `SecurityEvents.Read.All`. This is Microsoft 365 and Defender XDR's Secure Score, not Defender for Cloud's. One information finding with the current score, a warning when it fell by 5 percentage points or more against the snapshot about a week older (`SECURE_SCORE_DROP_POINTS`, 0 turns it off), and the five open improvement actions with the most points left (information; actions marked as risk accepted or done by a third party are left out).
+
 ## Conditional Access
 
 Gaps in Conditional Access policies.

@@ -44,6 +44,12 @@ const NEEDS = {
   "stale-accounts": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (sign-in activity)" },
   "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
   "legacy-sign-ins": { graph: ["AuditLog.Read.All"], licence: "Entra ID P1 (sign-in logs)" },
+  "guest-owners": { graph: ["GroupMember.Read.All", "User.Read.All"] },
+  // Opt-in checks (Settings, Extra Graph checks): extra permissions, see src/tools/extraChecks.js.
+  "risky-users": { graph: ["IdentityRiskyUser.Read.All"], licence: "Entra ID P2" },
+  "admin-units": { graph: ["AdministrativeUnit.Read.All", "RoleManagement.Read.Directory", "User.Read.All"] },
+  "directory-sync": { graph: ["Organization.Read.All"] },
+  "secure-score": { graph: ["SecurityEvents.Read.All"] },
   // RoleManagement.Read.Directory, User.Read.All and GroupMember.Read.All: admins excluded from policies.
   "conditional-access": { graph: ["Policy.Read.All", "RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All"], licence: "Entra ID P1" },
   "app-permissions": { graph: ["Application.Read.All", "DelegatedPermissionGrant.Read.All", "Policy.Read.All"] },

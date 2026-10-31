@@ -43,6 +43,7 @@ jobs:
     permissions:
       contents: read
       security-events: write # Trivy results in the Security tab
+      id-token: write # cosign keyless signing (GitHub's OIDC token proves which workflow signed)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -109,6 +110,7 @@ jobs:
       # reads them. The scan build above loads into the local Docker, which
       # cannot hold attestations, so only this step has them.
       - name: Push
+        id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -119,6 +121,30 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Keyless signing with Sigstore: GitHub's OIDC token gets a short-lived certificate naming this workflow and
+      # ref, and the signature goes to the public Rekor log. Signed by digest, never by tag, so the signature
+      # belongs to these exact bytes; every tag pushed above names this one digest (checked below). Promote to
+      # stable verifies it before it moves :stable. SECURITY.md has the verify command.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.event_name != 'pull_request'
+
+      - name: Sign the image
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No digest from the push step"; exit 1; }
+          cosign sign --yes "$IMAGE@$DIGEST"
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            got=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r .digest)
+            [ "$got" = "$DIGEST" ] || { echo "::error::$tag is $got, not the signed $DIGEST"; exit 1; }
+            echo "$tag -> $DIGEST (signed)"
+          done <<< "$TAGS"
+          echo "- Signed \`$IMAGE@$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
 
   # Tags each new VERSION on main as v<version>.
   tag-version:

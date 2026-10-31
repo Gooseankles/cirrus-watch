@@ -133,6 +133,7 @@ sign in and count as `<Area>.Read`.
 | One process, one instance, files and blobs instead of a database | Few moving parts, cheap to run (a B1 plan is enough) | [0006](adr/0006-one-process-one-instance.md) |
 | Four-part app version, semver for the module | One number per image; the module needs semver for `?ref=` pins | [0007](adr/0007-versioning.md) |
 | AGPL-3.0 | Changes offered as a service stay open | [0008](adr/0008-agpl-licence.md) |
+| Signed images; deployment through GitHub OIDC, no publishing password | Anyone can check an image came from this repo; `stable` only moves to a signed image; no deploy secret exists | [0009](adr/0009-signed-images-password-free-deploy.md) |
 
 ## Deployment options
 
@@ -144,8 +145,10 @@ sign in and count as `<Area>.Read`.
 
 ## Quality attributes
 
-- **Security:** read-only scan roles, managed identities, PKCE sign-in, roles from Entra, origin check on changing
-  requests, strict content security policy, secrets never returned by the API, audit log. See
+- **Security:** read-only scan roles, managed identities, extra Graph permissions only for the opt-in checks a tenant
+  turns on ([permissions](permissions.md#shared-spn-home-tenant)), PKCE sign-in, roles from Entra, origin check on changing
+  requests, strict content security policy, secrets never returned by the API, audit log, images signed with
+  cosign and checked before `stable` moves, continuous deployment without a publishing password. See
   [SECURITY.md](../SECURITY.md) and [architecture section 11](architecture.md#11-security-controls-in-short).
 - **Reliability:** a tenant that fails keeps its last results and does not stop the others; Azure requests time
   out after 60 seconds and are tried again, and a scan run that hangs is given up after 45 minutes; the app starts

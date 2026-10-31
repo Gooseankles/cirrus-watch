@@ -40,10 +40,36 @@ to the tenant.
 - **Updates:** run the `stable` image and update it regularly. Every image is scanned by Trivy before it is pushed,
   the image is rebuilt every week for new Alpine and Node fixes, and CodeQL checks the code on every push. Each
   pushed image carries an SBOM and build provenance (`docker buildx imagetools inspect`), and the workflows pin
-  every action to a commit SHA. To pin the image itself, use its digest (`trozity/azure-ops-dashboard@sha256:...`).
+  every action to a commit SHA. Each pushed image is signed (see [Check the image signature](#check-the-image-signature)),
+  and `stable` only ever points at a signed image. To pin the image itself, use its digest
+  (`trozity/azure-ops-dashboard@sha256:...`) after checking its signature.
+- **Deployments:** the Terraform module's `continuous_deployment` restarts the app from GitHub Actions with a
+  federated identity that may only read and restart that one web app; the site's publishing password (basic
+  authentication) stays off.
 - **Cross-site requests:** a request that changes something (POST, PUT, DELETE) must come from the dashboard's own
   pages (the browser's `Sec-Fetch-Site` or `Origin`); others get 403. The session cookie is `SameSite=Lax` as well.
 - **Audit:** sign-ins, Run now, accepted findings, settings changes and notification link changes go to the audit
   log (never secret values or the notification link itself); review it now and then.
 - **No open API routes:** every `/api/` route needs a session, `/api/me` too. The login page asks `/auth/methods`,
   which says only which sign-in methods are set up.
+
+## Check the image signature
+
+Every image `docker.yml` pushes (versions after 0.64.1.0) is signed with [Sigstore cosign](https://docs.sigstore.dev/),
+keyless: GitHub's OIDC token gives the workflow a short-lived certificate that names this repository, the workflow
+file and the branch or tag, and the signature is recorded in the public Rekor log. There is no signing key to
+steal. The image is signed by digest, so the signature covers those exact bytes, whatever tag points at them.
+
+Check an image before you run or pin it (needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3
+or newer; cosign 2 does not read the newer signature format and reports "no signatures found"):
+
+```sh
+cosign verify trozity/azure-ops-dashboard:<version> \
+  --certificate-identity-regexp '^https://github\.com/Gooseankles/cirrus-watch/\.github/workflows/docker\.yml@refs/(heads/main|tags/v.+)$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+It prints the verified signature (with the digest it covers) or fails. To pin, use that digest:
+`trozity/azure-ops-dashboard@sha256:<digest>`. App Service does not check signatures when it pulls; the
+**Promote to stable** workflow runs the same check before it moves `stable`, and refuses an image that fails it,
+so 0.64.1.0 and older (pushed before signing) cannot become `stable`.

@@ -118,6 +118,8 @@ const FIELDS = [
   { key: "UPDATES_MAX_PENDING_DAYS", label: "Critical when a pending update is older than (days)", group: "Updates and patching", hint: "Age of the oldest pending Critical or Security update, from its release date (Windows only; Linux gives none). Blank = 30" },
   { key: "UPDATES_ASSESSMENT_MAX_AGE_DAYS", label: "Flag a machine not assessed for (days)", group: "Updates and patching", hint: "Azure keeps assessments for 7 days, so a machine with none in that time is always flagged. Blank = 7" },
   { key: "HEALTH_MAINTENANCE_DAYS", label: "Show planned maintenance starting within (days)", group: "Resource health", hint: "Blank = 14, 0 = off" },
+  { key: "CONNECTIVITY_HEALTH_PERCENT", label: "Flag backends healthy less than (%)", group: "Connectivity health", hint: "Load balancer probe status and Front Door origin health, averaged over the last hour; blank = 100" },
+  { key: "CONNECTIVITY_PE_DNS_CHECK", label: "Flag private endpoints with no DNS zone group", group: "Connectivity health", options: [{ value: "on", label: "Yes: names likely resolve to the public address" }, { value: "off", label: "No: we run our own DNS for private endpoints" }], defaultValue: "on", hint: "Off for tenants whose own DNS servers hold the privatelink records" },
 ];
 // Everything from "Scans" down is a tool option a customer tenant may set
 // differently.
@@ -167,6 +169,7 @@ const TOOL_SPNS = [
   { id: "resource-health", label: "Resource health" },
   { id: "subscriptions", label: "Subscriptions" },
   { id: "network-hygiene", label: "Network hygiene" },
+  { id: "connectivity", label: "Connectivity health" },
   { id: "history-storage", label: "History storage" },
 ];
 

@@ -147,6 +147,23 @@ WAFs that block nothing, dangling DNS records and routes to nowhere.
 
 WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has.
 
+## Connectivity health
+
+VPN connections and ExpressRoute circuits that are down, failed gateways, stuck private endpoints and unhealthy backends.
+
+Runs every hour. Site-to-site and VNet-to-VNet VPN connections that are not connected (live status from each
+connection's own ARM GET), ExpressRoute circuits the provider has not provisioned or that are not enabled, and
+circuits with Azure private peering disabled (critical). VPN and ExpressRoute gateways, including Virtual WAN ones,
+in a failed provisioning state (critical). Private endpoints still waiting for approval (warning; rejected and
+disconnected ones are in Orphaned resources) and approved private endpoints with no private DNS zone group, so the
+name likely still resolves to the public address (information; turn this off in Settings, Connectivity health, for
+tenants that run their own DNS). Backends that failed their health probes over the last hour, from Azure Monitor
+metrics (warning): Application Gateway `UnhealthyHostCount` above 0, Standard load balancer health probe status
+(`DipAvailability`) and Front Door origin health (`OriginHealthPercentage`, classic Front Door
+`BackendHealthPercentage`) below 100 % (or the percentage set in Settings). Each finding names the pool, backend
+or origin where Azure gives it and says what to check. Reads at most 500 connections, 500 private endpoints and
+200 resources of each load-balancing kind per run; the rest show as "not checked".
+
 ## Subscriptions
 
 Subscriptions in the Tenant Root Group, with no Owner, or not in good standing.

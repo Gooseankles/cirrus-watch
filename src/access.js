@@ -50,6 +50,7 @@ const TOOL_AREAS = {
   resilience: ["platform"],
   updates: ["platform"],
   "resource-health": ["platform"],
+  connectivity: ["platform"],
   architecture: ["platform"],
   "policy-check": ["platform"],
   "safety-nets": ["platform"],

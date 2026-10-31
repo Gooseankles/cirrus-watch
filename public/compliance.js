@@ -390,6 +390,9 @@ const KIND_CONTROLS = {
   ...Object.fromEntries(["conn-vpn-down", "conn-er-circuit-down", "conn-er-peering-disabled", "conn-gateway-failed", "conn-agw-unhealthy", "conn-lb-unhealthy", "conn-fd-unhealthy"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
   "conn-pe-pending": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
   "conn-pe-no-dns": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  ...Object.fromEntries(["avd-host-unavailable", "avd-host-not-ready", "avd-host-shutdown"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
+  "avd-agent-update-failed": PATCHING,
+  ...Object.fromEntries(["avd-host-drain-forgotten", "avd-pool-empty", "avd-pool-no-scaling", "avd-personal-unassigned", "avd-no-start-on-connect", "avd-appgroup-no-workspace", "avd-workspace-empty"].map((k) => [k, ASSETS])),
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -444,6 +447,7 @@ const TOOL_KINDS = {
   "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
   connectivity: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("conn-")),
+  avd: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("avd-")),
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };

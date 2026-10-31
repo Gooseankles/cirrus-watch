@@ -29,6 +29,10 @@ automatically:
 With the item check on, a vault still on access policies needs a policy for the identity with **list** on secrets,
 keys and certificates instead of Key Vault Reader. A vault whose firewall keeps the dashboard out shows as "Items not checked".
 
+Azure Virtual Desktop needs nothing beyond Reader: host pools, application groups, workspaces and scaling plans come
+from Resource Graph, and each host pool's session hosts from ARM (`Microsoft.DesktopVirtualization/hostpools/sessionhosts/read`,
+part of Reader). Host pool registration tokens are not read, since that needs write access.
+
 **Microsoft Graph application permissions**, with admin consent:
 
 | Permission | Used for |

@@ -170,6 +170,7 @@ const TOOL_SPNS = [
   { id: "subscriptions", label: "Subscriptions" },
   { id: "network-hygiene", label: "Network hygiene" },
   { id: "connectivity", label: "Connectivity health" },
+  { id: "avd", label: "Azure Virtual Desktop" },
   { id: "history-storage", label: "History storage" },
 ];
 

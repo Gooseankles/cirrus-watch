@@ -163,6 +163,20 @@ metrics (warning): Application Gateway `UnhealthyHostCount` above 0, Standard lo
 `BackendHealthPercentage`) below 100 % (or the percentage set in Settings). Each finding names the pool, backend
 or origin where Azure gives it and says what to check. Reads at most 500 connections, 500 private endpoints and
 200 resources of each load-balancing kind per run; the rest show as "not checked".
+## Azure Virtual Desktop
+
+Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see.
+
+Session hosts that are Unavailable or Need assistance while they take new sessions (with the failed health checks),
+not ready, shut down with no scaling plan or Start VM on Connect to start them, whose agent update failed, or left in
+drain mode with no heartbeat for 7 days; host pools with no session hosts, pooled host pools with no scaling plan (or
+one switched off), personal desktops assigned to nobody and personal pools with Start VM on Connect off; application
+groups in no workspace (their users never see them) and workspaces with no application groups. Host pools,
+application groups, workspaces and scaling plans come from Resource Graph, the session hosts from one ARM list per
+host pool (at most 200 host pools a run, four at a time). A tenant with no host pools is skipped after one query: no
+findings, and the page notes "No Azure Virtual Desktop" there. The Host pools tab lists each pool with its available
+hosts, sessions, scaling plan and workspaces. Registration tokens are not checked (reading one needs write access),
+nor the Windows client version of the hosts.
 
 ## Subscriptions
 

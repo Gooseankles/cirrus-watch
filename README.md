@@ -54,6 +54,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Subscriptions](docs/tools.md#subscriptions) | Daily | Subscriptions in the Tenant Root Group, with no Owner, or not in good standing. |
 | [Network hygiene](docs/tools.md#network-hygiene) | Daily | WAFs that block nothing, dangling DNS records and routes to nowhere. |
 | [Connectivity health](docs/tools.md#connectivity-health) | Hourly | VPN connections and ExpressRoute circuits that are down, failed gateways, stuck private endpoints and unhealthy backends. |
+| [Azure Virtual Desktop](docs/tools.md#azure-virtual-desktop) | Daily | Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see. |
 | [Cost history](docs/tools.md#cost-history) | Daily | Daily cost per subscription and monthly cost by service and resource group. |
 | [Access lookup](docs/tools.md#access-lookup) | On demand | Every Azure and Entra role a person or group holds or can activate, with the group chain. |
 <!-- tools:end -->

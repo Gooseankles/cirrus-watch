@@ -75,7 +75,7 @@ const FIELDS = [
   { key: "AZURE_COST_ANOMALY_THRESHOLD_PCT", label: "Cost jump threshold (%)", group: "Cost anomalies" },
   { key: "COST_HISTORY_MONTHS", label: "Cost history to pull on first run (months)", group: "Cost anomalies", hint: "Blank = 13; after that it keeps growing from storage" },
   { key: "AZURE_ACCESS_REVIEW_STALE_DAYS", label: "Stale direct-assignment age (days)", group: "Access review" },
-  { key: "SECRET_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Expiring app credentials" },
+  { key: "SECRET_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Expiring app credentials", hint: "Also used by Enterprise apps (SAML signing certificates, service principal credentials); blank = 30" },
   { key: "APP_SECRET_MAX_DAYS", label: "Longest allowed client secret (days)", group: "Expiring app credentials", hint: "Blank = 365" },
   { key: "KEYVAULT_ITEM_CHECK", label: "Check secret, key and certificate expiry", group: "Key Vault", hint: "on or off; blank = off. Needs Key Vault Reader (names and expiry dates, never values)" },
   { key: "KEYVAULT_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Key Vault", hint: "Blank = 30" },
@@ -98,6 +98,7 @@ const FIELDS = [
   { key: "IPAM_SUBNET_WARN_PCT", label: "Warn when a subnet is this % full", group: "IP addresses", hint: "95% and over is critical; blank = 80" },
   { key: "IPAM_POOLS", label: "Address plan (ranges you hand out)", group: "IP addresses", hint: "Comma-separated, e.g. 10.0.0.0/8, 172.16.0.0/12. VNets outside them are flagged; also offered in Free ranges. Blank = no plan check" },
   { key: "CHANGE_LOG_HOURS", label: "Changes from the last (hours)", group: "Change log", hint: "Match the schedule (daily); blank = 24, at most 336" },
+  { key: "ENTERPRISE_APP_UNUSED_DAYS", label: "Other companies' apps are unused after (days)", group: "Enterprise apps", hint: "Days without a sign-in (needs AuditLog.Read.All); blank = 90" },
   { key: "STALE_ACCOUNT_DAYS", label: "Member accounts are stale after (days)", group: "Stale accounts", hint: "Days without a sign-in; blank = 90" },
   { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
   { key: "PIM_MAX_ACTIVATION_HOURS", label: "Longest allowed activation (hours)", group: "PIM", hint: "For privileged roles; blank = 8" },
@@ -115,9 +116,12 @@ const FIELDS = [
   { key: "CVE_MIN_SEVERITY", label: "List CVEs from severity", group: "Vulnerabilities (CVEs)", hint: "critical, high, medium, low or off; blank = critical. Known exploited and likely exploited CVEs are always listed" },
   { key: "CVE_EPSS_MIN", label: "Likely exploited from EPSS score", group: "Vulnerabilities (CVEs)", hint: "0 to 1, the chance of exploitation in the next 30 days; blank = 0.1 (10%), 0 = off" },
   { key: "CVE_FEEDS", label: "Fetch CVE ranking data", group: "Vulnerabilities (CVEs)", hint: "on or off; blank = on. Daily from CISA (known exploited list) and FIRST (EPSS); off = rank by Defender's severity only" },
+  { key: "DOMAIN_CHECKS", label: "Check domains and mail", group: "Domains and mail", options: [{ value: "off", label: "No: skip the scan, no lookups" }, { value: "on", label: "Yes: DNS (mail, delegation) and registration data (RDAP)" }, { value: "dns", label: "Yes, but DNS only (no RDAP lookups)" }], defaultValue: "off", hint: "Off = the Domains and mail scan makes no requests. On asks public DNS and rdap.org about the tenant's own domains (only domain names are sent)" },
   { key: "UPDATES_MAX_PENDING_DAYS", label: "Critical when a pending update is older than (days)", group: "Updates and patching", hint: "Age of the oldest pending Critical or Security update, from its release date (Windows only; Linux gives none). Blank = 30" },
   { key: "UPDATES_ASSESSMENT_MAX_AGE_DAYS", label: "Flag a machine not assessed for (days)", group: "Updates and patching", hint: "Azure keeps assessments for 7 days, so a machine with none in that time is always flagged. Blank = 7" },
   { key: "HEALTH_MAINTENANCE_DAYS", label: "Show planned maintenance starting within (days)", group: "Resource health", hint: "Blank = 14, 0 = off" },
+  { key: "CONNECTIVITY_HEALTH_PERCENT", label: "Flag backends healthy less than (%)", group: "Connectivity health", hint: "Load balancer probe status and Front Door origin health, averaged over the last hour; blank = 100" },
+  { key: "CONNECTIVITY_PE_DNS_CHECK", label: "Flag private endpoints with no DNS zone group", group: "Connectivity health", options: [{ value: "on", label: "Yes: names likely resolve to the public address" }, { value: "off", label: "No: we run our own DNS for private endpoints" }], defaultValue: "on", hint: "Off for tenants whose own DNS servers hold the privatelink records" },
 ];
 // Everything from "Scans" down is a tool option a customer tenant may set
 // differently.
@@ -157,6 +161,7 @@ const TOOL_SPNS = [
   { id: "mfa-coverage", label: "MFA coverage" },
   { id: "conditional-access", label: "Conditional Access" },
   { id: "app-permissions", label: "App permissions" },
+  { id: "enterprise-apps", label: "Enterprise apps" },
   { id: "licence-coverage", label: "Licence coverage" },
   { id: "defender", label: "Defender for Cloud" },
   { id: "vulnerabilities", label: "Vulnerabilities (CVEs)" },
@@ -167,6 +172,9 @@ const TOOL_SPNS = [
   { id: "resource-health", label: "Resource health" },
   { id: "subscriptions", label: "Subscriptions" },
   { id: "network-hygiene", label: "Network hygiene" },
+  { id: "connectivity", label: "Connectivity health" },
+  { id: "avd", label: "Azure Virtual Desktop" },
+  { id: "domains", label: "Domains and mail" },
   { id: "history-storage", label: "History storage" },
 ];
 

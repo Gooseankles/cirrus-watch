@@ -41,7 +41,8 @@ weekly, resource health once an hour); being a SIEM or replacing Microsoft Defen
 Besides Azure, the app reads three public data sources, each at most once a day: endoflife.date for end-of-support
 dates, and CISA's Known Exploited Vulnerabilities list and FIRST's EPSS scores to rank the CVEs that Defender for
 Cloud found. No tenant data is sent (the EPSS lookup sends CVE ids only). When a source cannot be reached, the last
-kept copy is used; the two CVE feeds can be turned off.
+kept copy is used; the two CVE feeds can be turned off. The opt-in Domains and mail scan asks public DNS and RDAP
+(`rdap.org` and the registries) about the tenant's own domain names, at most once a day.
 
 ## Building blocks
 
@@ -144,9 +145,12 @@ sign in and count as `<Area>.Read`.
 - **Security:** read-only scan roles, managed identities, PKCE sign-in, roles from Entra, origin check on changing
   requests, strict content security policy, secrets never returned by the API, audit log. See
   [SECURITY.md](../SECURITY.md) and [architecture section 11](architecture.md#11-security-controls-in-short).
-- **Reliability:** a tenant that fails keeps its last results and does not stop the others; the app starts even
-  when the vault is down and retries it every minute; failed notifications are retried every hour; Azure Monitor
-  emails when CPU, memory or server errors stay high (`alert_emails`).
+- **Reliability:** a tenant that fails keeps its last results and does not stop the others; Azure requests time
+  out after 60 seconds and are tried again, and a scan run that hangs is given up after 45 minutes; the app starts
+  even when the vault is down and retries it every minute; failed notifications are retried every hour.
+  `GET /health` (no sign-in) answers 503 when no scheduled scan has finished for 26 hours; App Service's health
+  check uses it, and Azure Monitor emails when it fails or when CPU, memory or server errors stay high
+  (`alert_emails`).
 - **Data separation:** each customer tenant has its own storage container and its own roles; a person sees only
   the tenants and areas their roles reach.
 - **Cost:** one small App Service plan, one storage account, one key vault; no database.

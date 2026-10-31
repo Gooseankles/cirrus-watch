@@ -43,6 +43,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
+| [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
 | [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations and Defender plans that are off. |
 | [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |
@@ -53,6 +54,9 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Resource health](docs/tools.md#resource-health) | Hourly | Resources that are down or degraded now, Azure outages and planned maintenance. |
 | [Subscriptions](docs/tools.md#subscriptions) | Daily | Subscriptions in the Tenant Root Group, with no Owner, or not in good standing. |
 | [Network hygiene](docs/tools.md#network-hygiene) | Daily | WAFs that block nothing, dangling DNS records and routes to nowhere. |
+| [Connectivity health](docs/tools.md#connectivity-health) | Hourly | VPN connections and ExpressRoute circuits that are down, failed gateways, stuck private endpoints and unhealthy backends. |
+| [Azure Virtual Desktop](docs/tools.md#azure-virtual-desktop) | Daily | Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see. |
+| [Domains and mail](docs/tools.md#domains-and-mail) | Daily | Off by default. The tenant's own domains: expiring registrations, no registrar lock, undelegated Azure DNS zones, SPF, DMARC and DKIM gaps. |
 | [Cost history](docs/tools.md#cost-history) | Daily | Daily cost per subscription and monthly cost by service and resource group. |
 | [Access lookup](docs/tools.md#access-lookup) | On demand | Every Azure and Entra role a person or group holds or can activate, with the group chain. |
 <!-- tools:end -->

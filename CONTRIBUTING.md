@@ -60,7 +60,8 @@ runs, update the [setup low-level design](docs/lld-setup.md). The pull request t
   `docs/diagrams/rendered.json`. A new picture is a new `.mmd` or `.py` (one of the two, never both; `_style.py`
   holds the shared look); embed the PNG with a `<sub>Source: ...</sub>` line under it as the others do. Keep them
   portrait (`flowchart TB`, `direction="TB"`) so they read on a phone.
-- **Checks:** `npm run docs:check` (it also fails when a `.mmd` or `.py` changed but its PNG was not rendered again), then Markdown style and links as the Docs workflow runs them:
+- **Checks:** `npm test` (the unit tests in `test/`, node:test, no Azure needed; the image build waits for them),
+  then `npm run docs:check` (it also fails when a `.mmd` or `.py` changed but its PNG was not rendered again), then Markdown style and links as the Docs workflow runs them:
 
   ```sh
   npx -y markdownlint-cli2@0.18.1 "**/*.md"

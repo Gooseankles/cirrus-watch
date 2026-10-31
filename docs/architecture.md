@@ -111,7 +111,9 @@ run covers the home tenant and every enabled customer tenant, one after another.
 <sub>Source: [arch-scan-run.mmd](diagrams/arch-scan-run.mmd)</sub>
 
 A tenant that fails keeps its last results, with the error noted on them; the other tenants still save. A tenant
-whose scan failed shows as "partly checked" on the Compliance page.
+whose scan failed shows as "partly checked" on the Compliance page. A run that takes longer than its deadline (45
+minutes unless the tool or `SCAN_DEADLINE_MINUTES` says otherwise) counts as failed for that tenant, with "scan timed
+out" as the error.
 
 On read (`GET /api/tools/<id>/findings`) the app merges the tenants the person may see, adds subscription and tenant
 names, and marks accepted or snoozed findings. Compliance tags are added in the browser (`public/compliance.js`).
@@ -156,7 +158,9 @@ firewall to reach Docker Hub, ARM and Graph. Two scans also fetch public data on
 The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
-last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call.
+last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call. The Domains
+and mail scan (off unless `DOMAIN_CHECKS` is `on` or `dns`) asks public DNS and, with `on`, `rdap.org` and the
+registry RDAP servers it redirects to (for example `rdap.verisign.com`, `rdap.nominet.uk`); it sends only domain names.
 
 ## 8. Build and release
 
@@ -186,12 +190,17 @@ No build step: the server is plain Node.js (CommonJS), the front end is plain Ja
 
 | Kind | Exports | Registered with | Routes |
 |---|---|---|---|
-| Scan | `{ id, label, schedule, run() }`, `run()` returns findings | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
+| Scan | `{ id, label, schedule, run() }`, `run()` returns findings; optional `deadlineMinutes` | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
 | Action | `{ id, label, registerRoutes(app) }` | `registerActionTool` | its own (Access lookup) |
 
 A finding is a plain object: `kind` (drives label, severity and compliance tags), `id` (stable across runs, used to
 diff), `name`, `detail`, and where it applies `subscriptionId`, `resourceGroup`, `principalId`. The store adds
 `firstSeen`, and `tenant` for customer findings.
+
+Each tenant's `run()` has a deadline: `deadlineMinutes` when the tool sets it, else `SCAN_DEADLINE_MINUTES` (45).
+Past it the registry stops waiting, records "scan timed out" for that tenant and frees it for the next run. ARM,
+Graph and storage requests give up after a timeout (`AZURE_REQUEST_TIMEOUT_SECONDS`, 60; storage 30) and are tried
+again, as on 429 and 503.
 
 Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolPermissions.js` (what it needs),
 `src/settings.js` (SPN override and its settings), `public/app.js` (`TOOLS`, `KINDS`) and `public/compliance.js`
@@ -201,6 +210,7 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 
 | Route | Who | What |
 |---|---|---|
+| `GET /health` | anyone, no session | `{"status":"ok"}` (200) or `{"status":"stale"}` (503): no scheduled scan finished well in `HEALTH_SCAN_MAX_AGE_HOURS` (26) |
 | `GET /api/me` | anyone | Signed in?, roles, tenants, version |
 | `GET /api/tools` | signed in | Tools and the permissions each needs |
 | `GET /api/tools/<id>/findings` | signed in | Latest results for the tenants the person sees |

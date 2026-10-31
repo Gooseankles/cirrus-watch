@@ -29,8 +29,16 @@ activity, the scan page's error box and App Service → Log stream usually say w
 | Stale accounts or MFA coverage fail in one tenant | Sign-in activity and the authentication methods report need Entra ID P1 or P2 | Needs that licence in the tenant; otherwise turn the scan off there (Settings → Scans) |
 | Key Vault item check shows errors per vault | The vault's firewall blocks the dashboard, or Key Vault Reader is missing | Allow the dashboard's outbound addresses or subnet; grant Key Vault Reader, or leave `KEYVAULT_ITEM_CHECK` off |
 | A customer tenant fails every scan with AADSTS7000222 or AADSTS7000215 | Its client secret has expired or is wrong | New secret from the customer, paste in Settings → Customer tenants → Edit, **Test** ([operations](operations.md#rotate-secrets)) |
-| "… already running for …; not started again" | That scan is still running in that tenant | Wait for it; Recent activity says when it ends |
+| "… already running for …; not started again" | That scan is still running in that tenant, started less than its deadline (45 minutes by default) ago | Wait for it; Recent activity says when it ends. A run that hangs is given up at the deadline and the next one can start |
+| "scan timed out: no result after N minute(s)" | The run in that tenant took longer than its deadline: a very large tenant, or an Azure API that kept timing out. The last results stay | Run it again. If it happens every time, raise `SCAN_DEADLINE_MINUTES` (app setting, default 45) and check Admin → Server load. "ARM request timed out" or "Graph … timed out" means one request had no answer after `AZURE_REQUEST_TIMEOUT_SECONDS` (60) every time it was tried |
 | A scan takes very long or the page is slow | A large tenant; several scans at once | See Admin → Server load for the scan that pushed the load; move schedules apart or use a bigger plan |
+
+## Health check
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Email from the "Health check status" alert, or `/health` answers 503 `{"status":"stale"}` | No scheduled scan has finished in any tenant for `HEALTH_SCAN_MAX_AGE_HOURS` (26) | Check Recent activity for scan errors (an expired secret, a missing permission, timeouts). **Run now** tests a fix, but only the next scheduled run clears it. App Service may restart the app while it stays unhealthy |
+| `/health` answers 401 or sends the sign-in page | The app is older than 0.61.0.0 | Upgrade the image |
 
 ## Storage and secrets
 

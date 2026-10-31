@@ -339,6 +339,17 @@ const KIND_CONTROLS = {
   "app-takeover-permission": APPS,
   "app-broad-data-permission": APPS,
   "app-risky-delegated-consent": APPS,
+  "ent-saml-cert-expired": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-saml-cert-expiring-soon": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-saml-cert-expiring": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expired": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expiring-soon": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expiring": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-secret": KEYS,
+  "ent-open-sign-in": ACCESS,
+  "ent-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3", "ir:11.2"],
+  "ent-unused-app": DORMANT,
+  "ent-disabled-azure-roles": REVOKE,
   "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6", "ir:5.1", "ir:11.2"],
   "defender-low-score": DEFENDER,
   "defender-high": DEFENDER,
@@ -387,6 +398,17 @@ const KIND_CONTROLS = {
   "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4", "ir:12.4", "ir:6.7"],
   "dns-alias-missing": ASSETS,
   "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  ...Object.fromEntries(["conn-vpn-down", "conn-er-circuit-down", "conn-er-peering-disabled", "conn-gateway-failed", "conn-agw-unhealthy", "conn-lb-unhealthy", "conn-fd-unhealthy"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
+  "conn-pe-pending": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  "conn-pe-no-dns": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  ...Object.fromEntries(["avd-host-unavailable", "avd-host-not-ready", "avd-host-shutdown"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
+  "avd-agent-update-failed": PATCHING,
+  ...Object.fromEntries(["avd-host-drain-forgotten", "avd-pool-empty", "avd-pool-no-scaling", "avd-personal-unassigned", "avd-no-start-on-connect", "avd-appgroup-no-workspace", "avd-workspace-empty"].map((k) => [k, ASSETS])),
+  ...Object.fromEntries(["domain-expired", "domain-expiring", "domain-renewal-due", "asd-auto-renew-off"].map((k) => [k, CONTINUITY])),
+  "domain-unlocked": ASSETS,
+  "dns-zone-not-delegated": ASSETS,
+  ...Object.fromEntries(["spf-missing", "spf-multiple", "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"]
+    .map((k) => [k, ["nis2:i", "nsm:2.8", "ir:6.7"]])),
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -440,8 +462,13 @@ const TOOL_KINDS = {
   updates: ["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"],
   "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
+  connectivity: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("conn-")),
+  avd: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("avd-")),
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
+  domains: ["domain-expired", "domain-expiring", "domain-renewal-due", "domain-unlocked", "asd-auto-renew-off", "dns-zone-not-delegated", "spf-missing", "spf-multiple",
+    "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
+  "enterprise-apps": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("ent-")),
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".
 const MANUAL = {

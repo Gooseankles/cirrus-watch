@@ -153,7 +153,9 @@ Every request from the browser goes through the same chain of checks in `server.
   framing, no content sniffing, and HSTS on HTTPS.
 - A changing request (anything but GET, HEAD or OPTIONS) whose `Sec-Fetch-Site` or `Origin` header points at another
   site gets 403.
-- Only `/auth/*`, `/api/me` and the login page work without a session. Everything else needs one that is less
+- `GET /health` comes before the session and sign-in checks: no cookie, no audit line, and only
+  `{"status":"ok"}` or `{"status":"stale"}`.
+- Only `/health`, `/auth/*`, `/api/me` and the login page work without a session. Everything else needs one that is less
   than 24 hours old: API calls get 401, pages are sent to the login page.
 - Reading routes (findings, history, report, cost) return only the tenants and areas the roles reach.
 - **Run now** and accepting a finding need a role that reaches that scan in at least one tenant, else 403. Run now
@@ -172,6 +174,14 @@ Every request from the browser goes through the same chain of checks in `server.
   noted on each tenant's last results.
 - **Run now** calls the same function for the tenants the person's roles reach. A tenant already being scanned is
   skipped, so two runs never write the same results. A tenant where the scan is turned off is skipped too.
+- Each tenant's run has a deadline: 45 minutes, or `SCAN_DEADLINE_MINUTES`, or the tool's own `deadlineMinutes`.
+  Past it the tenant is recorded as failed ("scan timed out") and is free for the next run. The late run cannot be
+  stopped; whatever it returns is thrown away. Each ARM or Graph request gives up after
+  `AZURE_REQUEST_TIMEOUT_SECONDS` (60) and is tried again; a Graph POST is not, as it may already have done its work.
+  Storage reads and writes are tried again on 429, 5xx and timeouts.
+- A scheduled run that saves at least one tenant keeps `GET /health` at 200. With none for
+  `HEALTH_SCAN_MAX_AGE_HOURS` (26) it answers 503, except in the first 26 hours after a start. The module points App
+  Service's health check at it and alerts on it.
 - Each run writes the latest result, a history snapshot and the counts for the trend pages, per tenant container.
   Snapshots older than `HISTORY_RETENTION_DAYS` are removed.
 - Notifications go out once a day at `NOTIFY_TIME` (08:30 by default), not per scan. A message that fails is
@@ -271,7 +281,9 @@ only drops its Settings changes.
   Docker Hub, Entra, ARM and Graph, and the public data two scans fetch once a day: `endoflife.date` for End of
   support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids. A blocked host
   means that scan uses its last kept copy; without one, End of support uses its built-in dates and the CVE scan
-  ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call.
+  ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call. With `DOMAIN_CHECKS = on` the Domains
+  and mail scan also needs outbound DNS and HTTPS to `rdap.org` and the registry RDAP servers it redirects to
+  (`DOMAIN_CHECKS = dns` needs DNS only).
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
   rules, except with `continuous_deployment`, which keeps it open for the deploy webhook (publishing credentials
   still needed). `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;
@@ -341,3 +353,5 @@ sessions and the key are in `DATA_DIR` or `SESSION_SECRET`. Steps for upgrading,
 | `DATA_DIR/sessions` not writable | Warning in the log; everyone is signed out at the next restart | [Troubleshooting: storage and secrets](troubleshooting.md#storage-and-secrets) |
 | Two instances (scale-out) | Scans run twice, files fight | [ADR 0006](adr/0006-one-process-one-instance.md) |
 | Restart during a scan | That run is lost; the next schedule or Run now repeats it | [ADR 0006](adr/0006-one-process-one-instance.md) |
+| A scan run hangs (an API never answers) | "scan timed out" for that tenant after 45 minutes; its last results stay | [Troubleshooting: scans](troubleshooting.md#scans) |
+| No scheduled scan finished for 26 hours | `/health` answers 503; the health check alert emails `alert_emails` | [Operations: health check](operations.md#health-check) |

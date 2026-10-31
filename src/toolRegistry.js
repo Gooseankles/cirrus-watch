@@ -9,6 +9,27 @@ const { subscriptionNames } = require("./armClient");
 const monitor = require("./monitor");
 const notify = require("./notify");
 const settings = require("./settings");
+const health = require("./health");
+
+// A scan run that hangs (an API that never answers, a loop that never ends)
+// must not hold its tenants forever. Each tenant's run gets a deadline:
+// SCAN_DEADLINE_MINUTES (default 45), or the tool's own deadlineMinutes. Past
+// it, that tenant is recorded as failed and the next run may start. The
+// abandoned run cannot be stopped from outside; its result is thrown away.
+function deadlineMs(tool) {
+  return (Number(tool.deadlineMinutes) || Number(process.env.SCAN_DEADLINE_MINUTES) || 45) * 60000;
+}
+
+function withDeadline(work, ms, message) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
+
+// For the tests: each scan's run function, by tool id.
+const executors = new Map();
 
 // A notification problem never fails the scan.
 async function notifyQueue(tool, newByTenant, errors) {
@@ -100,7 +121,8 @@ function registerScanTool(app, tool) {
   // being scanned (Run now during the nightly run, or a double click) is
   // skipped, so two runs never race over the same results.
   const busy = new Set();
-  async function execute(only = null) {
+  // scheduled: started by the cron schedule; a good one keeps /health "ok".
+  async function execute(only = null, { scheduled = false } = {}) {
     // A tenant that turned this scan off (Settings, Scans) is left out.
     const wanted = tenants.scanTargets().filter((t) => (!only || only.includes(t.key)) && !settings.scanOff(tool.id, t.key));
     const targets = wanted.filter((t) => !busy.has(t.key));
@@ -113,6 +135,7 @@ function registerScanTool(app, tool) {
     let ok = false;
     try {
       ok = await scan(targets);
+      if (ok && scheduled) health.scheduledScanOk();
     } finally {
       targets.forEach((t) => busy.delete(t.key));
       monitor.scanEnded(tool.id, { ok });
@@ -126,8 +149,13 @@ function registerScanTool(app, tool) {
     const errors = {};
     for (const t of targets) {
       try {
+        const ms = deadlineMs(tool);
         const found = await tenantContext.runIn(t, async () => {
-          const list = await tool.run();
+          const list = await withDeadline(
+            Promise.resolve().then(() => tool.run()),
+            ms,
+            `scan timed out: no result after ${Math.round(ms / 60000) || "<1"} minute(s); the next run starts fresh`
+          );
           await addSubscriptionNames(tool.id, list);
           return list;
         });
@@ -263,9 +291,10 @@ function registerScanTool(app, tool) {
 
   // A scan with its own pages (like the IPAM inventory) adds read routes here.
   if (tool.registerRoutes) tool.registerRoutes(app, { readKeys: (req) => readKeys(req, tool.id), decorate });
+  executors.set(tool.id, execute);
 
   if (tool.schedule) {
-    cron.schedule(tool.schedule, () => execute());
+    cron.schedule(tool.schedule, () => execute(null, { scheduled: true }));
     console.log(`[${tool.id}] scheduled: ${tool.schedule}`);
   }
 
@@ -278,4 +307,12 @@ function registerActionTool(app, tool) {
   return { id: tool.id, label: tool.label, kind: "action", areas: access.areasOf(tool.id) };
 }
 
-module.exports = { registerScanTool, registerActionTool, readKeys, areaKeys, visibleKeys, decorate };
+module.exports = {
+  registerScanTool,
+  registerActionTool,
+  readKeys,
+  areaKeys,
+  visibleKeys,
+  decorate,
+  _test: { withDeadline, deadlineMs, execute: (id, ...args) => executors.get(id)(...args) },
+};

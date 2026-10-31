@@ -4,7 +4,7 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
 [operations.md](operations.md#back-up-and-restore); the layout inside a container is in
 [architecture.md](architecture.md#10-where-data-is-kept).
 
-- **Scan results and run history, cost history**: in an Azure Storage blob container when `STORAGE_ACCOUNT_URL` is
+- **Scan results and run history, cost history, the Azure Virtual Desktop host pool list**: in an Azure Storage blob container when `STORAGE_ACCOUNT_URL` is
   set (reached with an Entra token; account keys can stay off), otherwise under `DATA_DIR` (default `./data`).
   Each customer tenant has its own container, `dashboard-<key>` (on disk `DATA_DIR/tenants/<key>`), so one
   customer's data never sits next to another's. Runs are kept for `HISTORY_RETENTION_DAYS` (default 365; the Terraform module sets 730).
@@ -24,7 +24,8 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
 - **Cleanup savings** (orphaned resources deleted after they were found): `savings/orphaned-resources.json` per tenant.
 - **Public data copies**: `eol-dates.json` (end-of-support dates from endoflife.date) and `cve-feeds.json` (CISA's
   Known Exploited Vulnerabilities list and EPSS scores from FIRST) under `DATA_DIR`, refreshed at most once a day and
-  used as they are when a source cannot be reached. They hold no tenant data.
+  used as they are when a source cannot be reached. They hold no tenant data. With `DOMAIN_CHECKS = on`,
+  `rdap-cache.json` holds the registration answers from rdap.org for the tenants' domain names, each kept a day.
 - **Activity log** (scan runs): JSON lines in `runs.jsonl`, under `DATA_DIR/logs` when `DATA_DIR` is set, otherwise `./logs`.
 - **Audit log** (who opened and changed what): `audit.jsonl` next to it, kept `AUDIT_RETENTION_DAYS`.
 - **A removed customer tenant** (Settings → Remove) leaves nothing behind: its secrets are purged from the vault,

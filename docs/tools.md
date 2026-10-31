@@ -147,6 +147,62 @@ WAFs that block nothing, dangling DNS records and routes to nowhere.
 
 WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has.
 
+## Connectivity health
+
+VPN connections and ExpressRoute circuits that are down, failed gateways, stuck private endpoints and unhealthy backends.
+
+Runs every hour. Site-to-site and VNet-to-VNet VPN connections that are not connected (live status from each
+connection's own ARM GET), ExpressRoute circuits the provider has not provisioned or that are not enabled, and
+circuits with Azure private peering disabled (critical). VPN and ExpressRoute gateways, including Virtual WAN ones,
+in a failed provisioning state (critical). Private endpoints still waiting for approval (warning; rejected and
+disconnected ones are in Orphaned resources) and approved private endpoints with no private DNS zone group, so the
+name likely still resolves to the public address (information; turn this off in Settings, Connectivity health,
+`CONNECTIVITY_PE_DNS_CHECK`, for tenants that run their own DNS). Backends that failed their health probes over the last hour, from Azure Monitor
+metrics (warning): Application Gateway `UnhealthyHostCount` above 0, Standard load balancer health probe status
+(`DipAvailability`) and Front Door origin health (`OriginHealthPercentage`, classic Front Door
+`BackendHealthPercentage`) below 100 % (or `CONNECTIVITY_HEALTH_PERCENT`, set in Settings). Each finding names the pool, backend
+or origin where Azure gives it and says what to check. Reads at most 500 connections, 500 private endpoints and
+200 resources of each load-balancing kind per run; the rest show as "not checked".
+
+## Azure Virtual Desktop
+
+Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see.
+
+Session hosts that are Unavailable or Need assistance while they take new sessions (with the failed health checks),
+not ready, shut down with no scaling plan or Start VM on Connect to start them, whose agent update failed, or left in
+drain mode with no heartbeat for 7 days; host pools with no session hosts, pooled host pools with no scaling plan (or
+one switched off), personal desktops assigned to nobody and personal pools with Start VM on Connect off; application
+groups in no workspace (their users never see them) and workspaces with no application groups. Host pools,
+application groups, workspaces and scaling plans come from Resource Graph, the session hosts from one ARM list per
+host pool (at most 200 host pools a run, four at a time). A tenant with no host pools is skipped after one query: no
+findings, and the page notes "No Azure Virtual Desktop" there. The Host pools tab lists each pool with its available
+hosts, sessions, scaling plan and workspaces. Registration tokens are not checked (reading one needs write access),
+nor the Windows client version of the hosts.
+
+## Domains and mail
+
+Off by default. The tenant's own domains: expiring registrations, no registrar lock, undelegated Azure DNS zones, SPF, DMARC and DKIM gaps.
+
+Turned on per tenant with `DOMAIN_CHECKS` (`on`, or `dns` to skip the registration lookups); while off it makes no
+requests. Domains come from member user names and mail addresses (Graph, `User.Read.All`), App Service custom host
+names, Azure DNS zones and App Service Domains (Resource Graph); `*.onmicrosoft.com` and Azure default host names are
+left out. Graph's own domain list is not used, since it needs `Domain.Read.All`. Registrable domains are found with a
+short built-in list of multi-part suffixes (`co.uk`, `com.au`, `priv.no` and similar), not the full Public Suffix
+List, so a domain under a rare one is looked up one level too high and quietly skipped. Checks:
+
+- **Registration** (RDAP through `rdap.org`, which redirects to the registry; answers kept a day in
+  `DATA_DIR/rdap-cache.json`): expired or expiring within 30 days (critical), within 60 days (warning), and no
+  `clientTransferProhibited` or `serverTransferProhibited` status (information; generic TLDs only, as country
+  registries often have no such status). A TLD without RDAP or without an expiry date (`.no`, `.de`) is skipped
+  without a finding.
+- **App Service Domains**: expiring (same limits) and auto-renew off.
+- **Azure DNS zones** (public ones): the name servers public DNS gives for the zone do not match the zone's own
+  (not delegated, delegated elsewhere or only partly).
+- **Mail**, only for domains with MX records: SPF missing, more than one SPF record or ending in `+all` (critical),
+  `?all` or more than 10 DNS lookups counted through includes (warning); DMARC missing or invalid (warning) or
+  `p=none` (information; a subdomain without its own record uses its parent's `sp`/`p`); and for MX on
+  `*.mail.protection.outlook.com`, missing `selector1`/`selector2._domainkey` DKIM records (information).
+
 ## Subscriptions
 
 Subscriptions in the Tenant Root Group, with no Owner, or not in good standing.
@@ -224,6 +280,19 @@ No MFA for everyone or for admins, legacy sign-in not blocked, report-only polic
 Apps with Graph permissions that could take over the tenant, and risky consents.
 
 Apps with Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, users allowed to consent to any app.
+
+## Enterprise apps
+
+Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use.
+
+Reads the service principals (enterprise apps), leaving out Microsoft's own apps and managed identities:
+
+- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the warning window of Expiring app credentials (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default). Older, inactive certificates are left alone.
+- **Credentials on the service principal itself**, which Expiring app credentials does not see (it reads app registrations): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
+- **Anyone can sign in**: SAML apps, and other companies' OpenID Connect apps, with single sign-on set up and "Assignment required" off, so every account in the tenant can sign in (low).
+- **No owner**: enabled apps from this tenant with no owner on the enterprise app (low).
+- **Unused**: other companies' apps with no sign-in for 90 days (`ENTERPRISE_APP_UNUSED_DAYS`), from the sign-in activity report (Graph beta, `AuditLog.Read.All`; skipped with a log line when it cannot be read) (low).
+- **Disabled apps with Azure roles**: disabled service principals that still hold Azure role assignments, from Resource Graph (needs Reader; skipped with a log line otherwise).
 
 ## Licence coverage
 

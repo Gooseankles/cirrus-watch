@@ -6,12 +6,12 @@
 // resource; action groups that are off, empty or unsubscribed; workspaces that
 // hit their daily cap. Off per tenant (AZURE_MONITOR_IN_USE) for customers who
 // do not use Azure Monitor: then no request is made and nothing is found.
-// Reader is enough; the heartbeat check queries each workspace through ARM.
+// Reader is enough; the heartbeat check queries each workspace through the Logs Query API.
 const settings = require("../settings");
 const store = require("../findingsStore");
 const tenants = require("../tenants");
 const tenantContext = require("../tenantContext");
-const { resourceGraphQuery, armPost, subscriptionIdsToScan } = require("../armClient");
+const { resourceGraphQuery, logAnalyticsQuery, subscriptionIdsToScan } = require("../armClient");
 const { numberSetting, mapLimit, runChecks, itemErrors, nameOf } = require("./util");
 
 const TOOL_ID = "azure-monitor";
@@ -279,7 +279,7 @@ async function readAll() {
       | project id, name, resourceGroup, subscriptionId, properties`),
     q(`Resources
       | where type =~ 'microsoft.operationalinsights/workspaces'
-      | project id, name, resourceGroup, subscriptionId,
+      | project id, name, resourceGroup, subscriptionId, customerId = tostring(properties.customerId),
         ingestion = tostring(properties.workspaceCapping.dataIngestionStatus), dailyCapGb = todouble(properties.workspaceCapping.dailyQuotaGb)`),
   ]);
   const dcrs = dcrRows.map((d) => ({
@@ -295,13 +295,17 @@ async function readAll() {
 }
 
 // Last heartbeat per machine from each workspace the running machines send to.
-async function readHeartbeats(workspaceIds) {
+// workspaceIds are ARM resource IDs; customerIds maps them (lower case) to the
+// workspace ID the Logs Query API v1 wants (properties.customerId from Resource Graph).
+async function readHeartbeats(workspaceIds, customerIds = new Map()) {
   const heartbeats = new Map();
   const checked = new Set();
   const list = workspaceIds.slice(0, MAX_WORKSPACES);
   const query = `Heartbeat | where TimeGenerated > ago(${HEARTBEAT_DAYS}d) | summarize last = max(TimeGenerated) by rid = tolower(_ResourceId)`;
   const failures = await mapLimit(list, CONCURRENCY, async (ws) => {
-    const data = await armPost(`https://management.azure.com${ws}/api/query?api-version=2017-01-01-preview`, { query }, TOOL_ID);
+    const customerId = customerIds.get(low(ws));
+    if (!customerId) throw new Error(`no workspace ID (customerId) for ${ws} in Resource Graph`);
+    const data = await logAnalyticsQuery(customerId, { query }, TOOL_ID);
     const table = (data.tables || [])[0] || { columns: [], rows: [] };
     const iRid = table.columns.findIndex((c) => c.name === "rid");
     const iLast = table.columns.findIndex((c) => c.name === "last");
@@ -346,7 +350,7 @@ async function run() {
         const ruleIds = data.dcras.filter((a) => low(a.resourceId) === low(m.id)).map((a) => low(a.ruleId));
         return data.dcrs.filter((d) => ruleIds.includes(low(d.id))).flatMap((d) => d.workspaces);
       }).map(low))].filter((w) => workspaceIds.has(w));
-      const hb = await readHeartbeats(wanted);
+      const hb = await readHeartbeats(wanted, new Map(data.workspaces.map((w) => [low(w.id), w.customerId])));
       machines = machineInventory({ ...data, heartbeats: hb.heartbeats, checked: hb.checked });
       const errs = itemErrors(TOOL_ID, "heartbeats", "workspaces (heartbeat query; needs Reader or Log Analytics Reader)", hb.failures.map((f) => ({ ...f, item: { subscriptionId: subOf(f.item) } })), hb.total);
       return [...machineFindings(machines, { hours: heartbeatHours() }), ...dcrFindings(data.dcrs, data.dcras, workspaceIds, scannedSubs), ...errs];

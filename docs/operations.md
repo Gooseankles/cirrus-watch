@@ -78,7 +78,9 @@ Admin → **Audit log** shows who signed in (and refused or failed sign-ins), wh
 the monthly report, cost history, a past run, a subscription's cost), whom they looked up in Access lookup, and
 what they changed: Run now, accepted, snoozed and reopened findings, settings (which ones, never the values),
 customer tenants and Test buttons. A refused request (403) is kept too. Opening the same page again within ten
-minutes counts once. Kept `AUDIT_RETENTION_DAYS` (default 365); only Admin can read it.
+minutes counts once. Kept `AUDIT_RETENTION_DAYS` (default 365); only Admin can read it. A single sign-on user's
+lines show the UPN and also hold the Entra object ID (`oid`) and tenant ID (`tid`) in `audit.jsonl`, so a person
+can be followed across a UPN change.
 
 ## Server load and alarms
 
@@ -109,12 +111,19 @@ it while it stays unhealthy. Without the module, point any uptime check at `/hea
 
 Two limits keep a stuck scan from blocking the others:
 
-- Each ARM or Graph request gives up after `AZURE_REQUEST_TIMEOUT_SECONDS` (60) and is tried again (a Graph POST is
-  not). Storage requests give up after 30 seconds and are tried again too, as on 429 and 5xx.
+- Each ARM, Log Analytics or Graph request gives up after `AZURE_REQUEST_TIMEOUT_SECONDS` (60) per try and is
+  tried again (a Graph POST is not). Answers 429, 500, 502, 503 and 504 are tried again too (a Graph POST only on
+  429, 503 and 504), up to six more times: after the wait Azure asks for in Retry-After (seconds or a date, also
+  Cost Management's `x-ms-ratelimit-*-retry-after`), else a random wait of half to all of 1, 2, 4 ... 60 seconds. One request
+  gives up after 15 minutes in all, so a long wait Azure asks for is honoured but cannot hold a scan forever.
+  Storage requests give up after 30 seconds and are tried again too, as on 429 and 5xx, waiting at most 60 seconds.
 - Each tenant's scan run has a deadline, `SCAN_DEADLINE_MINUTES` (45) unless the tool sets its own. Past it the
   tenant gets "scan timed out" and keeps its last results. "Already running" now means a run that started less than
   the deadline ago and has not ended. After the deadline the next schedule or **Run now** starts again, even if the
   late run is still going in the background; what it returns is thrown away.
+
+Every Azure and Graph request carries its own id (`x-ms-client-request-id`, for Graph `client-request-id`). A
+failed request's error names it and Microsoft's `request-id`; give both to Microsoft support.
 
 ## Keep the image up to date
 

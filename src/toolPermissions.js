@@ -12,7 +12,8 @@ const NEEDS = {
   // Key Vault Reader only with the item check on (Settings, Key Vault).
   get "key-vault"() {
     const on = /^(on|yes|true|1)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
-    return { azure: on ? ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] : READER };
+    // Graph: who the readers are (directoryObjects/getByIds) for the deleted and guest checks.
+    return { azure: on ? ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] : READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] };
   },
   "access-packages": { graph: ["EntitlementManagement.Read.All", "GroupMember.Read.All", "User.Read.All"], licence: "Entra ID P2 or ID Governance" },
   "role-assignments": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] },

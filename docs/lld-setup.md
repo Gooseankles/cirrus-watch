@@ -176,9 +176,13 @@ Every request from the browser goes through the same chain of checks in `server.
   skipped, so two runs never write the same results. A tenant where the scan is turned off is skipped too.
 - Each tenant's run has a deadline: 45 minutes, or `SCAN_DEADLINE_MINUTES`, or the tool's own `deadlineMinutes`.
   Past it the tenant is recorded as failed ("scan timed out") and is free for the next run. The late run cannot be
-  stopped; whatever it returns is thrown away. Each ARM or Graph request gives up after
+  stopped; whatever it returns is thrown away. Each ARM, Log Analytics or Graph request gives up after
   `AZURE_REQUEST_TIMEOUT_SECONDS` (60) and is tried again; a Graph POST is not, as it may already have done its work.
-  Storage reads and writes are tried again on 429, 5xx and timeouts.
+  Answers 429, 500, 502, 503 and 504 are tried again too (a Graph POST only on 429, 503 and 504), up to six more
+  times: after the Retry-After wait Azure asks for (seconds or a date), else a random wait of half to all of 1, 2,
+  4 ... 60 seconds. One request gives up after 15 minutes in all. Every request carries its own
+  `x-ms-client-request-id` (Graph: `client-request-id`); a failed one names it and Microsoft's `request-id` in its
+  error. Storage reads and writes are tried again on 429, 5xx and timeouts.
 - A scheduled run that saves at least one tenant keeps `GET /health` at 200. With none for
   `HEALTH_SCAN_MAX_AGE_HOURS` (26) it answers 503, except in the first 26 hours after a start. The module points App
   Service's health check at it and alerts on it.
@@ -278,7 +282,8 @@ only drops its Settings changes.
   hour and per GB, so this is opt-in. Upgrading a deployment that relied on the old default removes its private
   endpoints unless it sets this value.
 - `vnet_route_all` sends all outbound traffic through the VNet. Then the VNet needs a NAT gateway or firewall to reach
-  Docker Hub, Entra, ARM and Graph, and the public data two scans fetch once a day: `endoflife.date` for End of
+  Docker Hub, Entra, ARM, Graph and `api.loganalytics.azure.com` (the Azure Monitor scan's heartbeat query), and the
+  public data two scans fetch once a day: `endoflife.date` for End of
   support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids. A blocked host
   means that scan uses its last kept copy; without one, End of support uses its built-in dates and the CVE scan
   ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call. With `DOMAIN_CHECKS = on` the Domains

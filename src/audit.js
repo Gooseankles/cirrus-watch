@@ -21,9 +21,12 @@ function retentionDays() {
   return Number.isFinite(n) && n >= 30 ? Math.min(n, 3650) : 365;
 }
 
+// user stays the UPN (what people read); oid and tid (SSO only) tie the line
+// to the same Entra account even after a UPN rename.
 function userOf(req) {
   const u = req && req.session && req.session.user;
-  return u ? { user: u.upn || u.name || "unknown", name: u.name || null, via: u.via || null } : { user: null, name: null, via: null };
+  if (!u) return { user: null, name: null, via: null };
+  return { user: u.upn || u.name || "unknown", name: u.name || null, via: u.via || null, ...(u.oid && { oid: u.oid }), ...(u.tid && { tid: u.tid }) };
 }
 
 // Drops entries older than the retention, at most once a day.

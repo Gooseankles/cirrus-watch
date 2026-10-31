@@ -23,7 +23,8 @@ several customers' tenants.
 
 ## Scope
 
-**In scope:** read-only checks of Azure Resource Manager, Cost Management and Microsoft Graph data; history and
+**In scope:** read-only checks of Azure Resource Manager, Cost Management, Log Analytics (through the Logs Query
+API) and Microsoft Graph data; history and
 trends; accepting findings; monthly report and compliance view (NIS2, NSM, CIS); daily notifications; several
 tenants from one installation.
 

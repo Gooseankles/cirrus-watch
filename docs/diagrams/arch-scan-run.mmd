@@ -4,7 +4,7 @@ sequenceDiagram
   participant R as toolRegistry.execute
   participant T as Tool run()
   participant ID as credentials.getCredential
-  participant AZ as ARM / Graph
+  participant AZ as ARM / Log Analytics / Graph
   participant S as findingsStore
   participant L as Activity log
   C->>R: start (all tenants, or the runner's tenants)

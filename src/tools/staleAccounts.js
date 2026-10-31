@@ -60,7 +60,7 @@ async function run() {
   let users;
   try {
     users = await graphGetAll(
-      "/users?$select=id,displayName,userPrincipalName,userType,accountEnabled,createdDateTime,externalUserState,onPremisesSyncEnabled,signInActivity",
+      "/users?$select=id,displayName,userPrincipalName,userType,accountEnabled,createdDateTime,externalUserState,onPremisesSyncEnabled,signInActivity&$top=500",
       TOOL_ID
     );
   } catch (err) {

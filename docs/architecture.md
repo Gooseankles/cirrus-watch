@@ -154,7 +154,8 @@ reached only with Entra tokens. Three optional layers:
 <sub>Source: [arch-network.py](diagrams/arch-network.py)</sub>
 
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
-firewall to reach Docker Hub, ARM and Graph. Two scans also fetch public data once a day (no tenant data is sent).
+firewall to reach Docker Hub, ARM, Graph and `api.loganalytics.azure.com` (the Azure Monitor scan's heartbeat
+query). Two scans also fetch public data once a day (no tenant data is sent).
 The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
@@ -199,8 +200,11 @@ diff), `name`, `detail`, and where it applies `subscriptionId`, `resourceGroup`,
 
 Each tenant's `run()` has a deadline: `deadlineMinutes` when the tool sets it, else `SCAN_DEADLINE_MINUTES` (45).
 Past it the registry stops waiting, records "scan timed out" for that tenant and frees it for the next run. ARM,
-Graph and storage requests give up after a timeout (`AZURE_REQUEST_TIMEOUT_SECONDS`, 60; storage 30) and are tried
-again, as on 429 and 503.
+Log Analytics, Graph and storage requests give up after a timeout (`AZURE_REQUEST_TIMEOUT_SECONDS`, 60; storage 30)
+and are tried again, as on 429, 500, 502, 503 and 504 (a Graph POST only on 429, 503 and 504): after the Retry-After
+wait Azure asks for, else a random wait of half to all of 1, 2, 4 ... 60 seconds, and never past 15 minutes for one
+request in all. Every request carries its own `x-ms-client-request-id` (Graph: `client-request-id`), named with
+Microsoft's `request-id` in the error when it fails.
 
 Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolPermissions.js` (what it needs),
 `src/settings.js` (SPN override and its settings), `public/app.js` (`TOOLS`, `KINDS`) and `public/compliance.js`

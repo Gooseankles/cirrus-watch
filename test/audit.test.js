@@ -62,3 +62,13 @@ test("a removal is recorded with who, what and the detail the route adds", () =>
   assert.equal(long.detail.length, 1000, "the detail is clipped");
   assert.ok(audit.readAll({ action: "remove-tenant" }).every((e) => e.action === "remove-tenant"));
 });
+
+test("an SSO user's oid and tid go into the line next to the UPN; a local admin has none", () => {
+  const sso = { upn: "renamed@example.com", name: "Pat", via: "sso", oid: "00000000-0000-4000-8000-0000000000aa", tid: "00000000-0000-4000-8000-0000000000bb" };
+  audit.record({ session: { user: sso }, ip: "10.0.0.1" }, { action: "sign-in" });
+  audit.record({ session: { user: { name: "admin", upn: null, via: "local" } }, ip: "10.0.0.1" }, { action: "sign-in" });
+  const [local, entry] = audit.readAll({ action: "sign-in", limit: 2 });
+  assert.deepEqual([entry.user, entry.oid, entry.tid], ["renamed@example.com", sso.oid, sso.tid]);
+  assert.equal(local.user, "admin");
+  assert.equal("oid" in local || "tid" in local, false);
+});

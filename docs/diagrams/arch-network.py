@@ -25,7 +25,7 @@ with picture(__file__):
             peapp = icon(PrivateEndpoint, "Private endpoint: web app", "pe-<name>, optional: app_private_endpoint", optional=True)
     st = icon(StorageAccounts, "Storage", "firewall: deny all but snet-app")
     kv = icon(KeyVaults, "Key vault", "firewall: deny all but snet-app")
-    azure = icon(Internet, "ARM, Graph, Entra,\nDocker Hub, endoflife.date,\nCISA KEV, FIRST EPSS,\nrdap.org and DNS (opt-in)")
+    azure = icon(Internet, "ARM, Log Analytics API, Graph, Entra,\nDocker Hub, endoflife.date,\nCISA KEV, FIRST EPSS,\nrdap.org and DNS (opt-in)")
 
     user >> link("HTTPS 443") >> fe >> link() >> app
     app >> link("VNet integration") >> snapp

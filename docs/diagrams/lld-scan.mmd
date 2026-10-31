@@ -2,7 +2,7 @@ sequenceDiagram
   participant C as node-cron
   participant R as toolRegistry
   participant T as Tool run()
-  participant Z as Azure (ARM, Graph)
+  participant Z as Azure (ARM, Log Analytics, Graph)
   participant H as History storage
   participant N as Notify queue
   C->>R: schedule fires

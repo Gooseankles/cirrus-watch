@@ -30,7 +30,8 @@ const BLOB_API_VERSION = "2021-08-06";
 const BLOB_TIMEOUT_MS = 30000;
 // Storage answers 429 or 5xx when it is busy (503 ServerBusy) and can time
 // out; a read, write or delete is tried again with the same waits as ARM
-// (Retry-After, else 1, 2, 4, 8 s). Fewer tries than ARM: pages wait on reads.
+// (Retry-After, else a random wait of half to all of 1, 2, 4, 8 s), but never
+// more than 60 s per wait. Fewer tries than ARM: pages wait on reads.
 const BLOB_MAX_RETRIES = 4;
 
 async function withRetry(send) {

@@ -11,6 +11,9 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.61.1.0: the Azure Monitor heartbeat query goes to `api.loganalytics.azure.com`.** A firewall or NAT that
+  limits the app's outbound traffic (`vnet_route_all`) must allow HTTPS to that host; otherwise the machine check
+  reports the heartbeat query as failed. The roles stay the same (Reader, or Log Analytics Reader on the workspaces).
 - **0.57.0.0: no more `<Area>.Run` roles.** Whoever may see a scan may run it. Old `<Area>.Run` and
   `<Area>.Run-<key>` roles still work and count as `<Area>.Read`, so nobody loses access, but their names now say
   more than they give. With Terraform, module v1.5.0 or newer drops the `.Run` app roles and groups and puts
@@ -20,6 +23,29 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.61.1.0] - 2026-10-31
+
+### Changed
+
+- Azure Monitor reads machine heartbeats through the Logs Query API v1 (`api.loganalytics.azure.com`) instead of
+  the retired ARM route, using each workspace's ID from Resource Graph.
+- Azure and Graph requests are also retried on 500 and 502 (Graph: a POST still only on 429, 503 and 504), with a
+  random wait between tries. Retry-After is read as seconds or as a date, and a long wait asked for by Azure (for
+  example by Cost Management on a first cost backfill) is honoured, up to 15 minutes per request.
+- Every Azure and Graph request sends its own request id (`x-ms-client-request-id`, Graph `client-request-id`); an
+  error names it and Microsoft's request id, for a support case.
+- Resource Graph queries ask for rows as objects explicitly (`resultFormat: objectArray`, already the default).
+- Stale accounts reads users 500 at a time (the most Graph allows with sign-in activity).
+- Audit log lines of a single sign-on user also hold the Entra object ID and tenant ID, so they still match after a
+  UPN change. The UPN is still what is shown.
+
+### Fixed
+
+- PIM: when Graph refuses the PIM for Groups activation history, the scan says so once (log and page note) instead
+  of showing every group activation as never used.
+- Key Vault: the permissions shown for the scan now list the Graph permissions it uses to look up who has access
+  (`User.Read.All`, `GroupMember.Read.All`, `Application.Read.All`).
 
 ## [0.61.0.0] - 2026-10-31
 

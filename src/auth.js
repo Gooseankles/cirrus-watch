@@ -111,6 +111,15 @@ async function startLogin(req, res) {
 // Enterprise App does not require assignment; refuse it rather than letting
 // the whole tenant read the dashboard.
 
+// The ID token's oid and tid claims, when they are strings.
+function idsOf(claims) {
+  const pick = (v) => (typeof v === "string" && v ? v.slice(0, 64) : undefined);
+  const out = {};
+  if (pick(claims.oid)) out.oid = pick(claims.oid);
+  if (pick(claims.tid)) out.tid = pick(claims.tid);
+  return out;
+}
+
 async function handleCallback(req, res) {
   const client = getMsalClient();
   if (!client) return res.status(500).send("SSO is not configured (DASHBOARD_AZURE_* missing in .env).");
@@ -134,7 +143,7 @@ async function handleCallback(req, res) {
     const roles = Array.isArray(claims.roles) ? claims.roles : [];
     if (!hasSignInRole(roles)) {
       console.warn(`SSO: refused ${claims.preferred_username || "unknown"}: no dashboard app role in the token`);
-      audit.record(req, { action: "sign-in-refused", user: claims.preferred_username || "unknown", detail: "no dashboard app role" });
+      audit.record(req, { action: "sign-in-refused", user: claims.preferred_username || "unknown", ...idsOf(claims), detail: "no dashboard app role" });
       return res.redirect("/login.html?error=no-role");
     }
     req.session.regenerate((err) => {
@@ -142,6 +151,9 @@ async function handleCallback(req, res) {
       req.session.user = {
         name: claims.name || claims.preferred_username || "unknown",
         upn: claims.preferred_username || null,
+        // Entra object and tenant ID: for audit lines only (a UPN can be renamed); access still comes from roles.
+        oid: idsOf(claims).oid || null,
+        tid: idsOf(claims).tid || null,
         roles,
         via: "sso",
         signedInAt: Date.now(),

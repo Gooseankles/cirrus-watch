@@ -19,6 +19,7 @@
 // PrivilegedEligibilitySchedule.Read.AzureADGroup and
 // PrivilegedAssignmentSchedule.Read.AzureADGroup. Azure: Reader. Entra ID P2.
 const store = require("../findingsStore");
+const log = require("../log");
 const tenants = require("../tenants");
 const { graphGetAll } = require("../graphClient");
 const { armGet, subscriptionIdsToScan, subscriptionNames } = require("../armClient");
@@ -348,6 +349,21 @@ async function lookUp(ids, ctx) {
   ctx.findings.push(...errors);
 }
 
+// The group activation history (assignmentScheduleRequests) is extra: when
+// Graph refuses it, the group is still checked, but the refusal is said once
+// per run (log and page note) instead of every member looking never activated.
+// Any other error goes on like the sibling calls' (no P2, unsupported group).
+function groupHistoryRefused(err, ctx) {
+  if (noPremium(err) || !/\(403\)|Authorization_RequestDenied|Forbidden/i.test(String(err && err.message))) throw err;
+  if (!ctx.historyRefused) {
+    ctx.historyRefused = true;
+    const hint = graphHint(err, "PrivilegedAssignmentSchedule.Read.AzureADGroup");
+    log.record({ tool: TOOL_ID, level: "info", message: `PIM for Groups activation history not read: ${hint}` });
+    ctx.notes.push("PIM for Groups activation history could not be read (Graph refused it), so group activations show no last-activated date.");
+  }
+  return [];
+}
+
 // Members and PIM for Groups state of one group.
 async function readGroup(id, ctx) {
   const g = { id, members: [], eligible: [], activated: [], owners: [], pim: true };
@@ -361,7 +377,7 @@ async function readGroup(id, ctx) {
     const [eligible, active, requests] = await Promise.all([
       graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,startDateTime,endDateTime`, TOOL_ID),
       graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,assignmentType,endDateTime`, TOOL_ID),
-      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleRequests?$filter=groupId eq '${id}'&$select=principalId,accessId,action,createdDateTime`, TOOL_ID).catch(() => []),
+      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleRequests?$filter=groupId eq '${id}'&$select=principalId,accessId,action,createdDateTime`, TOOL_ID).catch((err) => groupHistoryRefused(err, ctx)),
     ]);
     g.eligible = eligible.map((e) => ({ principalId: e.principalId, access: e.accessId, start: e.startDateTime || null, end: e.endDateTime || null }));
     g.activated = active.filter((a) => a.assignmentType === "Activated").map((a) => ({ principalId: a.principalId, access: a.accessId, end: a.endDateTime || null }));
@@ -613,5 +629,5 @@ module.exports = {
   schedule: "10 5 * * *", // daily at 05:10
   run,
   registerRoutes,
-  _test: { policyProblems, buildRows, peopleFindings, groupFindings, hours },
+  _test: { policyProblems, buildRows, peopleFindings, groupFindings, groupHistoryRefused, hours },
 };

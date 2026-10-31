@@ -58,6 +58,15 @@ app.use((req, res, next) => {
   res.status(403).json({ error: "request refused: it did not come from this dashboard's own pages" });
 });
 
+// Health check for App Service and uptime checks: no sign-in, no session, and
+// only "ok" or "stale" (src/health.js), never tenants, findings or the version.
+const health = require("./src/health");
+app.get("/health", (req, res) => {
+  const status = health.status();
+  res.set("Cache-Control", "no-store");
+  res.status(status === "ok" ? 200 : 503).json({ status });
+});
+
 // App Service ends HTTPS at its front end and forwards plain HTTP, so trust
 // its X-Forwarded-Proto to allow Secure cookies.
 function sessionStore() {

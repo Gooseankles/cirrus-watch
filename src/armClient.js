@@ -16,6 +16,14 @@ async function getArmToken(toolId) {
 
 const MAX_RETRIES = 6;
 
+// A request that hangs must not hold a scan forever: it gives up after
+// AZURE_REQUEST_TIMEOUT_SECONDS (default 60) and is tried again like a 503.
+function requestTimeoutMs() {
+  return (Number(process.env.AZURE_REQUEST_TIMEOUT_SECONDS) || 60) * 1000;
+}
+const timeoutTries = (attempt) => `${attempt + 1} ${attempt ? "tries" : "try"} of ${requestTimeoutMs() / 1000} s each`;
+const isTimeout = (err) => Boolean(err) && (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT");
+
 // ARM and Cost Management answer 429 (and sometimes 503) when a scan over
 // hundreds of subscriptions goes too fast; they say how long to wait in a
 // Retry-After or x-ms-ratelimit-*-retry-after header.
@@ -32,16 +40,25 @@ async function armRequest(method, url, data, toolId) {
   let response;
   for (let attempt = 0; ; attempt++) {
     const token = await getArmToken(toolId);
-    response = await axios.request({
-      method,
-      url,
-      data,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      validateStatus: () => true,
-    });
+    try {
+      response = await axios.request({
+        method,
+        url,
+        data,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        timeout: requestTimeoutMs(),
+        validateStatus: () => true,
+      });
+    } catch (err) {
+      // Every ARM call here only reads or is safe to repeat (PUTs, queries sent as POST).
+      if (!isTimeout(err)) throw err;
+      if (attempt >= MAX_RETRIES) throw new Error(`ARM request timed out ${method} ${url} (${timeoutTries(attempt)})`);
+      await new Promise((r) => setTimeout(r, retryDelayMs({}, attempt)));
+      continue;
+    }
     const retryable = response.status === 429 || response.status === 503;
     if (!retryable || attempt >= MAX_RETRIES) break;
     await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));
@@ -165,6 +182,10 @@ async function subscriptionLabel(subscriptionId, toolId) {
 }
 
 module.exports = {
+  retryDelayMs,
+  requestTimeoutMs,
+  isTimeout,
+  timeoutTries,
   subscriptionNames,
   subscriptionLabel,
   forgetTenant,

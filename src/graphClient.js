@@ -5,6 +5,8 @@
 // consent — see docs/permissions.md for which ones each tool needs.
 const axios = require("axios");
 const { getCredential } = require("./credentials");
+// The same request timeout as ARM (AZURE_REQUEST_TIMEOUT_SECONDS).
+const { requestTimeoutMs, isTimeout, timeoutTries } = require("./armClient");
 
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 const GRAPH_ROOT = "https://graph.microsoft.com/v1.0";
@@ -28,13 +30,23 @@ async function graphRequest(method, path, body, toolId) {
   let response;
   for (let attempt = 0; ; attempt++) {
     const token = await getGraphToken(toolId);
-    response = await axios.request({
-      method,
-      url,
-      data: body,
-      headers: { Authorization: `Bearer ${token}` },
-      validateStatus: () => true,
-    });
+    try {
+      response = await axios.request({
+        method,
+        url,
+        data: body,
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: requestTimeoutMs(),
+        validateStatus: () => true,
+      });
+    } catch (err) {
+      // A timed-out GET is tried again like a 503. A POST is not: it may have
+      // done its work (sendMail) before the answer was lost.
+      if (!isTimeout(err)) throw err;
+      if (method !== "get" || attempt >= MAX_RETRIES) throw new Error(`Graph ${method.toUpperCase()} ${url} timed out (${timeoutTries(attempt)})`);
+      await new Promise((r) => setTimeout(r, retryDelayMs({}, attempt)));
+      continue;
+    }
     const retryable = [429, 503, 504].includes(response.status);
     if (!retryable || attempt >= MAX_RETRIES) break;
     await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));

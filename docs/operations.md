@@ -23,7 +23,7 @@ up (a bigger plan), not out.
    - `latest`: every push to `main`. For testing only.
 3. Raise the module `?ref=` separately from the image, run `terraform plan`, read what it will change, then apply.
 4. After the restart, open the dashboard: the version is bottom left. Check Recent activity for errors and run one
-   scan with **Run now**.
+   scan with **Run now**. `https://<site>/health` should answer `{"status":"ok"}`.
 
 Everything in `DATA_DIR` and the storage account stays; sign-ins survive a restart.
 
@@ -89,10 +89,32 @@ which scan pushed the load up, with a timeline, the peak of every run and a list
 previous one did not stop cleanly, for example out of memory). An alarm goes to Recent activity, with the
 scans running at the time, when CPU stays above `MONITOR_CPU_WARN_PCT` (90) for 5 minutes, memory or heap passes
 `MONITOR_MEMORY_WARN_PCT` (85), or answers take longer than `MONITOR_LAG_WARN_MS` (2000); another line follows when
-it is back to normal. For email, set `alert_emails` in Terraform (see the module's README, Load alarms).
+it is back to normal. For email, set `alert_emails` in Terraform (see the module's README, Load alarms and health check).
 
 The Azure Monitor alerts (`alert_emails`) watch the same App Service from outside, so they also arrive when the app
 itself is stuck.
+
+## Health check
+
+`GET /health` needs no sign-in. It answers 200 `{"status":"ok"}`, or 503 `{"status":"stale"}` when no scheduled
+scan has finished well (at least one tenant saved) for `HEALTH_SCAN_MAX_AGE_HOURS` (default 26: a day of nightly
+scans plus slack). It is always ok in the first 26 hours after a start, so a restart is not reported. **Run now** does
+not count: only the schedules show that the app keeps working by itself. The answer says nothing else: no tenants,
+findings or version.
+
+The Terraform module sets App Service's health check path to `/health` and adds the alert **Health check status**
+(below 100% for 15 minutes), sent to `alert_emails`. That module version needs app 0.61.0.0 or newer: an older app
+answers `/health` with the sign-in page. With one instance App Service keeps the app in service, but it may restart
+it while it stays unhealthy. Without the module, point any uptime check at `/health`.
+
+Two limits keep a stuck scan from blocking the others:
+
+- Each ARM or Graph request gives up after `AZURE_REQUEST_TIMEOUT_SECONDS` (60) and is tried again (a Graph POST is
+  not). Storage requests give up after 30 seconds and are tried again too, as on 429 and 5xx.
+- Each tenant's scan run has a deadline, `SCAN_DEADLINE_MINUTES` (45) unless the tool sets its own. Past it the
+  tenant gets "scan timed out" and keeps its last results. "Already running" now means a run that started less than
+  the deadline ago and has not ended. After the deadline the next schedule or **Run now** starts again, even if the
+  late run is still going in the background; what it returns is thrown away.
 
 ## Keep the image up to date
 

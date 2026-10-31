@@ -22,11 +22,32 @@ const { DATA_DIR } = require("./paths");
 const settings = require("./settings");
 const { getCredential } = require("./credentials");
 const tenantContext = require("./tenantContext");
+const { retryDelayMs, isTimeout } = require("./armClient");
 
 const STORAGE_TOOL_ID = "history-storage"; // its own identity override in Settings
 const BLOB_API_VERSION = "2021-08-06";
 // A storage call that hangs must not hold a page (or a scan) forever.
 const BLOB_TIMEOUT_MS = 30000;
+// Storage answers 429 or 5xx when it is busy (503 ServerBusy) and can time
+// out; a read, write or delete is tried again with the same waits as ARM
+// (Retry-After, else 1, 2, 4, 8 s). Fewer tries than ARM: pages wait on reads.
+const BLOB_MAX_RETRIES = 4;
+
+async function withRetry(send) {
+  for (let attempt = 0; ; attempt++) {
+    let resp;
+    try {
+      resp = await send();
+    } catch (err) {
+      if (!isTimeout(err) || attempt >= BLOB_MAX_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, retryDelayMs({}, attempt)));
+      continue;
+    }
+    const retryable = resp.status === 429 || resp.status >= 500;
+    if (!retryable || attempt >= BLOB_MAX_RETRIES) return resp;
+    await new Promise((r) => setTimeout(r, retryDelayMs(resp, attempt)));
+  }
+}
 
 function retentionDays() {
   return Number(settings.get("HISTORY_RETENTION_DAYS")) || 365;
@@ -110,13 +131,15 @@ function blobBackend(accountUrl, container, tenantKey) {
     name: "blob",
     async get(key) {
       checkKey(key);
-      const resp = await axios.get(`${base}/${key}`, {
-        headers: await headers(),
-        timeout: BLOB_TIMEOUT_MS,
-        validateStatus: () => true,
-        responseType: "text",
-        transformResponse: (d) => d,
-      });
+      const resp = await withRetry(async () =>
+        axios.get(`${base}/${key}`, {
+          headers: await headers(),
+          timeout: BLOB_TIMEOUT_MS,
+          validateStatus: () => true,
+          responseType: "text",
+          transformResponse: (d) => d,
+        })
+      );
       if (resp.status === 404) return null;
       if (resp.status >= 300) throw fail("read", key, resp);
       try {
@@ -128,13 +151,15 @@ function blobBackend(accountUrl, container, tenantKey) {
     async put(key, obj) {
       checkKey(key);
       const body = JSON.stringify(obj);
-      const send = async () =>
-        axios.put(`${base}/${key}`, body, {
-          headers: await headers({ "x-ms-blob-type": "BlockBlob", "Content-Type": "application/json" }),
-          timeout: BLOB_TIMEOUT_MS * 2,
-          validateStatus: () => true,
-          maxBodyLength: Infinity,
-        });
+      const send = () =>
+        withRetry(async () =>
+          axios.put(`${base}/${key}`, body, {
+            headers: await headers({ "x-ms-blob-type": "BlockBlob", "Content-Type": "application/json" }),
+            timeout: BLOB_TIMEOUT_MS * 2,
+            validateStatus: () => true,
+            maxBodyLength: Infinity,
+          })
+        );
       let resp = await send();
       if (resp.status === 404 && resp.headers["x-ms-error-code"] === "ContainerNotFound") {
         // A customer removed while this ran: its container must not come back.
@@ -146,7 +171,7 @@ function blobBackend(accountUrl, container, tenantKey) {
     },
     async del(key) {
       checkKey(key);
-      const resp = await axios.delete(`${base}/${key}`, { headers: await headers(), timeout: BLOB_TIMEOUT_MS, validateStatus: () => true });
+      const resp = await withRetry(async () => axios.delete(`${base}/${key}`, { headers: await headers(), timeout: BLOB_TIMEOUT_MS, validateStatus: () => true }));
       if (resp.status >= 300 && resp.status !== 404) throw fail("delete", key, resp);
     },
   };
@@ -481,4 +506,5 @@ module.exports = {
   getDoc,
   putDoc,
   STORAGE_TOOL_ID,
+  _test: { withRetry },
 };

@@ -134,6 +134,7 @@ const TOOLS = [
   { id: "updates", group: "resources", label: "Updates and patching", icon: "clock", schedule: "Daily at 06:25", sub: "From Azure Update Manager: running VMs and Arc servers with Critical or Security updates pending (critical when the oldest is older than the set number of days), machines not assessed lately or whose assessment failed, VMs on no patch schedule at all, and machines whose latest update installation failed or ended with warnings." },
   { id: "resource-health", group: "resources", label: "Resource health", icon: "activity", schedule: "Every hour", sub: "Resources Azure reports as Unavailable or Degraded right now, with why and since when (VMs you stopped yourself are left out), and Service Health events that hit your subscriptions: active outages, health and security advisories, and planned maintenance starting soon, each with its Service Health link." },
   { id: "network-hygiene", group: "resources", label: "Network hygiene", icon: "network", schedule: "Daily at 05:05", sub: "Network settings that look fine but protect or route nothing: WAF policies in Detection mode or turned off (Application Gateway and Front Door), WAF gateways with no WAF at all, public Standard gateways with no WAF, DNS records that point at an Azure name nobody owns any more (subdomain takeover) or at a deleted resource, and routes to a virtual appliance address that belongs to nothing, so the traffic is dropped." },
+  { id: "domains", group: "resources", label: "Domains and mail", icon: "globe", schedule: "Daily at 06:35 (off until turned on in Settings)", sub: "The organisation's own domains (from user names and mail addresses, App Service custom domains, Azure DNS zones and App Service Domains): registrations that expire soon or have no transfer lock, App Service Domains without auto-renew, Azure DNS zones the internet does not delegate to, and for domains that receive mail a missing or weak SPF record, SPF over 10 lookups, a missing DMARC record or p=none, and missing Exchange Online DKIM records." },
   { id: "subscriptions", group: "governance", label: "Subscriptions", icon: "box", schedule: "Daily at 04:35", sub: "Subscriptions sitting directly in the Tenant Root Group (management group policies and access do not reach them), with no Owner on the subscription or a management group above it, or not enabled: Warned or PastDue (about to be switched off) and Disabled ones left behind." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
   { id: "ipam", group: "resources", label: "IP addresses", icon: "network", schedule: "Daily at 04:20", sub: "What goes wrong with addresses: overlapping ranges, subnets running out, public or off-plan address space, broken peerings and untidy firewall IP groups. Free addresses are on the IPAM page." },
@@ -470,6 +471,20 @@ const KINDS = {
   "dns-dangling-cname": ["Dangling DNS (takeover risk)", "crit"],
   "dns-alias-missing": ["DNS alias to deleted resource", "crit"],
   "route-next-hop-missing": ["Route to missing appliance", "crit"],
+  "domain-expired": ["Domain registration expired", "crit"],
+  "domain-expiring": ["Domain expires within 30 days", "crit"],
+  "domain-renewal-due": ["Domain expires within 60 days", "warn"],
+  "domain-unlocked": ["Registrar lock off", ""],
+  "asd-auto-renew-off": ["App Service Domain auto-renew off", "warn"],
+  "dns-zone-not-delegated": ["DNS zone not delegated", "warn"],
+  "spf-missing": ["No SPF record", "crit"],
+  "spf-multiple": ["More than one SPF record", "crit"],
+  "spf-pass-all": ["SPF allows everyone (+all)", "crit"],
+  "spf-neutral-all": ["SPF neutral (?all)", "warn"],
+  "spf-too-many-lookups": ["SPF over 10 DNS lookups", "warn"],
+  "dmarc-missing": ["No DMARC record", "warn"],
+  "dmarc-none": ["DMARC p=none", ""],
+  "dkim-missing": ["DKIM records missing", ""],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");

@@ -300,6 +300,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/resourceHealth")),
   registerScanTool(app, require("./src/tools/subscriptions")),
   registerScanTool(app, require("./src/tools/networkHygiene")),
+  registerScanTool(app, require("./src/tools/domains")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

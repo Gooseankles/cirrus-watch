@@ -60,6 +60,7 @@ const NEEDS = {
   "resource-health": { azure: READER },
   subscriptions: { azure: ["Reader", "Reader at the Tenant Root Group, to see Owners given on management groups"] },
   "network-hygiene": { azure: READER },
+  domains: { azure: READER, graph: ["User.Read.All"] },
   "access-lookup": {
     azure: READER,
     graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup"],

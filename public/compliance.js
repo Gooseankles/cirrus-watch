@@ -387,6 +387,11 @@ const KIND_CONTROLS = {
   "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4", "ir:12.4", "ir:6.7"],
   "dns-alias-missing": ASSETS,
   "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  ...Object.fromEntries(["domain-expired", "domain-expiring", "domain-renewal-due", "asd-auto-renew-off"].map((k) => [k, CONTINUITY])),
+  "domain-unlocked": ASSETS,
+  "dns-zone-not-delegated": ASSETS,
+  ...Object.fromEntries(["spf-missing", "spf-multiple", "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"]
+    .map((k) => [k, ["nis2:i", "nsm:2.8", "ir:6.7"]])),
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -441,6 +446,8 @@ const TOOL_KINDS = {
   "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
+  domains: ["domain-expired", "domain-expiring", "domain-renewal-due", "domain-unlocked", "asd-auto-renew-off", "dns-zone-not-delegated", "spf-missing", "spf-multiple",
+    "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".

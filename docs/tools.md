@@ -147,6 +147,30 @@ WAFs that block nothing, dangling DNS records and routes to nowhere.
 
 WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has.
 
+## Domains and mail
+
+Off by default. The tenant's own domains: expiring registrations, no registrar lock, undelegated Azure DNS zones, SPF, DMARC and DKIM gaps.
+
+Turned on per tenant with `DOMAIN_CHECKS` (`on`, or `dns` to skip the registration lookups); while off it makes no
+requests. Domains come from member user names and mail addresses (Graph, `User.Read.All`), App Service custom host
+names, Azure DNS zones and App Service Domains (Resource Graph); `*.onmicrosoft.com` and Azure default host names are
+left out. Graph's own domain list is not used, since it needs `Domain.Read.All`. Registrable domains are found with a
+short built-in list of multi-part suffixes (`co.uk`, `com.au`, `priv.no` and similar), not the full Public Suffix
+List, so a domain under a rare one is looked up one level too high and quietly skipped. Checks:
+
+- **Registration** (RDAP through `rdap.org`, which redirects to the registry; answers kept a day in
+  `DATA_DIR/rdap-cache.json`): expired or expiring within 30 days (critical), within 60 days (warning), and no
+  `clientTransferProhibited` or `serverTransferProhibited` status (information; generic TLDs only, as country
+  registries often have no such status). A TLD without RDAP or without an expiry date (`.no`, `.de`) is skipped
+  without a finding.
+- **App Service Domains**: expiring (same limits) and auto-renew off.
+- **Azure DNS zones** (public ones): the name servers public DNS gives for the zone do not match the zone's own
+  (not delegated, delegated elsewhere or only partly).
+- **Mail**, only for domains with MX records: SPF missing, more than one SPF record or ending in `+all` (critical),
+  `?all` or more than 10 DNS lookups counted through includes (warning); DMARC missing or invalid (warning) or
+  `p=none` (information; a subdomain without its own record uses its parent's `sp`/`p`); and for MX on
+  `*.mail.protection.outlook.com`, missing `selector1`/`selector2._domainkey` DKIM records (information).
+
 ## Subscriptions
 
 Subscriptions in the Tenant Root Group, with no Owner, or not in good standing.

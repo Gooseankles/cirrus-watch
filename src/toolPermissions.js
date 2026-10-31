@@ -44,6 +44,8 @@ const NEEDS = {
   "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
   "conditional-access": { graph: ["Policy.Read.All"], licence: "Entra ID P1" },
   "app-permissions": { graph: ["Application.Read.All", "DelegatedPermissionGrant.Read.All", "Policy.Read.All"] },
+  // AuditLog.Read.All and Reader are optional: without them the unused-app and disabled-app checks are skipped.
+  "enterprise-apps": { graph: ["Application.Read.All", "AuditLog.Read.All"], azure: ["Reader (optional: Azure roles held by disabled apps)"] },
   "licence-coverage": {
     azure: READER,
     graph: [

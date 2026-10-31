@@ -339,6 +339,17 @@ const KIND_CONTROLS = {
   "app-takeover-permission": APPS,
   "app-broad-data-permission": APPS,
   "app-risky-delegated-consent": APPS,
+  "ent-saml-cert-expired": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-saml-cert-expiring-soon": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-saml-cert-expiring": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expired": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expiring-soon": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-credential-expiring": ["cis:5.5", "nis2:i", "nsm:2.6", "ir:11.2"],
+  "ent-sp-secret": KEYS,
+  "ent-open-sign-in": ACCESS,
+  "ent-no-owner": ["cis:5.5", "nis2:i", "nsm:1.3", "ir:11.2"],
+  "ent-unused-app": DORMANT,
+  "ent-disabled-azure-roles": REVOKE,
   "user-consent-unrestricted": ["cis:2.5", "cis:6.1", "nis2:d", "nsm:2.1", "nsm:2.6", "ir:5.1", "ir:11.2"],
   "defender-low-score": DEFENDER,
   "defender-high": DEFENDER,
@@ -442,6 +453,7 @@ const TOOL_KINDS = {
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
+  "enterprise-apps": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("ent-")),
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".
 const MANUAL = {

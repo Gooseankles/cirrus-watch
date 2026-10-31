@@ -290,6 +290,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/mfaCoverage")),
   registerScanTool(app, require("./src/tools/conditionalAccess")),
   registerScanTool(app, require("./src/tools/appPermissions")),
+  registerScanTool(app, require("./src/tools/enterpriseApps")),
   registerScanTool(app, require("./src/tools/licenceCoverage")),
   registerScanTool(app, require("./src/tools/defender")),
   registerScanTool(app, require("./src/tools/vulnerabilities")),

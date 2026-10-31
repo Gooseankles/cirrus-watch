@@ -21,6 +21,37 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.61.0.0] - 2026-10-31
+
+### Added
+
+- Connectivity health scan (hourly): VPN connections and ExpressRoute circuits that are down, failed gateways,
+  private endpoints waiting for approval or without a DNS zone group, and unhealthy backends on application gateways,
+  load balancers and Front Door.
+- Enterprise apps scan (daily): SAML signing certificates and service principal secrets that expire, single sign-on
+  apps anyone may sign in to, apps with no owner, unused apps from other tenants and disabled apps that still hold
+  Azure roles.
+- Azure Virtual Desktop scan (daily): unavailable or broken session hosts, empty host pools, pooled pools without a
+  scaling plan, unassigned personal desktops, Start VM on Connect off, application groups in no workspace and empty
+  workspaces. A Host pools tab lists every pool.
+- Domains and mail scan, off by default (`DOMAIN_CHECKS=on`, or `dns` for DNS only): expiring or unlocked domain registrations,
+  App Service Domains without auto-renew, Azure DNS zones that are not delegated, and SPF, DMARC and DKIM gaps. It
+  looks up registrations at rdap.org. The header of `src/tools/domains.js` lists how to remove it.
+- `GET /health` (no sign-in): 503 when no scheduled scan has finished for `HEALTH_SCAN_MAX_AGE_HOURS` (26). Module
+  v1.10.0 uses it as the App Service health check.
+- A per-tenant scan deadline (`SCAN_DEADLINE_MINUTES`, 45).
+- The tests run in CI before the image is built.
+
+### Changed
+
+- Azure and Graph requests time out after `AZURE_REQUEST_TIMEOUT_SECONDS` (60) and are retried (Graph only for
+  reads).
+
+### Fixed
+
+- Blob reads and writes of the findings store are retried on short outages.
+- A scan that hangs no longer leaves the tenant on "already running".
+
 ## [0.60.0.4] - 2026-10-30
 
 ### Changed

@@ -14,16 +14,20 @@
 //
 // Removal checklist (this tool is opt-in and may be dropped). Delete
 // src/tools/domains.js and test/domains.test.js, then remove the lines that
-// mention "domains" / "Domains and mail" / DOMAIN_CHECKS in:
+// mention "domains" / "Domains and mail" / DOMAIN_CHECKS / rdap in:
 //   server.js (registerScanTool line), src/toolPermissions.js (NEEDS),
 //   src/access.js (TOOL_AREAS), src/settings.js (DOMAIN_CHECKS field and
 //   TOOL_SPNS entry), public/app.js (TOOLS entry and the domain-, asd-, spf-,
 //   dmarc-, dkim-, dns-zone-not-delegated KINDS), public/compliance.js
 //   (KIND_CONTROLS block and TOOL_KINDS entry), .env.example (DOMAIN_CHECKS
-//   block), docs/tools.md (section), docs/permissions.md (Reader row note),
-//   docs/architecture.md, docs/lld-setup.md and docs/hld.md (outbound hosts
-//   sentence). Then run npm run docs and npm run diagrams -- arch-inside-app
-//   (tool count). DATA_DIR/rdap-cache.json can be deleted.
+//   block), docs/tools.md (section), docs/permissions.md (the Reader row's
+//   last clause and the User.Read.All row), docs/architecture.md,
+//   docs/lld-setup.md and docs/hld.md (outbound hosts sentence), docs/data.md
+//   (rdap-cache.json sentence), docs/guides/sign-in-and-roles.md (areas
+//   table), docs/diagrams/hld-context.py and arch-network.py (rdap.org, DNS).
+//   Then run npm run docs (README table, .env.example tool ids) and
+//   npm run diagrams -- arch-inside-app hld-context arch-network.
+//   CHANGELOG.md keeps its history. DATA_DIR/rdap-cache.json can be deleted.
 const dns = require("dns");
 const fs = require("fs");
 const path = require("path");

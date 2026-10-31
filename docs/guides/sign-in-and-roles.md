@@ -19,9 +19,9 @@ more than one (`TOOL_AREAS` in `src/access.js`):
 
 | Area | Scans |
 | --- | --- |
-| Identity | Access lookup, access review, secret expiry, access packages, role assignments, PIM, stale accounts, tenant settings, licence coverage, privileged roles, app permissions, Conditional Access, MFA coverage |
-| Security | Privileged roles, app permissions, Conditional Access, MFA coverage, Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log |
-| Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, certificates, backup coverage, resilience, updates, resource health, connectivity health, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
+| Identity | Access lookup, access review, secret expiry, access packages, role assignments, PIM, stale accounts, tenant settings, licence coverage, privileged roles, app permissions, enterprise apps, Conditional Access, MFA coverage |
+| Security | Privileged roles, app permissions, enterprise apps, Conditional Access, MFA coverage, Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, domains and mail, Key Vault, resource settings, diagnostic settings, change log |
+| Platform | Defender for Cloud, internet exposure, exposure paths, firewall policies, network hygiene, domains and mail, Key Vault, resource settings, diagnostic settings, change log, IPAM, tags, end of support, service retirements, certificates, backup coverage, resilience, updates, resource health, connectivity health, Azure Virtual Desktop, architecture, policy check, safety nets, Azure Monitor, subscriptions, quotas, orphaned resources, cost anomalies, cost history |
 | Cost | Orphaned resources, cost anomalies, cost history |
 
 Whoever may see a scan may also run it and accept or snooze its findings. Settings stays with `Admin`; the server

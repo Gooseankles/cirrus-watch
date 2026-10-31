@@ -156,13 +156,14 @@ connection's own ARM GET), ExpressRoute circuits the provider has not provisione
 circuits with Azure private peering disabled (critical). VPN and ExpressRoute gateways, including Virtual WAN ones,
 in a failed provisioning state (critical). Private endpoints still waiting for approval (warning; rejected and
 disconnected ones are in Orphaned resources) and approved private endpoints with no private DNS zone group, so the
-name likely still resolves to the public address (information; turn this off in Settings, Connectivity health, for
-tenants that run their own DNS). Backends that failed their health probes over the last hour, from Azure Monitor
+name likely still resolves to the public address (information; turn this off in Settings, Connectivity health,
+`CONNECTIVITY_PE_DNS_CHECK`, for tenants that run their own DNS). Backends that failed their health probes over the last hour, from Azure Monitor
 metrics (warning): Application Gateway `UnhealthyHostCount` above 0, Standard load balancer health probe status
 (`DipAvailability`) and Front Door origin health (`OriginHealthPercentage`, classic Front Door
-`BackendHealthPercentage`) below 100 % (or the percentage set in Settings). Each finding names the pool, backend
+`BackendHealthPercentage`) below 100 % (or `CONNECTIVITY_HEALTH_PERCENT`, set in Settings). Each finding names the pool, backend
 or origin where Azure gives it and says what to check. Reads at most 500 connections, 500 private endpoints and
 200 resources of each load-balancing kind per run; the rest show as "not checked".
+
 ## Azure Virtual Desktop
 
 Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see.

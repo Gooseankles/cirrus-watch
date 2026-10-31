@@ -5,16 +5,27 @@
 // certificates are also read from the gateway's settings (ARM hands back their
 // public part), so private gateways are covered without a connection. Reader is
 // enough; the listed addresses need no Azure at all.
+// Every certificate seen is also saved as a list (In use on the page): where
+// it is used, who issued it, when it expires and its state, also when all is
+// well. App Service certificate resources are listed too, with their bindings.
 const tls = require("tls");
 const net = require("net");
 const crypto = require("crypto");
 const settings = require("../settings");
+const store = require("../findingsStore");
+const tenants = require("../tenants");
 const { resourceGraphQuery } = require("../armClient");
-const { numberSetting, mapLimit, runChecks, itemErrors, daysUntil } = require("./util");
+const { numberSetting, mapLimit, runChecks, itemErrors, scanError, daysUntil } = require("./util");
 
 const TOOL_ID = "certificates";
 const TIMEOUT_MS = 10000;
 const MAX_HOSTS = 500;
+const INVENTORY_KEY = "certificates/inventory.json";
+
+// State of a certificate from its days left.
+const expiryState = (days, warn) => (days < 0 ? "expired" : days <= warn ? "expiring" : "ok");
+const isoDay = (d) => new Date(d).toISOString().slice(0, 10);
+const thumbOf = (fp) => String(fp || "").replace(/:/g, "").toUpperCase() || null;
 
 // Names Microsoft owns and keeps valid itself.
 const MICROSOFT_HOST = /\.(?:azurewebsites\.net|azurewebsites\.us|chinacloudsites\.cn|trafficmanager\.net|azurefd\.net|azureedge\.net|appserviceenvironment\.net)$/i;
@@ -51,12 +62,50 @@ async function azureTargets() {
     | where tostring(properties.state) =~ 'Running'
     | mv-expand ssl = properties.hostNameSslStates
     | where tostring(ssl.hostType) =~ 'Standard'
-    | project id, name, resourceGroup, subscriptionId, host = tolower(tostring(ssl.name))`,
+    | project id, name, resourceGroup, subscriptionId, host = tolower(tostring(ssl.name)), thumb = toupper(tostring(ssl.thumbprint))`,
     { toolId: TOOL_ID }
   );
   return rows
     .filter((r) => r.host && !MICROSOFT_HOST.test(r.host))
-    .map((r) => ({ host: r.host, port: 443, source: r.name, resourceId: r.id, resourceGroup: r.resourceGroup, subscriptionId: r.subscriptionId }));
+    .map((r) => ({ host: r.host, port: 443, source: r.name, resourceId: r.id, resourceGroup: r.resourceGroup, subscriptionId: r.subscriptionId, thumb: r.thumb || null, type: "site", usedBy: `Web app ${r.name}` }));
+}
+
+// App Service certificate resources (uploaded, App Service managed or from Key
+// Vault), with the custom domains they are bound to from the sites' bindings.
+async function appServiceCerts(warn, sites) {
+  const rows = await resourceGraphQuery(
+    `resources
+    | where type =~ 'microsoft.web/certificates'
+    | project id, name, resourceGroup, subscriptionId, subject = tostring(properties.subjectName), issuer = tostring(properties.issuer),
+        expires = tostring(properties.expirationDate), thumb = toupper(tostring(properties.thumbprint)), kv = tostring(properties.keyVaultId)`,
+    { toolId: TOOL_ID }
+  );
+  return appServiceRows(rows, sites, warn);
+}
+
+function appServiceRows(rows, sites, warn, now = Date.now()) {
+  return rows.map((r) => {
+    const bound = sites.filter((t) => t.thumb && t.thumb === r.thumb);
+    const hosts = [...new Set(bound.map((t) => t.host))];
+    const apps = [...new Set(bound.map((t) => t.source))];
+    const days = r.expires ? daysUntil(r.expires, now) : null;
+    const issuer = (/(?:^|,\s*)O=([^,]+)/.exec(r.issuer || "") || /CN=([^,]+)/.exec(r.issuer || "") || [])[1] || r.issuer || null;
+    return {
+      id: r.id,
+      name: r.name,
+      type: "appservice",
+      usedBy: hosts.length ? `${hosts.join(", ")} (web app${apps.length > 1 ? "s" : ""} ${apps.join(", ")})` : "Not bound to a running web app",
+      source: r.kv ? "Key Vault" : "App Service",
+      subject: r.subject || null,
+      issuer,
+      expires: r.expires ? isoDay(r.expires) : null,
+      days,
+      thumbprint: r.thumb || null,
+      status: !bound.length ? "unused" : days === null ? "unread" : expiryState(days, warn),
+      resourceGroup: r.resourceGroup || null,
+      subscriptionId: r.subscriptionId || null,
+    };
+  });
 }
 
 // --- Application gateways ---
@@ -145,8 +194,9 @@ async function gatewayPublicIps() {
 
 // Expiry of the certificates a gateway uses, from its settings: listener
 // certificates and trusted root certificates for HTTPS backends. Certificates no
-// listener or backend setting uses are left out. Also returns the ids of the
-// listener certificates whose expiry could be read.
+// listener or backend setting uses get no finding. Also returns the ids of the
+// listener certificates whose expiry could be read, and a list row for every
+// certificate on the gateway (unused ones too).
 function judgeGateway(gw, warn, now = Date.now()) {
   const base = { resourceGroup: gw.resourceGroup || null, subscriptionId: gw.subscriptionId || null };
   const https = arr(gw.listeners).filter((l) => lower(l.properties && l.properties.protocol) === "https");
@@ -154,6 +204,24 @@ function judgeGateway(gw, warn, now = Date.now()) {
   const rootUsers = (id) => arr(gw.backendSettings).filter((s) => arr(s.properties && s.properties.trustedRootCertificates).some((r) => lower(r.id) === lower(id))).map((s) => s.name);
   const out = [];
   const read = new Set();
+  const rows = [];
+  const row = (id, name, type, usedBy, source, cert, used) => {
+    const days = cert ? daysUntil(cert.validTo, now) : null;
+    rows.push({
+      ...base,
+      id,
+      name,
+      type,
+      usedBy,
+      source,
+      subject: cert ? x509Subject(cert) : null,
+      issuer: cert ? x509Issuer(cert) : null,
+      expires: cert ? isoDay(cert.validTo) : null,
+      days,
+      thumbprint: cert ? thumbOf(cert.fingerprint) : null,
+      status: !used ? "unused" : !cert ? "unread" : expiryState(days, warn),
+    });
+  };
 
   const expiry = (id, name, cert, where, after) => {
     const expires = new Date(cert.validTo).toISOString().slice(0, 10);
@@ -165,17 +233,19 @@ function judgeGateway(gw, warn, now = Date.now()) {
 
   for (const c of arr(gw.certs)) {
     const users = listenersOf(c.id);
-    if (!users.length) continue;
     const p = c.properties || {};
     const id = `${gw.id}/sslCertificates/${c.name}`;
     const name = `${gw.name}/${c.name}`;
     const kv = p.keyVaultSecretId || "";
     const pinned = PINNED_SECRET.test(kv);
+    const leaf = leafOf(certsFromBase64(p.publicCertData));
+    const usedBy = users.length ? `Gateway ${gw.name}: listener${users.length > 1 ? "s" : ""} ${users.join(", ")}` : `Gateway ${gw.name}: no listener uses it`;
+    row(id, name, "gateway", usedBy, pinned ? "Key Vault (one version)" : kv ? "Key Vault" : "Uploaded", leaf, users.length > 0);
+    if (!users.length) continue;
     const where = `Listener certificate ${c.name} on application gateway ${gw.name} (listener${users.length > 1 ? "s" : ""} ${users.join(", ")}).`;
     if (pinned) {
       out.push({ ...base, id: `${id}#kv-pinned`, name, kind: "agw-cert-kv-pinned", detail: `${where} It points at one version of the Key Vault secret (${kv.replace(/^https:\/\//i, "")}), so a renewed certificate in the vault is never picked up. Use the secret id without the version.` });
     }
-    const leaf = leafOf(certsFromBase64(p.publicCertData));
     if (!leaf) continue;
     read.add(lower(c.id));
     let after = " It was uploaded to the gateway: upload the renewed one, or move it to Key Vault so renewals are picked up.";
@@ -186,13 +256,14 @@ function judgeGateway(gw, warn, now = Date.now()) {
 
   for (const r of arr(gw.roots)) {
     const users = rootUsers(r.id);
-    if (!users.length) continue;
     const cert = leafOf(certsFromBase64(r.properties && r.properties.data));
-    if (!cert) continue;
+    const usedBy = users.length ? `Gateway ${gw.name}: trusts HTTPS backends (${users.join(", ")})` : `Gateway ${gw.name}: no backend setting uses it`;
+    row(`${gw.id}/trustedRootCertificates/${r.name}`, `${gw.name}/${r.name}`, "root", usedBy, "Trusted root", cert, users.length > 0);
+    if (!users.length || !cert) continue;
     const where = `Trusted root certificate ${r.name} on application gateway ${gw.name}, used to trust HTTPS backends (${users.join(", ")}).`;
     expiry(`${gw.id}/trustedRootCertificates/${r.name}`, `${gw.name}/${r.name}`, cert, where, " Backends whose certificate chains to it stop working when it expires.");
   }
-  return { findings: out, read };
+  return { findings: out, read, rows };
 }
 
 // Live targets for the HTTPS listeners on a public frontend: connect to the
@@ -222,6 +293,10 @@ function gatewayTargets(gw, ips, read) {
         resourceGroup: gw.resourceGroup,
         subscriptionId: gw.subscriptionId,
         where: `Listener ${l.name} on application gateway ${gw.name}. `,
+        type: "gatewaylive",
+        usedBy: `Gateway ${gw.name}: listener ${l.name}`,
+        // Listed from the settings when they gave the certificate.
+        inventory: !certKnown,
         // The settings check already reports expiry. Many gateways let in only
         // Front Door or known addresses, so no answer is not a finding.
         skipExpiry: certKnown,
@@ -232,12 +307,13 @@ function gatewayTargets(gw, ips, read) {
   return out;
 }
 
-async function gateways(warn, gwFindings) {
+async function gateways(warn, gwFindings, inv) {
   const [rows, ips] = await Promise.all([gatewayRows(), gatewayPublicIps()]);
   const targets = [];
   for (const gw of rows) {
-    const { findings, read } = judgeGateway(gw, warn);
+    const { findings, read, rows: certs } = judgeGateway(gw, warn);
     gwFindings.push(...findings);
+    inv.push(...certs);
     targets.push(...gatewayTargets(gw, ips, read));
   }
   return targets;
@@ -269,6 +345,7 @@ function probe({ host, port, sni }) {
 const subjectOf = (cert) => (cert.subject && cert.subject.CN) || (cert.subjectaltname || "").replace(/DNS:/g, "").split(",")[0] || "?";
 const issuerOf = (cert) => (cert.issuer && (cert.issuer.O || cert.issuer.CN)) || "unknown issuer";
 
+// The findings for one address, and its row for the list (null when not listed).
 async function check(target, warn) {
   const name = target.name || target.host;
   const label = target.label || (target.port === 443 ? target.host : `${target.host}:${target.port}`);
@@ -279,15 +356,29 @@ async function check(target, warn) {
     subscriptionId: target.subscriptionId || null,
   };
   const where = target.where || (target.resourceId ? `Custom domain of ${target.source}. ` : "");
+  const row = (extra) => (target.inventory === false ? null : {
+    ...base,
+    type: target.type || "listed",
+    usedBy: target.usedBy || "Listed in Settings",
+    source: "Live connection",
+    subject: null,
+    issuer: null,
+    expires: null,
+    days: null,
+    thumbprint: null,
+    ...extra,
+  });
   let res;
   try {
     res = await probe(target);
   } catch (err) {
-    if (target.skipUnreachable) return [];
-    return [{ ...base, kind: "cert-unreachable", detail: `${where}Could not open a TLS connection: ${err.message}` }];
+    if (target.skipUnreachable) return { findings: [], row: null };
+    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}Could not open a TLS connection: ${err.message}` }], row: row({ status: "unreachable", note: err.message }) };
   }
   const { cert, authorized, authError } = res;
-  if (!cert || !cert.valid_to) return [{ ...base, kind: "cert-unreachable", detail: `${where}The server sent no certificate` }];
+  if (!cert || !cert.valid_to) {
+    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}The server sent no certificate` }], row: row({ status: "unreachable", note: "no certificate sent" }) };
+  }
 
   const expires = new Date(cert.valid_to).toISOString().slice(0, 10);
   const days = daysUntil(cert.valid_to);
@@ -303,8 +394,13 @@ async function check(target, warn) {
 
   // An expired or wrong-name certificate already has its own finding.
   const chainOnly = authError && !["CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(authError);
-  if (!authorized && chainOnly) out.push({ ...base, kind: "cert-untrusted", expires, detail: `${where}Browsers will not trust it: ${authError} (${about})` });
-  return out;
+  const untrusted = !authorized && chainOnly;
+  if (untrusted) out.push({ ...base, kind: "cert-untrusted", expires, detail: `${where}Browsers will not trust it: ${authError} (${about})` });
+  const status = days < 0 ? "expired" : nameError ? "name" : untrusted ? "untrusted" : expiryState(days, warn);
+  return {
+    findings: out,
+    row: row({ subject: subjectOf(cert), issuer: issuerOf(cert), expires, days, thumbprint: thumbOf(cert.fingerprint), status, ...(untrusted && { note: authError }) }),
+  };
 }
 
 async function run() {
@@ -314,10 +410,15 @@ async function run() {
   const listed = listedTargets();
   const checks = {};
   const gwFindings = [];
-  if (azureOn) checks["Azure web apps"] = azureTargets;
-  if (gatewaysOn) checks["Application gateways"] = () => gateways(warn, gwFindings);
+  const inv = [];
+  let sites = null; // the web apps' bindings, once read
+  if (azureOn) checks["Azure web apps"] = async () => (sites = await azureTargets());
+  if (gatewaysOn) checks["Application gateways"] = () => gateways(warn, gwFindings, inv);
   if (listed.length) checks["Listed addresses"] = async () => listed;
-  if (!Object.keys(checks).length) return [];
+  if (!Object.keys(checks).length) {
+    await saveInventory([]);
+    return [];
+  }
 
   // runChecks collects the targets; a failed Azure query still leaves the listed addresses.
   const gathered = await runChecks(TOOL_ID, checks);
@@ -334,9 +435,58 @@ async function run() {
     .slice(0, MAX_HOSTS);
 
   const findings = [...errors, ...gwFindings];
-  const failures = await mapLimit(targets, 8, async (t) => findings.push(...(await check(t, warn))));
+  const failures = await mapLimit(targets, 8, async (t) => {
+    const { findings: found, row } = await check(t, warn);
+    findings.push(...found);
+    if (row) inv.push(row);
+  });
   findings.push(...itemErrors(TOOL_ID, "hosts", "hosts", failures, targets.length));
+
+  // After the web apps were read: their bindings say which App Service certificates are used.
+  // Skipped when the web apps could not be read: every certificate would look unbound.
+  if (sites) {
+    try {
+      inv.push(...(await appServiceCerts(warn, sites)));
+    } catch (err) {
+      findings.push(scanError(TOOL_ID, "app-service-certificates", "App Service certificates not listed", err.message));
+    }
+  }
+  await saveInventory(inv);
   return findings;
+}
+
+const saveInventory = (certs) => store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), certs });
+
+/* ---------- read routes ---------- */
+
+// Each tenant's certificate list from its last scan.
+async function inventory(keys) {
+  const out = { updatedAt: null, certs: [], failures: [] };
+  for (const k of keys) {
+    let doc;
+    try {
+      doc = await store.getDoc(INVENTORY_KEY, k);
+    } catch (err) {
+      out.failures.push({ tenant: k, error: `could not read the certificate list: ${err.message}` });
+      continue;
+    }
+    if (!doc) continue;
+    if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
+    out.certs.push(...(doc.certs || []).map((c) => ({ ...c, ...(k !== tenants.HOME && { tenant: k }) })));
+  }
+  return out;
+}
+
+function registerRoutes(app, { readKeys, decorate }) {
+  app.get("/api/certificates", async (req, res) => {
+    try {
+      const inv = await inventory(readKeys(req));
+      await decorate(TOOL_ID, inv.certs);
+      res.json(inv);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
 
 module.exports = {
@@ -344,6 +494,7 @@ module.exports = {
   label: "Certificates",
   schedule: "20 6 * * *", // daily at 06:20
   run,
+  registerRoutes,
   parseTarget,
-  _test: { certsFromBase64, leafOf, judgeGateway, gatewayTargets, PINNED_SECRET },
+  _test: { certsFromBase64, leafOf, judgeGateway, gatewayTargets, appServiceRows, check, PINNED_SECRET },
 };

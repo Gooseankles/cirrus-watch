@@ -243,6 +243,7 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | `POST /api/tools/<id>/run` | Anyone who may see the scan in that tenant | Start a scan (202, runs in the background) |
 | `GET /api/report?month=` | signed in | Monthly report |
 | `GET /api/cost/history[/<sub>]` | signed in | Cost history |
+| `GET /api/certificates` | Anyone who may see the Certificates scan | Every certificate the last scan saw (In use), for the tenants the person sees |
 | `GET/POST /api/settings`, `/api/tenants` | Admin | Settings and customer tenants (secrets go to the vault) |
 | `POST /api/tenants/<key>/remove` | Admin | Delete a customer tenant and everything held for it (the body repeats the key); the reply lists what was deleted and what failed |
 | `POST /api/tenants/<key>/restore`, `DELETE /api/tenants/<key>` | Admin | Undo a removed Terraform tenant (its data stays deleted); drop a Terraform tenant's Settings changes |

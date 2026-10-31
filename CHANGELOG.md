@@ -39,6 +39,16 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.67.0.0] - 2026-10-31
+
+### Added
+
+- Certificates has an "In use" tab: every certificate the last scan saw, also the healthy and unused ones, with
+  where it is used (web app domain, gateway listener, gateway trusted root, listed address), the issuer, the expiry
+  date with days left, the state (OK, expires soon, expired, wrong name, not trusted, no answer, not readable, not used) and where
+  it comes from (live connection, uploaded, Key Vault, App Service, trusted root). App Service certificate resources are listed too, with the
+  custom domains they are bound to. Read route `/api/certificates`. Needs only Reader, as before.
+
 ## [0.66.0.0] - 2026-10-31
 
 ### Added

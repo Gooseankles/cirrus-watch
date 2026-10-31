@@ -101,3 +101,52 @@ test("live targets: public HTTPS listeners with a host name, on the public IP wi
   const unread = t.gatewayTargets(gateway(), ips, new Set());
   assert.equal(unread[0].skipExpiry, false, "expiry is checked live when the settings gave none");
 });
+
+test("the list holds every gateway certificate with where it is used, also unused and healthy ones", () => {
+  const { rows } = t.judgeGateway(gateway(), 30, LEAF_END - 100 * DAY);
+  const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+  assert.deepEqual(Object.keys(by).sort(), ["agw-web/backend-root", "agw-web/shop", "agw-web/unused"]);
+  assert.equal(by["agw-web/shop"].status, "ok");
+  assert.equal(by["agw-web/shop"].days, 100);
+  assert.equal(by["agw-web/shop"].subject, "shop.contoso.test");
+  assert.equal(by["agw-web/shop"].issuer, "Test Root Org");
+  assert.equal(by["agw-web/shop"].source, "Uploaded");
+  assert.match(by["agw-web/shop"].usedBy, /listeners https-shop, https-private/);
+  assert.match(by["agw-web/shop"].thumbprint, /^[0-9A-F]{40}$/);
+  assert.equal(by["agw-web/unused"].status, "unused");
+  assert.equal(by["agw-web/backend-root"].type, "root");
+  assert.equal(by["agw-web/backend-root"].status, "ok");
+  const pinned = t.judgeGateway(gateway({ kv: "https://kv/secrets/shop/0123456789abcdef", data: "" }), 30, LEAF_END).rows.find((r) => r.name === "agw-web/shop");
+  assert.equal(pinned.status, "unread", "a listener certificate whose public part did not come back");
+  assert.equal(pinned.source, "Key Vault (one version)");
+});
+
+test("App Service certificates are bound to the custom domains whose binding has their thumbprint", () => {
+  const sites = [
+    { host: "shop.contoso.test", source: "app-shop", thumb: "AB12" },
+    { host: "www.contoso.test", source: "app-www", thumb: "AB12" },
+    { host: "other.test", source: "app-o", thumb: "FF00" },
+  ];
+  const now = Date.parse("2027-01-01");
+  const rows = t.appServiceRows([
+    { id: "c1", name: "shop-cert", thumb: "AB12", expires: "2027-01-11T00:00:00Z", issuer: "CN=R3, O=Let's Encrypt, C=US", subject: "contoso.test", kv: "" },
+    { id: "c2", name: "old-cert", thumb: "CD34", expires: "2026-06-01T00:00:00Z", issuer: "CN=Old CA", subject: "old.test", kv: "/subscriptions/s/kv" },
+  ], sites, 30, now);
+  assert.equal(rows[0].status, "expiring");
+  assert.equal(rows[0].usedBy, "shop.contoso.test, www.contoso.test (web apps app-shop, app-www)");
+  assert.equal(rows[0].issuer, "Let's Encrypt");
+  assert.equal(rows[0].source, "App Service");
+  assert.equal(rows[1].status, "unused", "an expired certificate nothing uses is listed, not flagged");
+  assert.equal(rows[1].issuer, "Old CA");
+  assert.equal(rows[1].source, "Key Vault");
+});
+
+test("an address that does not answer is listed as no answer; a filtered gateway listener is not listed", async () => {
+  const down = { host: "127.0.0.1", port: 9, name: "down.test", label: "down.test", type: "listed" };
+  const r = await t.check(down, 30);
+  assert.deepEqual(r.findings.map((f) => f.kind), ["cert-unreachable"]);
+  assert.equal(r.row.status, "unreachable");
+  assert.equal(r.row.usedBy, "Listed in Settings");
+  const gw = await t.check({ ...down, skipUnreachable: true, inventory: false }, 30);
+  assert.deepEqual(gw, { findings: [], row: null });
+});

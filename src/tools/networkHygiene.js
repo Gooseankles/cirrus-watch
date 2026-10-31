@@ -3,7 +3,8 @@
 // gateways with no WAF at all, public Standard gateways with no WAF, DNS
 // records that point at an Azure name nobody owns any more (subdomain
 // takeover) or at a deleted resource, and routes whose virtual appliance IP
-// sits in a scanned VNet but belongs to nothing (traffic is dropped). DDoS
+// sits in a scanned VNet but belongs to nothing (traffic is dropped), and
+// subnets with no NSG where not every machine in them has its own. DDoS
 // protection is left alone on purpose. Reader is enough; the DNS check also
 // asks public DNS whether a CNAME target still exists.
 const dns = require("dns");
@@ -384,8 +385,71 @@ async function routeFindings() {
   return judgeRoutes(tables, vnets, new Set(ips.map((r) => r.ip)), new Set(vmss.map((r) => r.subnet)));
 }
 
+// Subnets Azure reserves for its own services, which must not (or need not) have an NSG.
+const NSG_EXEMPT_SUBNETS = new Set(["gatewaysubnet", "azurefirewallsubnet", "azurefirewallmanagementsubnet", "azurebastionsubnet", "routeserversubnet"]);
+// Subnet delegations whose service does not support an NSG on the subnet (NetApp basic network features, BareMetal).
+const NSG_EXEMPT_DELEGATIONS = [/^microsoft\.netapp\/volumes$/i, /^microsoft\.baremetal\//i];
+
+// The NIC (or scale set) an IP configuration id belongs to, lower case, or "" for anything else (load balancers,
+// gateways). Scale set NICs are matched to the scale set, since their NSG lives in its network profile.
+function ipConfigOwner(id) {
+  const s = String(id || "").toLowerCase();
+  const vmss = s.match(/^(.*\/microsoft\.compute\/virtualmachinescalesets\/[^/]+)\//);
+  if (vmss) return vmss[1];
+  const i = s.indexOf("/ipconfigurations/");
+  return i > 0 && s.slice(0, i).includes("/microsoft.network/networkinterfaces/") ? s.slice(0, i) : "";
+}
+
+// subnets: [{ vnetId, vnet, resourceGroup, subscriptionId, subnet, subnetId, nsg, delegations: [service names],
+// ipConfigs: [ip configuration ids] }]; guarded: Set of lower-case NIC and scale set ids that have their own NSG.
+// A subnet is skipped when it has an NSG, is one of Azure's reserved subnets, is delegated to a service that refuses
+// NSGs, or has machines that all carry their own NSG. Pure, for the tests.
+function judgeSubnets(subnets, guarded) {
+  const findings = [];
+  for (const s of subnets) {
+    if (s.nsg || NSG_EXEMPT_SUBNETS.has(String(s.subnet || "").toLowerCase())) continue;
+    if (arr(s.delegations).some((d) => NSG_EXEMPT_DELEGATIONS.some((re) => re.test(String(d))))) continue;
+    const configs = arr(s.ipConfigs).filter(Boolean);
+    if (configs.length && configs.every((c) => guarded.has(ipConfigOwner(c)))) continue;
+    findings.push({
+      kind: "subnet-no-nsg",
+      id: `${s.subnetId || `${s.vnetId}/subnets/${s.subnet}`}#nsg`,
+      name: `${s.vnet}/${s.subnet}`,
+      resourceGroup: s.resourceGroup,
+      subscriptionId: s.subscriptionId,
+      detail: `No network security group on this subnet${configs.length ? "" : " (nothing in it yet)"}, so everything in it is open to the rest of the VNet and its peers${configs.length ? " unless each NIC has its own NSG" : ""}. Attach an NSG to the subnet`,
+    });
+  }
+  return findings;
+}
+
+async function subnetFindings() {
+  const q = (kql) => resourceGraphQuery(kql, { toolId: TOOL_ID });
+  const [subnets, guardedRows] = await Promise.all([
+    q(`Resources
+    | where type =~ 'microsoft.network/virtualnetworks'
+    | mv-expand s = properties.subnets
+    | where isempty(tostring(s.properties.networkSecurityGroup.id))
+    | project vnetId = id, vnet = name, resourceGroup, subscriptionId, subnet = tostring(s.name), subnetId = tostring(s.id),
+        delegations = s.properties.delegations, ipConfigs = s.properties.ipConfigurations`),
+    q(`Resources
+    | where type =~ 'microsoft.network/networkinterfaces' and isnotempty(tostring(properties.networkSecurityGroup.id))
+    | project id = tolower(id)
+    | union (Resources | where type =~ 'microsoft.compute/virtualmachinescalesets'
+        | mv-expand n = properties.virtualMachineProfile.networkProfile.networkInterfaceConfigurations
+        | where isnotempty(tostring(n.properties.networkSecurityGroup.id))
+        | distinct id = tolower(id))`),
+  ]);
+  const rows = subnets.map((s) => ({
+    ...s,
+    delegations: arr(s.delegations).map((d) => d && d.properties && d.properties.serviceName).filter(Boolean),
+    ipConfigs: arr(s.ipConfigs).map((c) => c && c.id).filter(Boolean),
+  }));
+  return judgeSubnets(rows, new Set(guardedRows.map((r) => r.id)));
+}
+
 async function run() {
-  return runChecks(TOOL_ID, { WAF: wafFindings, "Dangling DNS": dnsFindings, Routes: routeFindings });
+  return runChecks(TOOL_ID, { WAF: wafFindings, "Dangling DNS": dnsFindings, Routes: routeFindings, "Subnets without NSG": subnetFindings });
 }
 
 module.exports = {
@@ -393,5 +457,5 @@ module.exports = {
   label: "Network hygiene",
   schedule: "5 5 * * *", // daily at 05:05
   run,
-  _test: { judgeWafPolicy, judgeGateway, hostsIn, ownedNames, judgeRecord, typeOfId, takeoverSuffix, lookupStatus, judgeRoutes, ipToInt, cidrRange },
+  _test: { judgeWafPolicy, judgeGateway, hostsIn, ownedNames, judgeRecord, typeOfId, takeoverSuffix, lookupStatus, judgeRoutes, ipToInt, cidrRange, judgeSubnets, ipConfigOwner },
 };

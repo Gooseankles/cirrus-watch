@@ -3,8 +3,9 @@
 // that was deleted, settings that send metrics but no log category, and
 // subscriptions whose activity log is not exported (Azure keeps it 90 days
 // only). Flow logs: NSG flow logs (retiring), flow logs whose storage account
-// was deleted, and VNets with no flow log at all. Key Vaults are left to the
-// Key Vault scan. Reader is enough.
+// was deleted, and VNets with no flow log at all. Log Analytics workspaces
+// that keep logs under 90 days. Key Vaults are left to the Key Vault scan.
+// Reader is enough.
 const settings = require("../settings");
 const { resourceGraphQuery, armGet, subscriptionIdsToScan } = require("../armClient");
 const { mapLimit, runChecks, itemErrors, scanError } = require("./util");
@@ -13,6 +14,7 @@ const TOOL_ID = "diagnostic-settings";
 const CONCURRENCY = 8;
 const MAX_RESOURCES = 1500;
 const API = "api-version=2021-05-01-preview";
+const MIN_RETENTION_DAYS = 90;
 
 const DEFAULT_TYPES = [
   "microsoft.containerservice/managedclusters",
@@ -219,13 +221,41 @@ async function flowLogFindings(dest) {
   );
 }
 
+// rows: Log Analytics workspaces with their default retention. Pure, for the tests. Per-table retention can differ;
+// this looks at the workspace default only.
+function judgeRetention(rows) {
+  return rows
+    .filter((w) => Number.isFinite(Number(w.retention)) && Number(w.retention) > 0 && Number(w.retention) < MIN_RETENTION_DAYS)
+    .map((w) => ({
+      kind: "workspace-short-retention",
+      id: `${w.id}#retention`,
+      name: w.name,
+      resourceGroup: w.resourceGroup,
+      subscriptionId: w.subscriptionId,
+      retentionDays: Number(w.retention),
+      detail: `Keeps logs ${Number(w.retention)} days by default, so an incident found later may have no logs left to look at. Many baselines ask for at least ${MIN_RETENTION_DAYS} days. Raise retention (past 31 days costs extra, 90 days are included with Sentinel) or archive older data`,
+    }));
+}
+
+async function retentionFindings() {
+  const rows = await resourceGraphQuery(
+    `Resources
+    | where type =~ 'microsoft.operationalinsights/workspaces'
+    | extend retention = toint(properties.retentionInDays)
+    | where isnotnull(retention) and retention < ${MIN_RETENTION_DAYS}
+    | project id, name, resourceGroup, subscriptionId, retention`,
+    { toolId: TOOL_ID }
+  );
+  return judgeRetention(rows);
+}
+
 async function run() {
   let destError = null;
   const dest = await destinations().catch((err) => {
     destError = err;
     return { ids: new Set(), subs: new Set() }; // nothing judged as deleted
   });
-  const findings = await runChecks(TOOL_ID, { Resources: () => resourceFindings(dest), "Activity log": () => activityLogFindings(dest), "Flow logs": () => flowLogFindings(dest) });
+  const findings = await runChecks(TOOL_ID, { Resources: () => resourceFindings(dest), "Activity log": () => activityLogFindings(dest), "Flow logs": () => flowLogFindings(dest), "Workspace retention": retentionFindings });
   if (destError) findings.push(scanError(TOOL_ID, "destinations", "Deleted destinations not checked", String(destError.message || destError).slice(0, 300)));
   return findings;
 }
@@ -236,5 +266,5 @@ module.exports = {
   schedule: "30 4 * * *", // daily at 04:30
   run,
   DEFAULT_TYPES,
-  _test: { judgeSettings, missingDestinations, judgeFlowLogs },
+  _test: { judgeSettings, missingDestinations, judgeFlowLogs, judgeRetention },
 };

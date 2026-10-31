@@ -1,16 +1,21 @@
 // Microsoft Defender for Cloud in short: each subscription's secure score,
 // the unhealthy recommendations (one finding per recommendation and
 // subscription, with how many resources it hits), Defender plans that are
-// off although they should be on, and plans that are on in some subscriptions
-// but off in others. Reader is enough; the free tier (Foundational
-// CSPM) gives the score and recommendations.
+// off although they should be on, plans that are on in some subscriptions
+// but off in others, Defender for Servers on Plan 1 where other subscriptions
+// have Plan 2, agentless scanning off where the plan includes it, security
+// contacts that tell nobody about alerts, and open High and Medium alerts.
+// Reader is enough; the free tier (Foundational CSPM) gives the score and
+// recommendations.
 const { resourceGraphQuery, armGet, subscriptionIdsToScan } = require("../armClient");
 const settings = require("../settings");
-const { numberSetting, mapLimit, itemErrors, runChecks } = require("./util");
+const { numberSetting, mapLimit, itemErrors, runChecks, scanError } = require("./util");
 
 const TOOL_ID = "defender";
 const CONCURRENCY = 6;
 const PRICINGS_API = "2024-01-01";
+const CONTACTS_API = "2023-12-01-preview";
+const MAX_ALERT_FINDINGS = 200;
 const SEVERITIES = ["low", "medium", "high"];
 const recommendationLink = (key) => `https://portal.azure.com/#view/Microsoft_Azure_Security/GenericRecommendationDetailsBlade/assessmentKey/${key}`;
 
@@ -81,28 +86,131 @@ function judgePlans(tiers, required) {
   return findings;
 }
 
+const extOff = (t, name) => (t.extensions || []).some((e) => e && String(e.name).toLowerCase() === name.toLowerCase() && /^false$/i.test(String(e.isEnabled)));
+
+// Sub-features of plans that are on: Defender for Servers on Plan 1 while other subscriptions pay for Plan 2 (Plan 1
+// lacks agentless scanning, premium vulnerability management, file integrity monitoring and just-in-time VM access;
+// it still has Defender for Endpoint with its basic vulnerability assessment), and agentless machine scanning
+// turned off in Servers Plan 2 or Defender CSPM, which include it. Only extensions the API lists as off count. Pure.
+function judgePlanDetails(tiers) {
+  const findings = [];
+  const p2 = tiers.filter((t) => t.on && /^virtualmachines$/i.test(t.plan) && /^p2$/i.test(t.subPlan || "")).length;
+  for (const t of tiers) {
+    if (!t.on) continue;
+    const base = { id: `/subscriptions/${t.subscriptionId}/providers/Microsoft.Security/pricings/${t.plan}`, subscriptionId: t.subscriptionId };
+    const servers = /^virtualmachines$/i.test(t.plan);
+    if (servers && /^p1$/i.test(t.subPlan || "") && p2) {
+      findings.push({ ...base, id: `${base.id}#p1`, kind: "defender-servers-p1", name: "Defender for Servers", detail: `Plan 1 here, but Plan 2 in ${p2} other subscription${p2 === 1 ? "" : "s"}. Plan 1 lacks agentless scanning, premium vulnerability management, file integrity monitoring and just-in-time VM access. Fine if chosen on purpose; otherwise move this subscription to Plan 2` });
+    }
+    const includesAgentless = (servers && /^p2$/i.test(t.subPlan || "")) || /^cloudposture$/i.test(t.plan);
+    if (includesAgentless && extOff(t, "AgentlessVmScanning")) {
+      findings.push({ ...base, id: `${base.id}#agentless`, kind: "defender-agentless-off", name: servers ? "Defender for Servers" : "Defender CSPM", detail: `Agentless machine scanning is off although the plan${servers ? " (Plan 2)" : ""} includes it, so disks are not scanned for vulnerabilities, secrets and malware without an agent. Turn it on in Environment settings, Settings and monitoring` });
+    }
+  }
+  return findings;
+}
+
 // Plans are read per subscription from ARM, the one place every plan shows.
 async function plans() {
   const raw = String(settings.get("DEFENDER_REQUIRED_PLANS") || "").trim();
   const required = /^all$/i.test(raw) ? "all" : new Set(raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
   const subs = await subscriptionIdsToScan(TOOL_ID);
-  // With no required plans, one subscription has nothing to compare against.
-  if (!raw && subs.length < 2) return [];
   const tiers = [];
   const failures = await mapLimit(subs.map((subscriptionId) => ({ subscriptionId })), CONCURRENCY, async ({ subscriptionId }) => {
     const page = await armGet(`https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.Security/pricings?api-version=${PRICINGS_API}`, TOOL_ID);
     for (const p of page.value || []) {
       const props = p.properties || {};
       if (props.deprecated) continue;
-      tiers.push({ subscriptionId, plan: p.name, on: String(props.pricingTier).toLowerCase() !== "free" });
+      tiers.push({ subscriptionId, plan: p.name, on: String(props.pricingTier).toLowerCase() !== "free", subPlan: props.subPlan || "", extensions: Array.isArray(props.extensions) ? props.extensions : [] });
     }
   });
   if (subs.length && failures.length === subs.length) throw new Error(`every plan list failed, e.g. ${failures[0].message}`);
-  return [...judgePlans(tiers, required), ...itemErrors(TOOL_ID, "pricings", "subscriptions' plans", failures, subs.length)];
+  // With no required plans, one subscription has nothing to compare against.
+  const planFindings = !raw && subs.length < 2 ? [] : judgePlans(tiers, required);
+  return [...planFindings, ...judgePlanDetails(tiers), ...itemErrors(TOOL_ID, "pricings", "subscriptions' plans", failures, subs.length)];
+}
+
+// list: [{ subscriptionId, contacts: [security contact] }]. Per subscription: nobody gets alert e-mails (no contact,
+// contact turned off, or no address and role notifications off), alert e-mails turned off (no Alert source), or no
+// e-mail address of its own (only role holders such as Owners are told). Pure, for the tests.
+function judgeContacts(list) {
+  const findings = [];
+  for (const { subscriptionId, contacts } of list) {
+    const id = `/subscriptions/${subscriptionId}/providers/Microsoft.Security/securityContacts/default`;
+    const base = { id, name: "Security contact", subscriptionId };
+    const live = (contacts || []).filter((c) => c && c.properties && c.properties.isEnabled !== false);
+    const emails = live.flatMap((c) => String(c.properties.emails || "").split(/[;,]/).map((e) => e.trim()).filter(Boolean));
+    const byRole = (c) => c.properties.notificationsByRole || {};
+    const roles = live.some((c) => /^on$/i.test(byRole(c).state || "") && (byRole(c).roles || []).length);
+    if (!live.length || (!emails.length && !roles)) {
+      findings.push({ ...base, kind: "defender-no-contact", detail: `${live.length ? "The security contact has no e-mail address and role notifications are off" : "No security contact is set"}, so nobody is e-mailed about Defender alerts. Add an address in Environment settings, Email notifications` });
+      continue;
+    }
+    const alertSources = live.flatMap((c) => (c.properties.notificationsSources || []).filter((n) => n && /^alert$/i.test(n.sourceType || "")));
+    if (!alertSources.length) {
+      findings.push({ ...base, kind: "defender-alert-mail-off", detail: "E-mail notifications for alerts are off, so new Defender alerts reach nobody by mail. Turn on \"Notify about alerts with the following severity\" in Email notifications" });
+    } else if (!emails.length) {
+      findings.push({ ...base, kind: "defender-contact-no-email", detail: "No e-mail address is set on the security contact; only people in the chosen roles (such as Owner) are told about alerts. Add a monitored team address" });
+    }
+  }
+  return findings;
+}
+
+async function contacts() {
+  const subs = await subscriptionIdsToScan(TOOL_ID);
+  const list = [];
+  const failures = await mapLimit(subs.map((subscriptionId) => ({ subscriptionId })), CONCURRENCY, async ({ subscriptionId }) => {
+    const page = await armGet(`https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.Security/securityContacts?api-version=${CONTACTS_API}`, TOOL_ID);
+    list.push({ subscriptionId, contacts: page.value || [] });
+  });
+  if (subs.length && failures.length === subs.length) throw new Error(`every security contact read failed, e.g. ${failures[0].message}`);
+  return [...judgeContacts(list), ...itemErrors(TOOL_ID, "contacts", "subscriptions' security contacts", failures, subs.length)];
+}
+
+// rows: open High and Medium alerts grouped per subscription, alert type and severity, with how many and the oldest
+// start time. One finding per group, High first, then oldest first; capped. Pure, for the tests.
+function judgeAlerts(rows, now = Date.now()) {
+  const high = (r) => (/^high$/i.test(r.sev) ? 1 : 0);
+  const time = (r) => Date.parse(r.oldest) || now;
+  const sorted = [...rows].sort((a, b) => high(b) - high(a) || time(a) - time(b));
+  const findings = sorted.slice(0, MAX_ALERT_FINDINGS).map((r) => {
+    const days = Math.max(0, Math.floor((now - time(r)) / 86400000));
+    const n = Number(r.hits) || 1;
+    const sev = high(r) ? "high" : "medium";
+    return {
+      kind: `defender-alert-${sev}`,
+      id: `/subscriptions/${r.subscriptionId}/providers/Microsoft.Security/alerts#${sev}/${String(r.alertType || r.alertName || "alert").toLowerCase()}`,
+      name: r.alertName || r.alertType || "Defender alert",
+      subscriptionId: r.subscriptionId,
+      alerts: n,
+      ageDays: days,
+      detail: `${n} open ${sev} severity alert${n === 1 ? "" : "s"}${r.entity ? ` (for example on ${r.entity})` : ""}, the oldest ${days === 0 ? "from today" : `${days} day${days === 1 ? "" : "s"} old`}. Look into it in Defender for Cloud, Security alerts, then resolve or dismiss it`,
+    };
+  });
+  if (rows.length > MAX_ALERT_FINDINGS) {
+    findings.push(scanError(TOOL_ID, "alerts-cap", `Showing ${MAX_ALERT_FINDINGS} of ${rows.length} open alert groups`, "The rest are left out to keep the list short; see Defender for Cloud, Security alerts"));
+  }
+  return findings;
+}
+
+async function alerts() {
+  // Resource Graph names the alert fields in PascalCase (properties.Status); camelCase is read too in case it differs.
+  const rows = await resourceGraphQuery(
+    `securityresources
+    | where type =~ 'microsoft.security/locations/alerts'
+    | extend st = tostring(coalesce(properties.Status, properties.status)), sev = tostring(coalesce(properties.Severity, properties.severity))
+    | where st =~ 'Active' and sev in~ ('High', 'Medium')
+    | extend alertType = tostring(coalesce(properties.AlertType, properties.alertType)), alertName = tostring(coalesce(properties.AlertDisplayName, properties.alertDisplayName)),
+        started = todatetime(tostring(coalesce(properties.StartTimeUtc, properties.startTimeUtc, properties.TimeGeneratedUtc, properties.timeGeneratedUtc))),
+        entity = tostring(coalesce(properties.CompromisedEntity, properties.compromisedEntity))
+    | summarize hits = count(), oldest = min(started), entity = take_any(entity), alertName = take_any(alertName) by subscriptionId, alertType, sev`,
+    { toolId: TOOL_ID }
+  );
+  return judgeAlerts(rows);
 }
 
 async function run() {
-  return runChecks(TOOL_ID, { "Secure score": scores, Recommendations: recommendations, Plans: plans });
+  return runChecks(TOOL_ID, { "Secure score": scores, Recommendations: recommendations, Plans: plans, "Security contacts": contacts, "Open alerts": alerts });
 }
 
 module.exports = {
@@ -110,5 +218,5 @@ module.exports = {
   label: "Defender for Cloud",
   schedule: "40 6 * * *", // daily at 06:40
   run,
-  _test: { judgePlans },
+  _test: { judgePlans, judgePlanDetails, judgeContacts, judgeAlerts },
 };

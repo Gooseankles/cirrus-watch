@@ -1,6 +1,9 @@
 // Risky settings on common services: access keys and admin accounts still
 // on, plain HTTP and FTP, open storage firewalls, AKS without Entra sign-in,
-// remote debugging. Each finding follows a PSRule for Azure rule. Key Vault,
+// remote debugging. Most findings follow a PSRule for Azure rule; the storage
+// cross-tenant replication check has no such rule, and the access keys finding
+// also notes a missing SAS expiration policy and a portal that defaults to the
+// key instead of Entra ID. Key Vault,
 // TLS versions and public blob access have their own scans. Reader is enough.
 const { resourceGraphQuery, armGet } = require("../armClient");
 const { mapLimit, runChecks, itemErrors } = require("./util");
@@ -43,12 +46,29 @@ async function storage() {
     | where type =~ 'microsoft.storage/storageaccounts'
     | where tostring(tags['ms-resource-usage']) != 'azure-cloud-shell'
     | project id, name, resourceGroup, subscriptionId, https = properties.supportsHttpsTrafficOnly, sharedKey = properties.allowSharedKeyAccess,
-        network = tostring(properties.publicNetworkAccess), defaultAction = tostring(properties.networkAcls.defaultAction)`);
+        network = tostring(properties.publicNetworkAccess), defaultAction = tostring(properties.networkAcls.defaultAction),
+        crossTenant = properties.allowCrossTenantReplication, sasPolicy = properties.sasPolicy, oauthDefault = properties.defaultToOAuthAuthentication`);
+  return judgeStorage(rows);
+}
+
+// rows: storage accounts from Resource Graph. Pure, for the tests. Cross-tenant replication has no PSRule rule (no
+// "How to fix" link) and counts only when set to true: accounts made since late 2023 default to off and leave the
+// property out. Two softer settings only matter while shared keys still work, so they ride along in the keys finding
+// instead of making a row each on nearly every account: a SAS expiration policy (flags long-lived SAS tokens) and the
+// portal defaulting to Entra ID instead of the key.
+function judgeStorage(rows) {
   const out = [];
   for (const r of rows) {
     if (off(r.https)) out.push(ruleFinding(r, "cfg-storage-http", "Storage", R.secureTransfer, "Accepts plain HTTP. Turn on \"Secure transfer required\""));
     if (!/^disabled$/i.test(r.network) && !/^deny$/i.test(r.defaultAction)) out.push(ruleFinding(r, "cfg-storage-no-firewall", "Storage", R.storageFirewall, "Reachable from every network. Set the firewall to selected networks or use a private endpoint"));
-    if (!off(r.sharedKey)) out.push(ruleFinding(r, "cfg-storage-keys", "Storage", R.storageKeys, "Access keys and SAS tokens signed with them still work, and they never expire on their own. Use Entra ID and turn off shared key access"));
+    if (!off(r.sharedKey)) {
+      const also = [
+        !(r.sasPolicy && r.sasPolicy.sasExpirationPeriod) && "no SAS expiration policy flags long-lived SAS tokens",
+        !on(r.oauthDefault) && "the portal opens data with the key, not your Entra ID sign-in",
+      ].filter(Boolean);
+      out.push(ruleFinding(r, "cfg-storage-keys", "Storage", R.storageKeys, `Access keys and SAS tokens signed with them still work, and they never expire on their own. Use Entra ID and turn off shared key access${also.length ? `. Meanwhile: ${also.join("; ")}` : ""}`));
+    }
+    if (on(r.crossTenant)) out.push(ruleFinding(r, "cfg-storage-cross-tenant-replication", "Storage", null, "Object replication to accounts in other Entra tenants is allowed. Turn off \"Allow cross-tenant replication\" unless you need it"));
   }
   return out;
 }
@@ -150,5 +170,5 @@ module.exports = {
   label: "Resource settings",
   schedule: "45 3 * * *", // daily at 03:45
   run,
-  _test: { R },
+  _test: { R, judgeStorage },
 };

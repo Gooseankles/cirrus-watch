@@ -11,6 +11,9 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.64.0.0: the new Legacy sign-ins scan reads the sign-in log, which needs Entra ID P1 or P2.** Without it the
+  scan notes the missing licence in the log and reports nothing; turn it off for such tenants. No new Graph
+  permissions: everything the new checks read is already in the module's default `graph_permissions`.
 - **0.61.1.0: the Azure Monitor heartbeat query goes to `api.loganalytics.azure.com`.** A firewall or NAT that
   limits the app's outbound traffic (`vnet_route_all`) must allow HTTPS to that host; otherwise the machine check
   reports the heartbeat query as failed. The roles stay the same (Reader, or Log Analytics Reader on the workspaces).
@@ -23,6 +26,42 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.64.0.0] - 2026-10-31
+
+### Added
+
+- Legacy sign-ins, a new daily scan: successful sign-ins in the last 7 days with IMAP, POP, SMTP AUTH, Exchange
+  ActiveSync, older Outlook protocols or "Other clients", one finding per user and client.
+  [Legacy sign-ins](docs/tools.md#legacy-sign-ins)
+- Subscriptions: classic administrators still listed on a subscription. [Subscriptions](docs/tools.md#subscriptions)
+- Defender for Cloud: Servers on Plan 1 while other subscriptions have Plan 2, agentless scanning off, security
+  contacts that tell nobody, and open High and Medium alerts. [Defender for Cloud](docs/tools.md#defender-for-cloud)
+- Resource settings: storage accounts that allow cross-tenant replication.
+  [Resource settings](docs/tools.md#resource-settings)
+- Diagnostic settings: workspaces that keep logs for less than 90 days.
+  [Diagnostic settings](docs/tools.md#diagnostic-settings)
+- Network hygiene: subnets without a network security group, skipping reserved subnets.
+  [Network hygiene](docs/tools.md#network-hygiene)
+- Entra tenant settings: guests allowed from any tenant, partners whose MFA or devices are trusted, partners that
+  skip consent, and from the authentication methods policy SMS or voice for all users, long Temporary Access Passes,
+  passkeys off, method migration not done and the MFA registration campaign off.
+  [Entra tenant settings](docs/tools.md#entra-tenant-settings)
+- Conditional Access: admins excluded from MFA or block policies (accounts in `BREAK_GLASS_ACCOUNTS` may be), device
+  code flow not blocked, and no strong MFA required for admins. [Conditional Access](docs/tools.md#conditional-access)
+- Privileged roles: admin accounts synced from on-premises AD. [Privileged roles](docs/tools.md#privileged-roles)
+- App registrations: broad federated credential subjects, unsafe redirect URIs, and multi-tenant apps that hold a
+  high-impact permission. [Expiring app credentials](docs/tools.md#expiring-app-credentials),
+  [App permissions](docs/tools.md#app-permissions)
+
+### Changed
+
+- Safety nets: Log Analytics workspaces, SQL servers, AKS clusters and Azure Firewalls are in the default delete-lock
+  list. [Safety nets](docs/tools.md#safety-nets)
+- "Storage access keys on" also says when a SAS expiration policy is missing and when the portal opens data with the
+  key instead of Entra ID. [Resource settings](docs/tools.md#resource-settings)
+- Conditional Access also reads role members, users and group members (permissions already granted) for the admin
+  exclusion check. [Permissions](docs/permissions.md)
 
 ## [0.63.0.0] - 2026-10-31
 

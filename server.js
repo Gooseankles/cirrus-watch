@@ -297,6 +297,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/pim")),
   registerScanTool(app, require("./src/tools/staleAccounts")),
   registerScanTool(app, require("./src/tools/mfaCoverage")),
+  registerScanTool(app, require("./src/tools/legacySignIns")),
   registerScanTool(app, require("./src/tools/conditionalAccess")),
   registerScanTool(app, require("./src/tools/appPermissions")),
   registerScanTool(app, require("./src/tools/enterpriseApps")),

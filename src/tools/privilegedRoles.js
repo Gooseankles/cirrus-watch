@@ -1,7 +1,8 @@
 // Who holds the powerful Entra roles: too many or too few Global
 // Administrators, guests, apps and disabled accounts in privileged roles,
 // standing (non-PIM) admin rights where PIM is in use, admins without MFA, and
-// emergency access (break-glass) accounts. Graph: RoleManagement.Read.Directory
+// emergency access (break-glass) accounts, and admin accounts synced from
+// on-premises Active Directory. Graph: RoleManagement.Read.Directory
 // (roles), User.Read.All and Application.Read.All (names), GroupMember.Read.All
 // (role groups, policy exclusions), AuditLog.Read.All (MFA registration, P1),
 // Policy.Read.All (Conditional Access, for the emergency access check).
@@ -96,7 +97,7 @@ async function groupMembers(assignments) {
   const ids = [...new Set(assignments.filter((a) => a.principal && kindOf(a.principal) === "group").map((a) => a.principal.id))];
   const members = new Map();
   const failures = await mapLimit(ids.slice(0, MAX_GROUPS), 4, async (id) => {
-    members.set(id, await graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=id,displayName,userPrincipalName,userType,accountEnabled&$top=999`, TOOL_ID));
+    members.set(id, await graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=id,displayName,userPrincipalName,userType,accountEnabled,onPremisesSyncEnabled&$top=999`, TOOL_ID));
   });
   const errors = failures.length ? itemErrors(TOOL_ID, "group-members", "privileged groups expanded", failures, Math.min(ids.length, MAX_GROUPS)) : [];
   for (const e of errors) e.detail = graphHint({ message: e.detail }, "GroupMember.Read.All");
@@ -147,7 +148,29 @@ async function roleFindings() {
   const n = globalAdmins.size;
   if (n > 4) findings.push({ kind: "too-many-global-admins", id: `${TOOL_ID}/global-admins`, name: "Global Administrators", resourceGroup: null, subscriptionId: null, detail: `${n} enabled users are Global Administrator; Microsoft advises fewer than five. Use narrower roles for day-to-day work` });
   if (n < 2) findings.push({ kind: "too-few-global-admins", id: `${TOOL_ID}/global-admins`, name: "Global Administrators", resourceGroup: null, subscriptionId: null, detail: `${n} enabled user${n === 1 ? " is" : "s are"} Global Administrator. Keep at least two (one an emergency access account) so a lost account does not lock you out` });
+  findings.push(...judgeSynced(privilegedUsers, globalAdmins));
   return { findings, privilegedUsers, standingGlobalAdmins };
+}
+
+// Accounts synced from on-premises Active Directory that hold a privileged role: whoever takes over the local
+// domain (or the sync server) can reset their password and so take the cloud role. privilegedUsers: Map id ->
+// { user, roles }; globalAdmins: Set of user ids that are Global Administrator. Pure, for the tests.
+function judgeSynced(privilegedUsers, globalAdmins) {
+  const out = [];
+  for (const [id, { user, roles }] of privilegedUsers) {
+    if (user.onPremisesSyncEnabled !== true || user.accountEnabled === false) continue;
+    const ga = globalAdmins.has(id);
+    out.push({
+      kind: ga ? "privileged-synced-global-admin" : "privileged-synced",
+      id: `${id}#synced`,
+      name: labelOf(user),
+      resourceGroup: null,
+      subscriptionId: null,
+      principalId: id,
+      detail: `Synced from on-premises Active Directory and holds ${[...new Set(roles)].join(", ")}. Anyone who takes over the local domain can take this role too; use a cloud-only account for admin work`,
+    });
+  }
+  return out;
 }
 
 // Emergency access (break-glass) accounts, as Microsoft advises: at least two cloud-only accounts that hold Global
@@ -268,5 +291,6 @@ module.exports = {
   label: "Privileged roles",
   schedule: "0 5 * * *", // daily at 05:00
   run,
-  _test: { judgeEmergencyAccess },
+  _test: { judgeEmergencyAccess, judgeSynced },
+  PRIVILEGED_TEMPLATES,
 };

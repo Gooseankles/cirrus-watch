@@ -16,6 +16,10 @@ const DEFAULT_LOCK_TYPES = [
   "microsoft.network/virtualnetworks",
   "microsoft.network/dnszones",
   "microsoft.network/privatednszones",
+  "microsoft.operationalinsights/workspaces",
+  "microsoft.sql/servers",
+  "microsoft.containerservice/managedclusters",
+  "microsoft.network/azurefirewalls",
 ];
 
 async function pages(url) {
@@ -109,4 +113,5 @@ module.exports = {
   label: "Safety nets",
   schedule: "50 6 * * *", // daily at 06:50
   run,
+  DEFAULT_LOCK_TYPES,
 };

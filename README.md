@@ -41,18 +41,19 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [PIM](docs/tools.md#pim) | Daily | Everyone who can activate a role, and PIM settings and assignments that are too loose. |
 | [Stale accounts](docs/tools.md#stale-accounts) | Daily | Members and guests who have not signed in for a long time, or never. |
 | [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
+| [Legacy sign-ins](docs/tools.md#legacy-sign-ins) | Daily | Successful sign-ins with legacy clients that cannot do MFA. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
 | [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
-| [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations and Defender plans that are off. |
+| [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations, Defender plans that are off, missing alert e-mails and open alerts. |
 | [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |
 | [Safety nets](docs/tools.md#safety-nets) | Daily | Subscriptions with no working budget and key resources with no delete lock. |
 | [Azure Monitor](docs/tools.md#azure-monitor) | Daily | Machines, alert rules, action groups and workspaces that Azure Monitor does not cover or that do not work. |
 | [Updates and patching](docs/tools.md#updates-and-patching) | Daily | Machines with pending Critical or Security updates, missing assessments or failed installations. |
 | [Entra tenant settings](docs/tools.md#entra-tenant-settings) | Daily | Tenant settings that let any user register apps, invite guests or create tenants. |
 | [Resource health](docs/tools.md#resource-health) | Hourly | Resources that are down or degraded now, Azure outages and planned maintenance. |
-| [Subscriptions](docs/tools.md#subscriptions) | Daily | Subscriptions in the Tenant Root Group, with no Owner, or not in good standing. |
+| [Subscriptions](docs/tools.md#subscriptions) | Daily | Subscriptions in the Tenant Root Group, with no Owner, not in good standing, or with classic administrators. |
 | [Network hygiene](docs/tools.md#network-hygiene) | Daily | WAFs that block nothing, dangling DNS records and routes to nowhere. |
 | [Connectivity health](docs/tools.md#connectivity-health) | Hourly | VPN connections and ExpressRoute circuits that are down, failed gateways, stuck private endpoints and unhealthy backends. |
 | [Azure Virtual Desktop](docs/tools.md#azure-virtual-desktop) | Daily | Session hosts that are down or forgotten, host pools that cost more than needed, and app groups users cannot see. |

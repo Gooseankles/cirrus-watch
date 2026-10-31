@@ -34,7 +34,7 @@ beta fails, v1.0 is used (apps are then missing). Access lookup's group view doe
 
 App secrets and certificates that expire soon, and app registrations with risky credentials or no owner.
 
-App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default).
+App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default); federated credentials whose subject has a wildcard or accepts any GitHub pull request (the first 300 apps are checked); redirect URIs on plain `http://` (other than localhost) or with a wildcard.
 
 ## Key Vault
 
@@ -86,9 +86,9 @@ TLS certificates of websites: the custom domains of App Service apps and slots f
 
 ## Defender for Cloud
 
-Low secure scores, unhealthy recommendations and Defender plans that are off.
+Low secure scores, unhealthy recommendations, Defender plans that are off, missing alert e-mails and open alerts.
 
-Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others.
+Subscriptions with a low secure score, unhealthy Defender recommendations (from medium severity by default) with how many resources each hits, Defender plans that are off but should be on, and plans on in some subscriptions but off in others. Defender for Servers on Plan 1 where other subscriptions have Plan 2, and agentless machine scanning turned off in Servers Plan 2 or Defender CSPM. Security contacts that tell nobody about alerts: no contact or no address and role notifications off, alert e-mails off, or only role holders told (no e-mail address). Open High and Medium security alerts from Resource Graph, one row per alert type, subscription and severity with how many there are and the age of the oldest (High alerts are critical); at most 200 rows.
 
 ## Vulnerabilities (CVEs)
 
@@ -100,7 +100,7 @@ One row per CVE and subscription with the resources it is on, from Defender for 
 
 Subscriptions with no working budget and key resources with no delete lock.
 
-Subscriptions with no cost budget or a budget that alerts nobody (budgets set on a management group are not seen), and key vaults, backup vaults, VNets and DNS zones with no delete lock on them, their resource group or their subscription.
+Subscriptions with no cost budget or a budget that alerts nobody (budgets set on a management group are not seen), and key vaults, Recovery Services and backup vaults, VNets, DNS and private DNS zones, Log Analytics workspaces, SQL servers, AKS clusters and Azure Firewalls with no delete lock on them, their resource group or their subscription. The list of resource types is a setting (`LOCK_RESOURCE_TYPES`).
 
 ## Backup coverage
 
@@ -118,7 +118,7 @@ What one failure would take down: single VMs with no zone or availability set, A
 
 Risky settings on storage, SQL, web apps, registries, AKS, Redis and other services.
 
-Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Each finding links to its PSRule for Azure rule.
+Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Most findings link to their PSRule for Azure rule. Cross-tenant replication allowed (warning, only when explicitly on) has no such rule. The access keys finding also says, while keys still work, whether a SAS expiration policy is missing and whether the portal defaults to the key instead of Entra ID sign-in. SQL TLS versions and SQL servers open to the internet are covered by End of support and Internet exposure.
 
 ## Exposure paths
 
@@ -178,7 +178,7 @@ Resources Azure reports as Unavailable or Degraded now, active Azure outages, ad
 
 WAFs that block nothing, dangling DNS records and routes to nowhere.
 
-WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has.
+WAF policies in Detection mode or off, WAF gateways with no WAF, public Standard gateways without WAF, dangling DNS records (CNAMEs to deleted Azure names that anyone can claim, aliases to deleted resources), routes to a virtual appliance address nobody has. Subnets with no NSG, unless every NIC or scale set in them has its own; GatewaySubnet, AzureFirewallSubnet, AzureFirewallManagementSubnet, AzureBastionSubnet, RouteServerSubnet and subnets delegated to NetApp volumes or BareMetal are left out.
 
 ## Connectivity health
 
@@ -238,15 +238,15 @@ List, so a domain under a rare one is looked up one level too high and quietly s
 
 ## Subscriptions
 
-Subscriptions in the Tenant Root Group, with no Owner, or not in good standing.
+Subscriptions in the Tenant Root Group, with no Owner, not in good standing, or with classic administrators.
 
-Subscriptions in the Tenant Root Group, with no Owner, or Warned, PastDue or Disabled.
+Subscriptions in the Tenant Root Group, with no Owner, or Warned, PastDue or Disabled. Classic administrators (Service Administrator and Co-Administrators) still listed: classic roles were retired in August 2024, and in December 2025 Azure gave the remaining ones an Owner role assignment on the subscription instead, so each entry is an Owner to review and a leftover to remove. Subscriptions where the list no longer answers (404) have none; one whose list is refused (403) is noted, not counted as a failure.
 
 ## Diagnostic settings
 
 Resources and subscriptions whose logs go nowhere, and missing flow logs.
 
-Resources whose logs go nowhere, subscriptions whose activity log is not exported, NSG flow logs (retiring September 2027), VNets with no flow log.
+Resources whose logs go nowhere, subscriptions whose activity log is not exported, NSG flow logs (retiring September 2027), VNets with no flow log, Log Analytics workspaces whose default retention is under 90 days.
 
 ## Quotas
 
@@ -276,13 +276,13 @@ Every VNet's address space and subnets with how full they are, and which address
 
 Who holds the powerful Entra roles and whether they are protected.
 
-Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA, too few working emergency access accounts.
+Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA, admin accounts synced from on-premises Active Directory (high for Global Administrators, medium for other roles), too few working emergency access accounts.
 
 ## Entra tenant settings
 
 Tenant settings that let any user register apps, invite guests or create tenants.
 
-Tenant settings that let any user register apps, create tenants or security groups, invite guests or join by email sign-up; guest access same as members; B2B direct connect open to every outside tenant.
+Tenant settings that let any user register apps, create tenants or security groups, invite guests or join by email sign-up; guest access same as members; B2B direct connect open to every outside tenant; B2B guest invitations open to every outside tenant (Microsoft's default, so low); partner tenants whose MFA or device claims are trusted (information) or whose consent prompts are skipped. From the authentication methods policy: SMS or voice call allowed for all users, a Temporary Access Pass that may last more than a day (the default maximum is 8 hours; a reusable pass is Microsoft's default and not flagged), passkeys (FIDO2) turned off, migration from the old MFA and SSPR method lists not finished (information), the registration campaign turned off (information; Microsoft managed counts as on).
 
 ## PIM
 
@@ -302,17 +302,23 @@ Enabled members with no MFA method, or only phone and SMS.
 
 Enabled members with no MFA method registered, and accounts that can only use phone or SMS (needs Entra ID P1).
 
+## Legacy sign-ins
+
+Successful sign-ins with legacy clients that cannot do MFA.
+
+Successful sign-ins in the last 7 days with legacy (basic authentication) clients: IMAP, POP, SMTP AUTH, Exchange ActiveSync, older Outlook protocols and "Other clients". One finding per user and client, with the count and the last time. Graph's sign-in list holds the interactive sign-ins, so legacy sign-ins Entra files as non-interactive are not seen and the counts are a floor; the client app field only takes an equals filter, so each client type is its own query, at most 3,000 sign-ins each (two at a time, since Entra allows five report requests per 10 seconds per tenant). Needs Entra ID P1 or P2 to read sign-in logs; without it the scan notes that in the log and reports nothing.
+
 ## Conditional Access
 
 Gaps in Conditional Access policies.
 
-No MFA for everyone or for admins, legacy sign-in not blocked, report-only policies, long exclusion lists.
+No MFA for everyone or for admins, no authentication strength (phishing-resistant MFA) required for admins, legacy sign-in or the device code flow not blocked, admins (active members of privileged roles, directly or through a group) excluded from an enabled MFA or block policy by user, group or role, report-only policies, long exclusion lists. Report-only policies never count as enforcing. Accounts named in the emergency access setting may be excluded; with none named, a cloud-only Global Administrator excluded from every such policy is taken for an emergency access account.
 
 ## App permissions
 
 Apps with Graph permissions that could take over the tenant, and risky consents.
 
-Apps with Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, users allowed to consent to any app.
+Apps with Graph permissions that could take over the tenant or read everyone's data, apps registered here as multi-tenant that hold such a permission, risky delegated consents, users allowed to consent to any app.
 
 ## Enterprise apps
 

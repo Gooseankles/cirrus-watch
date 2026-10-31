@@ -1,6 +1,8 @@
 // Apps holding Microsoft Graph permissions that could take over the tenant or
 // read everyone's data, risky delegated consents, and whether users may
-// consent to any app themselves. Microsoft's own apps are left out.
+// consent to any app themselves. Apps registered in this tenant as
+// multi-tenant that hold one of those application permissions are flagged too.
+// Microsoft's own apps are left out.
 // Graph: Application.Read.All (app permissions), DelegatedPermissionGrant.Read.All
 // (consents), Policy.Read.All (user consent setting).
 const { graphGet, graphGetAll } = require("../graphClient");
@@ -39,6 +41,35 @@ async function appDetails(ids) {
   return { apps: out, errors: itemErrors(TOOL_ID, "apps", "apps looked up", failures, list.length) };
 }
 const microsoft = (sp) => sp && MICROSOFT_TENANTS.has(sp.appOwnerOrganizationId);
+const MULTI_TENANT = new Set(["AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount"]);
+
+// reg: the app registration ({ id, appId, displayName, signInAudience }); spId: its service principal here; perms:
+// the high-impact application permissions it holds. Pure, for the tests.
+function judgeMultiTenant(reg, spId, perms) {
+  if (!reg || !MULTI_TENANT.has(reg.signInAudience) || !perms.length) return [];
+  return [{
+    ...TENANT,
+    kind: "app-multitenant-privileged",
+    id: `${spId}#multitenant`,
+    name: reg.displayName || reg.appId,
+    principalId: spId,
+    appId: reg.appId,
+    detail: `Registered here as multi-tenant (${reg.signInAudience}) and holds application permission ${perms.join(", ")}. Other organisations can add this app too, and its secrets then count there as well. Make it single tenant (Supported account types: this organisation only) unless other tenants really use it`,
+  }];
+}
+
+// Registrations owned by this tenant for the given service principals; a 404 means the app is registered elsewhere.
+async function ownRegistrations(sps) {
+  const out = new Map();
+  const failures = await mapLimit(sps.slice(0, MAX_APPS), 6, async (sp) => {
+    try {
+      out.set(sp.id, await graphGet(`/applications(appId='${sp.appId}')?$select=id,appId,displayName,signInAudience`, TOOL_ID));
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+  });
+  return { regs: out, errors: itemErrors(TOOL_ID, "registrations", "app registrations looked up", failures, Math.min(sps.length, MAX_APPS)) };
+}
 
 async function graphSp() {
   return graphGet(`/servicePrincipals(appId='${GRAPH_APP_ID}')?$select=id,appRoles`, TOOL_ID);
@@ -56,6 +87,8 @@ async function applicationFindings(sp) {
     byApp.get(a.principalId).perms.add(perm);
   }
   const { apps, errors } = await appDetails(byApp.keys());
+  const own = await ownRegistrations([...byApp.keys()].map((id) => apps.get(id)).filter((a) => a && a.appId && !microsoft(a)));
+  errors.push(...own.errors);
   const findings = [];
   for (const [id, { name, perms }] of byApp) {
     const app = apps.get(id);
@@ -66,6 +99,7 @@ async function applicationFindings(sp) {
     const off = app && app.accountEnabled === false ? " (the app is disabled)" : "";
     if (takeover.length) findings.push({ ...base, kind: "app-takeover-permission", id: `${id}#takeover`, detail: `Application permission ${takeover.join(", ")}${off}: whoever holds its secret can make themselves an admin or turn off protections` });
     if (broad.length) findings.push({ ...base, kind: "app-broad-data-permission", id: `${id}#broad`, detail: `Application permission ${broad.join(", ")}${off}: reads or changes data for every user, without anyone signed in` });
+    findings.push(...judgeMultiTenant(own.regs.get(id), id, [...takeover, ...broad]));
   }
   return [...findings, ...errors];
 }
@@ -138,4 +172,5 @@ module.exports = {
   label: "App permissions",
   schedule: "15 5 * * *", // daily at 05:15
   run,
+  _test: { judgeMultiTenant },
 };

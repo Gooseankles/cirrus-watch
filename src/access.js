@@ -32,6 +32,7 @@ const TOOL_AREAS = {
   "enterprise-apps": ["identity", "security"],
   "conditional-access": ["identity", "security"],
   "mfa-coverage": ["identity", "security"],
+  "legacy-sign-ins": ["identity", "security"],
   defender: ["security", "platform"],
   vulnerabilities: ["security", "platform"],
   "internet-exposure": ["security", "platform"],

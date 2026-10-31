@@ -54,6 +54,7 @@ const TOOL_AREAS = {
   "policy-check": ["platform"],
   "safety-nets": ["platform"],
   "azure-monitor": ["platform"],
+  avd: ["platform"],
   subscriptions: ["platform"],
   quotas: ["platform"],
   "orphaned-resources": ["platform", "cost"],

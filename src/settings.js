@@ -167,6 +167,7 @@ const TOOL_SPNS = [
   { id: "resource-health", label: "Resource health" },
   { id: "subscriptions", label: "Subscriptions" },
   { id: "network-hygiene", label: "Network hygiene" },
+  { id: "avd", label: "Azure Virtual Desktop" },
   { id: "history-storage", label: "History storage" },
 ];
 

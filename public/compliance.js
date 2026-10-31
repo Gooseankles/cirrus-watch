@@ -387,6 +387,9 @@ const KIND_CONTROLS = {
   "dns-dangling-cname": ["cis:1.1", "cis:12.2", "nis2:i", "nsm:1.2", "nsm:2.4", "ir:12.4", "ir:6.7"],
   "dns-alias-missing": ASSETS,
   "route-next-hop-missing": ["cis:12.2", "nis2:c", "nsm:2.4", "ir:6.7"],
+  ...Object.fromEntries(["avd-host-unavailable", "avd-host-not-ready", "avd-host-shutdown"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
+  "avd-agent-update-failed": PATCHING,
+  ...Object.fromEntries(["avd-host-drain-forgotten", "avd-pool-empty", "avd-pool-no-scaling", "avd-personal-unassigned", "avd-no-start-on-connect", "avd-appgroup-no-workspace", "avd-workspace-empty"].map((k) => [k, ASSETS])),
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -440,6 +443,7 @@ const TOOL_KINDS = {
   updates: ["updates-pending-overdue", "updates-pending-critical", "updates-pending-security", "updates-not-assessed", "updates-no-schedule", "updates-install-failed"],
   "resource-health": ["health-unavailable", "health-degraded", "service-issue", "service-advisory", "service-maintenance"],
   subscriptions: ["sub-in-root-mg", "sub-no-owner", "sub-state", "sub-disabled"],
+  avd: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("avd-")),
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
 };

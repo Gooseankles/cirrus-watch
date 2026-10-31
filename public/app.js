@@ -133,6 +133,7 @@ const TOOLS = [
   { id: "vulnerabilities", group: "resources", label: "Vulnerabilities (CVEs)", icon: "shield", schedule: "Daily at 06:55", sub: "Known vulnerabilities (CVEs) that Defender for Cloud found on machines and container images, one row per CVE with the resources it is on. CVEs on CISA's known exploited list come first, then those likely to be exploited soon (EPSS), then critical ones. Also subscriptions with machines or registries that Defender does not scan." },
   { id: "updates", group: "resources", label: "Updates and patching", icon: "clock", schedule: "Daily at 06:25", sub: "From Azure Update Manager: running VMs and Arc servers with Critical or Security updates pending (critical when the oldest is older than the set number of days), machines not assessed lately or whose assessment failed, VMs on no patch schedule at all, and machines whose latest update installation failed or ended with warnings." },
   { id: "resource-health", group: "resources", label: "Resource health", icon: "activity", schedule: "Every hour", sub: "Resources Azure reports as Unavailable or Degraded right now, with why and since when (VMs you stopped yourself are left out), and Service Health events that hit your subscriptions: active outages, health and security advisories, and planned maintenance starting soon, each with its Service Health link." },
+  { id: "avd", group: "resources", label: "Azure Virtual Desktop", icon: "app", schedule: "Daily at 06:35", sub: "Azure Virtual Desktop in short: session hosts that are Unavailable or need assistance (with the failed health checks), not ready, shut down with nothing to start them, whose agent update failed or that sit in drain mode with no heartbeat for a week; host pools with no session hosts, pooled pools with no scaling plan, personal desktops assigned to nobody, personal pools without Start VM on Connect; application groups no workspace shows and empty workspaces. Tenants with no host pools are skipped." },
   { id: "network-hygiene", group: "resources", label: "Network hygiene", icon: "network", schedule: "Daily at 05:05", sub: "Network settings that look fine but protect or route nothing: WAF policies in Detection mode or turned off (Application Gateway and Front Door), WAF gateways with no WAF at all, public Standard gateways with no WAF, DNS records that point at an Azure name nobody owns any more (subdomain takeover) or at a deleted resource, and routes to a virtual appliance address that belongs to nothing, so the traffic is dropped." },
   { id: "subscriptions", group: "governance", label: "Subscriptions", icon: "box", schedule: "Daily at 04:35", sub: "Subscriptions sitting directly in the Tenant Root Group (management group policies and access do not reach them), with no Owner on the subscription or a management group above it, or not enabled: Warned or PastDue (about to be switched off) and Disabled ones left behind." },
   { id: "quotas", group: "governance", label: "Quotas", icon: "gauge", schedule: "Daily at 04:45", sub: "Compute, network and storage quotas close to their limit in the regions each subscription uses, before a deployment or scale-out fails on them." },
@@ -470,6 +471,17 @@ const KINDS = {
   "dns-dangling-cname": ["Dangling DNS (takeover risk)", "crit"],
   "dns-alias-missing": ["DNS alias to deleted resource", "crit"],
   "route-next-hop-missing": ["Route to missing appliance", "crit"],
+  "avd-host-unavailable": ["Session host down", "crit"],
+  "avd-host-not-ready": ["Session host not ready", "warn"],
+  "avd-host-shutdown": ["Session host shut down", "warn"],
+  "avd-agent-update-failed": ["AVD agent update failed", "warn"],
+  "avd-host-drain-forgotten": ["Left in drain mode", ""],
+  "avd-pool-empty": ["Host pool, no session hosts", ""],
+  "avd-pool-no-scaling": ["Pooled host pool, no scaling plan", "warn"],
+  "avd-personal-unassigned": ["Personal desktops unassigned", ""],
+  "avd-no-start-on-connect": ["Start VM on Connect off", "info"],
+  "avd-appgroup-no-workspace": ["App group in no workspace", "warn"],
+  "avd-workspace-empty": ["Workspace, no app groups", ""],
 };
 const kindLabel = (k) => (KINDS[k] ? KINDS[k][0] : fmt.humanize(k));
 const kindSev = (k) => (KINDS[k] ? KINDS[k][1] : "");

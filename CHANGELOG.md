@@ -24,6 +24,26 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.63.0.0] - 2026-10-31
+
+### Added
+
+- Azure Monitor checks that machines send their data where the alerts look. Log search alerts read one Log
+  Analytics workspace, so a machine with the agent and a data collection rule that sends to another workspace never
+  raises them. New finding **No log alert reads its data** (`monitor-not-alerted`) for such a running machine, with
+  "How to fix" steps; a tenant with no enabled log alert rule at all gets one finding instead of one per machine.
+  Rules scoped to a subscription, resource group or the machine itself (resource-centric log alerts) cover the
+  machines under them whatever the workspace. Disabled rules and log-to-metric rules do not count. Covered means a
+  log alert reads the workspace, not that its query watches that machine; rules the app cannot see (other
+  subscriptions or tenants, Sentinel) count as none ([Azure Monitor](docs/tools.md#azure-monitor) lists the limits).
+- New setting **Workspaces your alerts read** (`AZURE_MONITOR_ALERT_WORKSPACES`, per tenant, Settings > Azure
+  Monitor): workspace names or resource IDs to check against instead of the workspaces the log alert rules are
+  scoped to, for alerts the app cannot see.
+- An **Alert coverage** tile (machines whose data an enabled log alert reads, out of all VMs and Arc servers) and a
+  **Workspace** column on the Machines tab, showing where each machine sends its data and whether a log alert reads
+  it; the tab also says which workspaces the log alerts read. Inventories saved before this version show none of
+  this until the next scan.
+
 ## [0.62.0.0] - 2026-10-31
 
 ### Added

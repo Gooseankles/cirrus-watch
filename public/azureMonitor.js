@@ -1,6 +1,6 @@
 "use strict";
-/* Azure Monitor scan page: coverage counts at the top (machines monitored, alert rules on), the findings, every machine with its agent, collection rules and last heartbeat
-   (Machines), and every alert rule with whether it is on and whom it tells (Alert rules). The lists come from
+/* Azure Monitor scan page: coverage counts at the top (machines monitored, alert coverage, alert rules on), the findings, every machine with its agent,
+   collection rules, destination workspace (and whether a log alert reads it) and last heartbeat (Machines), and every alert rule with whether it is on and whom it tells (Alert rules). The lists come from
    /api/azure-monitor, saved by the last scan, which also names the tenants where the check is switched off
    (Settings, Azure Monitor). Uses app.js helpers. */
 (() => {
@@ -39,12 +39,35 @@
     const late = (Date.now() - Date.parse(m.lastHeartbeat)) / 3600000 > hours;
     return `<span class="${late ? "bad" : "good"}" title="${esc(m.lastHeartbeat)}">${esc(fmt.rel(m.lastHeartbeat))}</span>`;
   }
+  // Where its data goes, and whether a log alert reads it (m.alert is missing in an inventory from before that was judged).
+  const short = (s, n = 24) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+  function workspaceCell(m) {
+    const list = m.workspaces || [];
+    if (!list.length) return `<span class="muted">–</span>`;
+    const read = new Set(m.alertWorkspaces || []);
+    const tags = list.slice(0, 2).map((w) => `<span class="tag${read.has(w) ? " good" : m.alert === "none" ? " warn" : ""}" title="${esc(w)}">${esc(short(w))}</span>`).join(" ");
+    const more = list.length > 2 ? ` <span class="muted small">+${list.length - 2}</span>` : "";
+    const note = m.alert === "workspace" ? state_("good", "a log alert reads it") : m.alert === "scope" ? state_("good", "log alert on its scope") : m.alert === "none" ? state_("warn", "no log alert reads it") : "";
+    return `${tags}${more}${note ? `<div class="secondary">${note}</div>` : ""}`;
+  }
   // Worst first: what needs a look comes to the top.
   function machineRank(m, hours) {
     if (!m.running) return m.kind === "Arc" ? 1 : 6;
     if (m.agent !== "ama" || (m.agentState || "").toLowerCase() === "failed" || !m.rules.length) return 2;
     if (m.heartbeatChecked && (!m.lastHeartbeat || (Date.now() - Date.parse(m.lastHeartbeat)) / 3600000 > hours)) return 0;
+    if (m.alert === "none") return 3;
     return 5;
+  }
+  // Which workspaces the alerts read, per tenant in view: from Settings or from the log alert rules.
+  function alertLine(d) {
+    const list = d.alertWorkspaces || [];
+    if (!list.length) return "";
+    const one = (a) => {
+      const names = (a.names || []).slice(0, 4).join(", ") + ((a.names || []).length > 4 ? ", …" : "");
+      const where = a.source === "setting" ? `log alerts read ${names} (set in Settings)` : a.source === "rules" ? (names ? `log alert rules read ${names}` : "log alert rules read only their own scopes") : "no enabled log alert rule";
+      return list.length > 1 ? `${a.name}: ${where}` : where.charAt(0).toUpperCase() + where.slice(1);
+    };
+    return ` ${esc(list.map(one).join("; "))}.`;
   }
 
   function extra(all, t) {
@@ -72,7 +95,7 @@
     const d = inv.data;
     if (!d.machines.length) return `<div class="empty-state">${d.updatedAt ? "No VMs or Arc servers found." : "No machine list yet; it is saved by the next scan."}</div>`;
     const hours = d.heartbeatHours || 2;
-    const list = filtered(d.machines, t, (m) => [m.name, m.resourceGroup, m.subscriptionName, m.subscriptionId, m.tenantName, ...m.rules, ...m.workspaces])
+    const list = filtered(d.machines, t, (m) => [m.name, m.resourceGroup, m.subscriptionName, m.subscriptionId, m.tenantName, ...m.rules, ...(m.workspaces || [])])
       .sort((a, b) => machineRank(a, hours) - machineRank(b, hours) || String(a.name).localeCompare(String(b.name)));
     const watched = d.machines.filter((m) => m.running && m.agent === "ama" && m.rules.length).length;
     const running = d.machines.filter((m) => m.running).length;
@@ -81,11 +104,12 @@
       subCell(m),
       m.running ? esc(m.state) : state_(m.kind === "Arc" ? "warn" : "muted", m.state),
       agentCell(m),
-      m.rules.length ? `${esc(m.rules.join(", "))}${m.workspaces.length ? `<div class="secondary">to ${esc(m.workspaces.join(", "))}</div>` : ""}` : `<span class="${m.agent === "ama" && m.running ? "warn" : "muted"}">none</span>`,
+      m.rules.length ? esc(m.rules.join(", ")) : `<span class="${m.agent === "ama" && m.running ? "warn" : "muted"}">none</span>`,
+      workspaceCell(m),
       heartbeatCell(m, hours),
     ]);
-    return `<p class="muted small">${fmt.int(watched)} of ${fmt.int(running)} running machines have the agent and a collection rule. A heartbeat older than ${fmt.int(hours)} h is flagged.</p>` +
-      tableHtml([{ label: "Machine" }, { label: "Subscription" }, { label: "State" }, { label: "Agent" }, { label: "Collection rules" }, { label: "Last heartbeat" }], rows) +
+    return `<p class="muted small">${fmt.int(watched)} of ${fmt.int(running)} running machines have the agent and a collection rule. A heartbeat older than ${fmt.int(hours)} h is flagged.${alertLine(d)}</p>` +
+      tableHtml([{ label: "Machine" }, { label: "Subscription" }, { label: "State" }, { label: "Agent" }, { label: "Collection rules" }, { label: "Workspace" }, { label: "Last heartbeat" }], rows) +
       moreButton(Math.min(list.length, t.shown), list.length, t);
   }
 
@@ -134,6 +158,12 @@
     if (s.vms) tiles.push(coverTile("Virtual machines monitored", s.vms));
     if (s.arc && s.arc.total) tiles.push(coverTile("Arc servers monitored", s.arc));
     if (s.scaleSets && s.scaleSets.total) tiles.push(coverTile("Scale sets monitored", s.scaleSets));
+    // Machines whose data an enabled log alert reads (left out for an inventory from before this was counted).
+    const ac = s.alertCoverage;
+    if (ac && ac.total) {
+      const gaps = [[ac.notAlerted, "to a workspace no log alert reads"], [ac.noData, "send no logs"]].filter(([n]) => n).map(([n, text]) => `${fmt.int(n)} ${text}`);
+      tiles.push(statTile({ label: "Alert coverage", value: `${fmt.int(ac.covered)} / ${fmt.int(ac.total)}`, delta: gaps.length ? gaps.join(" · ") : "every machine's data reaches a log alert", deltaCls: ac.notAlerted ? "bad" : gaps.length ? "" : "good" }));
+    }
     if (s.alertRules) {
       const off = s.alertRules.total - s.alertRules.enabled;
       tiles.push(statTile({ label: "Alert rules on", value: `${fmt.int(s.alertRules.enabled)} / ${fmt.int(s.alertRules.total)}`, delta: off ? `${fmt.int(off)} off` : s.alertRules.total ? "all on" : "none found", deltaCls: off ? "bad" : "" }));

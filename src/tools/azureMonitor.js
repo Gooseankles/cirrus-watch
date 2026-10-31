@@ -4,7 +4,8 @@
 // collection rules that send to a deleted workspace or go unused; alert rules
 // that are off, alert nobody, use a deleted action group or watch a deleted
 // resource; action groups that are off, empty or unsubscribed; workspaces that
-// hit their daily cap. Off per tenant (AZURE_MONITOR_IN_USE) for customers who
+// hit their daily cap; machines whose data goes only to workspaces that no
+// enabled log alert rule reads (alerts are tied to one workspace). Off per tenant (AZURE_MONITOR_IN_USE) for customers who
 // do not use Azure Monitor: then no request is made and nothing is found.
 // Reader is enough; the heartbeat check queries each workspace through the Logs Query API.
 const settings = require("../settings");
@@ -26,6 +27,8 @@ const LEGACY = ["microsoftmonitoringagent", "omsagentforlinux"];
 
 const inUse = () => String(settings.get("AZURE_MONITOR_IN_USE") || "off").toLowerCase() === "on";
 const heartbeatHours = () => numberSetting("AZURE_MONITOR_HEARTBEAT_HOURS", 2, { min: 1, max: 168 });
+// The workspaces alerts are set up on, when given (resource IDs or names); blank = read from the log alert rules.
+const alertWorkspacesSetting = () => String(settings.get("AZURE_MONITOR_ALERT_WORKSPACES") || "");
 const low = (s) => String(s || "").toLowerCase();
 const subOf = (id) => (low(id).match(/^\/subscriptions\/([^/]+)/) || [])[1] || "";
 const arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
@@ -35,8 +38,8 @@ const arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
 // machines: [{ id, name, type, resourceGroup, subscriptionId, power, arcStatus, os }]
 // exts: [{ machineId, extType, state }]; dcras: [{ resourceId, ruleId }];
 // dcrs: [{ id, name, workspaces: [id] }]; heartbeats: Map(machineId -> ISO) or null per workspace failure;
-// checked: Set of workspace ids whose heartbeats were read.
-function machineInventory({ machines, exts, dcras, dcrs, heartbeats, checked }) {
+// checked: Set of workspace ids whose heartbeats were read; reach: alertReach() (null = not judged).
+function machineInventory({ machines, exts, dcras, dcrs, heartbeats, checked, reach = null }) {
   const extsBy = new Map();
   for (const e of exts) {
     const k = low(e.machineId);
@@ -62,6 +65,8 @@ function machineInventory({ machines, exts, dcras, dcrs, heartbeats, checked }) 
     const seen = workspaces.filter((w) => checked.has(w));
     const hb = heartbeats.get(id) || null;
     const running = arc ? low(m.arcStatus) === "connected" : !m.power || low(m.power) === "powerstate/running";
+    const sends = Boolean(ama) && low(ama.state) !== "failed" && workspaces.length > 0;
+    const alerted = reach ? workspaces.filter((w) => reach.readsWorkspace(w)) : [];
     return {
       id: m.id,
       name: m.name,
@@ -75,14 +80,21 @@ function machineInventory({ machines, exts, dcras, dcrs, heartbeats, checked }) 
       agentState: (ama || legacy || {}).state || null,
       rules: ruleIds.map((r) => (dcrById.get(r) ? dcrById.get(r).name : nameOf(r))),
       workspaces: workspaces.map(nameOf),
+      // Whether an enabled log alert can see its data: "workspace" (a rule reads a workspace it
+      // sends to), "scope" (a rule on its subscription, resource group or itself), "none", or
+      // null when not judged (no working agent, no rule sending to a workspace, or no reach given).
+      alert: !reach || !sends ? null : alerted.length ? "workspace" : reach.coversResource(id, m.type) ? "scope" : "none",
+      alertWorkspaces: alerted.map(nameOf),
       heartbeatChecked: seen.length > 0,
       lastHeartbeat: hb,
     };
   });
 }
 
-function machineFindings(inv, { hours, now = Date.now() }) {
+// reach: alertReach(), for the machines whose data no log alert reads (left out when not given).
+function machineFindings(inv, { hours, now = Date.now(), reach = null }) {
   const out = [];
+  const unread = [];
   const f = (m, kind, detail) => out.push({ kind, id: `${m.id}#monitor`, name: m.name, resourceGroup: m.resourceGroup, subscriptionId: m.subscriptionId, detail });
   for (const m of inv) {
     if (m.kind === "Arc" && !m.running) {
@@ -106,6 +118,7 @@ function machineFindings(inv, { hours, now = Date.now() }) {
       f(m, "monitor-no-dcr", "Azure Monitor Agent is installed but no data collection rule is linked, so it collects nothing");
       continue;
     }
+    if (reach && m.alert === "none") unread.push(m);
     if (!m.heartbeatChecked) continue;
     const age = m.lastHeartbeat ? (now - Date.parse(m.lastHeartbeat)) / 3600000 : Infinity;
     if (age > hours) {
@@ -114,7 +127,62 @@ function machineFindings(inv, { hours, now = Date.now() }) {
         : `No heartbeat in ${m.workspaces.join(", ")} for ${HEARTBEAT_DAYS} days, although the machine is running and has a rule`);
     }
   }
+  if (!unread.length) return out;
+  // No log alert rule at all (and no workspaces named in Settings): one finding for the tenant, not one per machine.
+  if (!reach.source) {
+    const ws = [...new Set(unread.flatMap((m) => m.workspaces))];
+    out.push({
+      kind: "monitor-not-alerted",
+      id: `${TOOL_ID}/log-alerts`,
+      name: "Log alert rules",
+      resourceGroup: null,
+      subscriptionId: null,
+      detail: `No enabled log alert rule in this tenant: no log search alert can fire for the ${unread.length} running machine${unread.length === 1 ? " that sends" : "s that send"} data to ${ws.slice(0, 3).join(", ")}${ws.length > 3 ? ", …" : ""}`,
+    });
+    return out;
+  }
+  for (const m of unread) {
+    const many = m.workspaces.length > 1;
+    f(m, "monitor-not-alerted", `Sends data to ${m.workspaces.join(", ")}, but no enabled log alert rule reads ${many ? "those workspaces" : "that workspace"}: no log search alert can fire on its logs`);
+  }
   return out;
+}
+
+const WORKSPACE_RE = /\/providers\/microsoft\.operationalinsights\/workspaces\/[^/]+$/;
+
+// Where enabled log alert rules (scheduled query rules, kind LogAlert) look. A rule
+// scoped to a workspace reads what is sent there; one scoped to a subscription,
+// resource group or resource (a resource-centric log alert) reads the logs of the
+// resources under it, whichever workspace they go to (only those of its target
+// resource types when it names any). override: AZURE_MONITOR_ALERT_WORKSPACES, a
+// comma list of workspace resource IDs or names that replaces the workspaces read
+// from the rules. source: "setting", "rules", or null when no enabled log alert rule exists.
+function alertReach(rules, override = "") {
+  const log = rules.filter((r) => r.kind === "Log" && r.enabled && low(r.ruleKind) !== "logtometric");
+  const named = String(override || "").split(",").map((x) => low(x.trim()).replace(/\/+$/, "")).filter(Boolean);
+  const ids = new Set();
+  const names = new Set();
+  const scopes = [];
+  for (const r of log) {
+    for (const raw of r.scopes) {
+      const s = low(raw).replace(/\/+$/, "");
+      if (WORKSPACE_RE.test(s)) {
+        if (!named.length) ids.add(s);
+      } else if (s) scopes.push({ scope: s, types: arr(r.targetTypes).map(low) });
+    }
+  }
+  // Anything with a slash is a resource ID (a pasted one may lack the leading slash); the rest are names.
+  for (const n of named) (n.includes("/") ? ids.add(n.startsWith("/") ? n : `/${n}`) : names.add(n));
+  return {
+    source: named.length ? "setting" : log.length ? "rules" : null,
+    logRules: log.length,
+    workspaces: [...ids].map(nameOf).concat([...names]),
+    readsWorkspace: (w) => ids.has(low(w)) || names.has(nameOf(low(w))),
+    coversResource: (id, type) => {
+      const r = low(id);
+      return scopes.some((s) => (r === s.scope || r.startsWith(`${s.scope}/`)) && (!s.types.length || s.types.includes(low(type))));
+    },
+  };
 }
 
 // dcrs: [{ id, name, resourceGroup, subscriptionId, workspaces, collects }]
@@ -146,6 +214,7 @@ function ruleOf(r) {
   let enabled;
   let groups;
   let scopes;
+  let targetTypes = [];
   if (type === "microsoft.insights/metricalerts") {
     enabled = p.enabled !== false;
     groups = arr(p.actions).map((a) => a.actionGroupId);
@@ -154,6 +223,7 @@ function ruleOf(r) {
     enabled = p.enabled !== false && low(p.enabled) !== "false";
     groups = p.actions && Array.isArray(p.actions.actionGroups) ? p.actions.actionGroups : p.action && p.action.aznsAction ? arr(p.action.aznsAction.actionGroup) : [];
     scopes = p.scopes ? arr(p.scopes) : p.source && p.source.dataSourceId ? [p.source.dataSourceId] : [];
+    targetTypes = arr(p.targetResourceTypes);
   } else if (type === "microsoft.insights/activitylogalerts") {
     enabled = p.enabled !== false;
     groups = p.actions ? arr(p.actions.actionGroups).map((a) => a.actionGroupId) : [];
@@ -173,6 +243,7 @@ function ruleOf(r) {
     severity: p.severity !== undefined && p.severity !== null ? Number(p.severity) : null,
     actionGroups: groups.filter(Boolean),
     scopes: scopes.filter(Boolean),
+    ...(type === "microsoft.insights/scheduledqueryrules" && { ruleKind: r.kind || "LogAlert", targetTypes }),
   };
 }
 
@@ -279,6 +350,21 @@ function machineCounts(list, hours, now) {
 // rules as in the inventory (null when that check failed, so no false zeros);
 // dcrs, groups, workspaces and scaleSets as read from Resource Graph (null = not read).
 // scaleSets: [{ id, agent: "ama"|"legacy"|"none", rules: n }].
+// Machines whose data an enabled log alert reads, out of all machines (VMs and Arc);
+// null for an inventory saved before this was judged.
+function alertCoverageOf(machines) {
+  if (!Array.isArray(machines) || machines.some((m) => m.alert === undefined)) return null;
+  const c = { total: machines.length, covered: 0, byWorkspace: 0, byScope: 0, notAlerted: 0, noData: 0 };
+  for (const m of machines) {
+    if (m.alert === "workspace") c.byWorkspace++;
+    else if (m.alert === "scope") c.byScope++;
+    else if (m.alert === "none") c.notAlerted++;
+    else c.noData++;
+  }
+  c.covered = c.byWorkspace + c.byScope;
+  return c;
+}
+
 function summaryOf({ machines, rules, dcrs = null, groups = null, workspaces = null, scaleSets = null, hours, now = Date.now() }) {
   const count = (x) => (Array.isArray(x) ? x.length : null);
   let sets = null;
@@ -291,6 +377,7 @@ function summaryOf({ machines, rules, dcrs = null, groups = null, workspaces = n
     arc: Array.isArray(machines) ? machineCounts(machines.filter((m) => m.kind === "Arc"), hours, now) : null,
     scaleSets: sets,
     alertRules: Array.isArray(rules) ? { total: rules.length, enabled: rules.filter((r) => r.enabled).length } : null,
+    alertCoverage: alertCoverageOf(machines),
     dataCollectionRules: count(dcrs),
     actionGroups: count(groups),
     workspaces: count(workspaces),
@@ -333,7 +420,7 @@ async function readAll() {
       | project id, name, resourceGroup, subscriptionId, destinations = properties.destinations, dataSources = properties.dataSources`),
     q(`Resources
       | where type in~ ('${Object.keys(RULE_KINDS).join("', '")}')
-      | project id, name, type = tolower(type), resourceGroup, subscriptionId, properties`),
+      | project id, name, type = tolower(type), kind, resourceGroup, subscriptionId, properties`),
     q(`Resources
       | where type =~ 'microsoft.insights/actiongroups'
       | project id, name, resourceGroup, subscriptionId, properties`),
@@ -403,6 +490,7 @@ async function run() {
   const [data, subs] = await Promise.all([readAll(), subscriptionIdsToScan(TOOL_ID)]);
   const scannedSubs = new Set(subs.map(low));
   const workspaceIds = new Set(data.workspaces.map((w) => low(w.id)));
+  const reach = alertReach(data.rules, alertWorkspacesSetting());
   let machines = [];
   let rulesOut = [];
   let machinesOk = false;
@@ -417,10 +505,10 @@ async function run() {
         return data.dcrs.filter((d) => ruleIds.includes(low(d.id))).flatMap((d) => d.workspaces);
       }).map(low))].filter((w) => workspaceIds.has(w));
       const hb = await readHeartbeats(wanted, new Map(data.workspaces.map((w) => [low(w.id), w.customerId])));
-      machines = machineInventory({ ...data, heartbeats: hb.heartbeats, checked: hb.checked });
+      machines = machineInventory({ ...data, heartbeats: hb.heartbeats, checked: hb.checked, reach });
       machinesOk = true;
       const errs = itemErrors(TOOL_ID, "heartbeats", "workspaces (heartbeat query; needs Reader or Log Analytics Reader)", hb.failures.map((f) => ({ ...f, item: { subscriptionId: subOf(f.item) } })), hb.total);
-      return [...machineFindings(machines, { hours: heartbeatHours() }), ...dcrFindings(data.dcrs, data.dcras, workspaceIds, scannedSubs), ...errs];
+      return [...machineFindings(machines, { hours: heartbeatHours(), reach }), ...dcrFindings(data.dcrs, data.dcras, workspaceIds, scannedSubs), ...errs];
     },
     Alerts: async () => {
       const scopeIds = [...new Set(data.rules.filter((r) => r.enabled).flatMap((r) => r.scopes.map(scopeResource)).filter((s) => s && scannedSubs.has(subOf(s))))];
@@ -437,7 +525,8 @@ async function run() {
     ? data.scaleSets.map((v) => ({ id: v.id, agent: v.ama ? "ama" : v.legacy ? "legacy" : "none", rules: ruled.has(low(v.id)) ? 1 : 0 }))
     : null;
   const summary = summaryOf({ machines: machinesOk ? machines : null, rules: data.rules, dcrs: data.dcrs, groups: data.groups, workspaces: data.workspaces, scaleSets, hours: heartbeatHours() });
-  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: false, machines, rules: rulesOut, summary });
+  // alertWorkspaces: where the log alerts look, for the line on the Machines tab (inventory() hands it on as saved).
+  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: false, machines, rules: rulesOut, summary, alertWorkspaces: { source: reach.source, names: reach.workspaces } });
   return findings;
 }
 
@@ -445,7 +534,7 @@ async function run() {
 
 // Each tenant's machines and alert rules from its last scan, and which tenants have the check off.
 async function inventory(keys) {
-  const out = { updatedAt: null, machines: [], rules: [], off: [], failures: [], summary: null };
+  const out = { updatedAt: null, machines: [], rules: [], off: [], failures: [], summary: null, alertWorkspaces: [] };
   const summaries = [];
   for (const k of keys) {
     const t = tenants.byKey(k);
@@ -464,6 +553,7 @@ async function inventory(keys) {
     const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
     out.machines.push(...(doc.machines || []).map(tag));
     out.rules.push(...(doc.rules || []).map(tag));
+    if (doc.alertWorkspaces) out.alertWorkspaces.push({ tenant: k, name: tenants.nameOf(k), ...doc.alertWorkspaces });
     // A scan from before the counts were saved: what its machine and rule lists give.
     summaries.push(doc.summary || summaryOf({ machines: doc.machines || [], rules: doc.rules || [], hours: heartbeatHours(), now: Date.parse(doc.updatedAt) || Date.now() }));
   }
@@ -489,5 +579,5 @@ module.exports = {
   schedule: "55 4 * * *", // daily at 04:55
   run,
   registerRoutes,
-  _test: { machineInventory, machineFindings, machineStatus, summaryOf, addSummaries, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, inUse },
+  _test: { machineInventory, machineFindings, machineStatus, summaryOf, alertReach, alertCoverageOf, alertWorkspacesSetting, addSummaries, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, inUse },
 };

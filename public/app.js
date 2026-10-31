@@ -328,6 +328,7 @@ const KINDS = {
   "monitor-no-dcr": ["No collection rule", "warn"],
   "monitor-no-heartbeat": ["No heartbeat", "crit"],
   "monitor-arc-disconnected": ["Arc disconnected", "warn"],
+  "monitor-not-alerted": ["No log alert reads its data", "warn"],
   "dcr-destination-missing": ["Rule sends nowhere", "crit"],
   "dcr-unused": ["Rule not linked", ""],
   "alert-disabled": ["Alert rule off", ""],

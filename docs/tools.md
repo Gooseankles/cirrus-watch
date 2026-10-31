@@ -130,9 +130,33 @@ Attack paths across resources: internet-facing VMs and web apps whose managed id
 
 Machines, alert rules, action groups and workspaces that Azure Monitor does not cover or that do not work.
 
-Machines with no agent, the legacy agent, no collection rule or no heartbeat; alert rules that are off, alert nobody or watch deleted resources; broken action groups; workspaces at their daily cap. Off per tenant for customers who do not use Azure Monitor.
+Machines with no agent, the legacy agent, no collection rule or no heartbeat; machines whose data goes to a workspace no log alert reads; alert rules that are off, alert nobody or watch deleted resources; broken action groups; workspaces at their daily cap. Off per tenant for customers who do not use Azure Monitor.
 
-The page opens with one row of counts from the last scan: virtual machines, Arc servers and scale sets monitored out of all (the Azure Monitor Agent installed and not failed, at least one data collection rule and, where the heartbeat was read for a running machine, a recent one), with how many have no agent, only the legacy agent or no heartbeat; alert rules on out of all; data collection rules, action groups and workspaces.
+The page opens with one row of counts from the last scan: virtual machines, Arc servers and scale sets monitored out of all (the Azure Monitor Agent installed and not failed, at least one data collection rule and, where the heartbeat was read for a running machine, a recent one), with how many have no agent, only the legacy agent or no heartbeat; alert coverage; alert rules on out of all; data collection rules, action groups and workspaces.
+
+**Alert coverage.** Log search alerts read one Log Analytics workspace, so a machine can have the agent and a data
+collection rule and still never raise an alert, because its rule sends to another workspace. The scan takes the
+workspaces in the scopes of the enabled log search alert rules (scheduled query rules of kind LogAlert; disabled
+and log-to-metric rules do not count). A rule scoped to a subscription, resource group or machine (a
+resource-centric log alert) reads the logs of the resources under it in any workspace, so it covers those machines
+too (only its target resource types, when it names any). A running machine with a working agent whose collection
+rules send only to other workspaces is flagged **No log alert reads its data** (`monitor-not-alerted`); a tenant
+with no enabled log alert rule gets one such finding for the whole tenant. The **Alert coverage** tile counts the
+machines (VMs and Arc servers) whose data a log alert reads, out of all; machines that send no logs (no working
+agent, or no rule with a workspace destination) count as not covered, and a stopped VM or a disconnected Arc server
+is judged by its setup, like the monitored count. The Machines tab has a **Workspace** column: where each machine
+sends its data and whether a log alert reads it.
+
+Covered means that an enabled log search alert reads a workspace the machine sends to, or has the machine in its
+scope; not that a rule watches that machine. A rule's query can look at other computers or tables, and the scan
+does not read queries. What the scan cannot see counts as no alert: rules in subscriptions it does not scan or in
+another tenant, a rule that reads a second workspace through `workspace()` or `union` in its query text, and
+Microsoft Sentinel analytics rules. Rules scoped to Application Insights or another resource that is not a
+workspace cover nothing here, and metric, activity log and resource health alerts are a different kind and count
+neither way. When the alerts live where the app cannot see them, set **Workspaces your alerts read**
+(`AZURE_MONITOR_ALERT_WORKSPACES`, per tenant: comma-separated workspace names or resource IDs). It replaces the
+workspaces taken from the rules; resource-scoped rules still count. A name matches every workspace with that name
+in any subscription; give the resource ID when two share a name.
 
 Each finding has a **How to fix** expander with short steps and a Microsoft Learn link; all of them, including how
 to add the Azure Monitor Agent to one VM, many machines or from the CLI, are in

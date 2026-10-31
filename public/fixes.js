@@ -63,6 +63,17 @@ const Fixes = {
       ],
       url: "https://learn.microsoft.com/en-us/azure/azure-arc/servers/troubleshoot-connectivity",
     },
+    "monitor-not-alerted": {
+      steps: [
+        "Log search alerts read one Log Analytics workspace (or the resources in their scope), so a machine whose data goes elsewhere never raises them.",
+        "Add the alerting workspace as a destination: open the machine's data collection rule (Monitor > Data Collection Rules) > Data sources > Destination, and add that workspace. The rule must be in the workspace's region.",
+        "Or link the machine to a rule that already sends there: that rule > Resources > Add resources, then remove the old link if nothing else needs it.",
+        "Or widen the alert: a log search rule scoped to the machine's subscription or resource group reads its logs in any workspace (its identity needs Reader on that workspace).",
+        "No log alert rule at all: create one (Monitor > Alerts > Create > Alert rule, signal Custom log search), for example on `Heartbeat`.",
+        "If your alerts read workspaces this app cannot see, name them in Settings > Azure Monitor > Workspaces your alerts read.",
+      ],
+      url: "https://learn.microsoft.com/en-us/azure/azure-monitor/alerts/alerts-create-log-alert-rule",
+    },
     // --- Azure Monitor: data collection rules ---
     "dcr-destination-missing": {
       steps: [

@@ -18,6 +18,11 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
   cannot be reached, the dashboard still starts, says so on the tools that need a secret, refuses to save new
   secrets and retries every minute. `GET /api/secret-store` (Admin) shows which store is in use.
 - **Accepted and snoozed findings**: with each tenant's scan results (`suppressions/<tool>.json`).
+- **The Azure Monitor inventory** (`azure-monitor/inventory.json`, with each tenant's scan results, rewritten by
+  every scan): the machines with their agent, collection rules, destination workspaces and whether a log alert
+  reads them (`machines[].alert`: `workspace`, `scope`, `none`, or null when not judged), the alert rules, the
+  counts the page opens with (`summary`) and where the enabled log alerts look (`alertWorkspaces`: `source` is
+  `rules`, `setting` or null, `names` the workspaces). A tenant with the check off gets only `off: true`.
 - **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`. A sign-in ends after 8 hours without use
   and at the latest 24 hours after signing in. In Docker, map `DATA_DIR` to a volume, or every image update signs
   everyone out.

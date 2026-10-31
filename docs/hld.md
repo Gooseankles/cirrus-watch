@@ -8,7 +8,8 @@ the deployment creates and how a start-up, a sign-in and a scan run step by step
 ## Purpose
 
 Teams that run Azure tenants repeat the same checks: what costs money for nothing, who has access to what, which
-secrets expire, which resources break policy or are open to the internet. Cirrus Watch runs those checks on a
+secrets expire, which resources break policy or are open to the internet, whether every machine is monitored and
+sends its logs to a workspace an alert reads. Cirrus Watch runs those checks on a
 schedule, keeps every result so changes over time show, and puts them on one page per check, for one tenant or for
 several customers' tenants.
 

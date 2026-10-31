@@ -43,6 +43,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
+| [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
 | [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations and Defender plans that are off. |
 | [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |

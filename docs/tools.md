@@ -256,6 +256,19 @@ Apps with Graph permissions that could take over the tenant, and risky consents.
 
 Apps with Graph permissions that could take over the tenant or read everyone's data, risky delegated consents, users allowed to consent to any app.
 
+## Enterprise apps
+
+Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use.
+
+Reads the service principals (enterprise apps), leaving out Microsoft's own apps and managed identities:
+
+- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the warning window of Expiring app credentials (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default). Older, inactive certificates are left alone.
+- **Credentials on the service principal itself**, which Expiring app credentials does not see (it reads app registrations): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
+- **Anyone can sign in**: SAML apps, and other companies' OpenID Connect apps, with single sign-on set up and "Assignment required" off, so every account in the tenant can sign in (low).
+- **No owner**: enabled apps from this tenant with no owner on the enterprise app (low).
+- **Unused**: other companies' apps with no sign-in for 90 days (`ENTERPRISE_APP_UNUSED_DAYS`), from the sign-in activity report (Graph beta, `AuditLog.Read.All`; skipped with a log line when it cannot be read) (low).
+- **Disabled apps with Azure roles**: disabled service principals that still hold Azure role assignments, from Resource Graph (needs Reader; skipped with a log line otherwise).
+
 ## Licence coverage
 
 Entra ID licences needed for the features in use, against those you own.

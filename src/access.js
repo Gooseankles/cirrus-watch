@@ -29,6 +29,7 @@ const TOOL_AREAS = {
   "licence-coverage": ["identity"],
   "privileged-roles": ["identity", "security"],
   "app-permissions": ["identity", "security"],
+  "enterprise-apps": ["identity", "security"],
   "conditional-access": ["identity", "security"],
   "mfa-coverage": ["identity", "security"],
   defender: ["security", "platform"],

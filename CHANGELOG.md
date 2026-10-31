@@ -39,6 +39,21 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.66.0.0] - 2026-10-31
+
+### Added
+
+- Certificates checks application gateways (`CERT_AZURE_GATEWAYS`, on by default): listener and trusted root
+  certificates that expired or expire soon, read from the gateway's settings, so private gateways count too.
+  Listener certificates pinned to one version of a Key Vault secret are flagged, since renewals never reach the
+  gateway. Public HTTPS listeners with a host name are also opened over TLS for a wrong name or untrusted chain.
+  Needs only Reader, as before.
+
+### Changed
+
+- Settings: the per-tool SPNs sit in one closed "Per-tool SPNs (advanced)" section at the bottom of the Home tab, with
+  a count of the tools that have their own.
+
 ## [0.65.0.0] - 2026-10-31
 
 ### Added

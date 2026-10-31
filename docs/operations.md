@@ -67,7 +67,7 @@ the activity log. Copy the container first if it must be kept; the steps are in
 | Secret | When | How |
 | --- | --- | --- |
 | A customer tenant's client secret | Before it expires (the customer's app registration shows the date) | The customer makes a new secret; paste it in Settings → Customer tenants → Edit; press **Test**; the customer deletes the old one |
-| A per-tool SPN secret | Before it expires | New secret on that app registration, paste it in Settings → SPN override, **Test** |
+| A per-tool SPN secret | Before it expires | New secret on that app registration, paste it in Settings → Per-tool SPNs (advanced), **Test** |
 | Notification link | When it may have leaked | Make a new link in Teams, Slack or the endpoint; paste it in Settings → Notifications; **Send test**; delete the old one there |
 | `SESSION_SECRET` | When it may have leaked | `terraform apply -replace='module.dashboard.random_password.session_secret'` (use your module name). Everyone must sign in again |
 | Local admin password | When it may have leaked, or once SSO works | Change or remove `admin_password` / `DASHBOARD_ADMIN_PASSWORD`; the app restarts |

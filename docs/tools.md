@@ -80,9 +80,11 @@ Azure features being retired that your resources still use (from Azure Advisor),
 
 ## Certificates
 
-TLS certificates of App Service custom domains and listed websites: expiry, name, trust and reachability.
+TLS certificates of App Service custom domains, application gateways and listed websites: expiry, name, trust and reachability.
 
-TLS certificates of websites: the custom domains of App Service apps and slots found in Azure, plus any address listed in Settings (also sites outside Azure). Certificates that expired or expire soon (30 days by default), are not for the site's name, or have a chain browsers will not trust, and sites that do not answer over TLS.
+TLS certificates of websites: the custom domains of App Service apps and slots found in Azure, application gateways, plus any address listed in Settings (also sites outside Azure). Certificates that expired or expire soon (30 days by default), are not for the site's name, or have a chain browsers will not trust, and sites that do not answer over TLS.
+
+Application gateways (`CERT_AZURE_GATEWAYS`, on by default): the expiry of every listener certificate an HTTPS listener uses and every trusted root certificate an HTTPS backend setting uses is read from the gateway's settings (Azure returns their public part, also for Key Vault references), so private gateways are covered without a connection. A listener certificate that points at one version of a Key Vault secret is flagged too: the gateway never picks up a renewed certificate. HTTPS listeners on a public frontend with a host name are also opened over TLS (to the public IP, with the host name), for a wrong name or an untrusted chain; a gateway that does not answer the dashboard is not a finding, since many let in only Front Door. Wildcard listeners are checked from the settings only.
 
 ## Defender for Cloud
 

@@ -26,7 +26,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Internet exposure](docs/tools.md#internet-exposure) | Daily | NSG rules, VMs, storage and databases open to the internet. |
 | [End of support](docs/tools.md#end-of-support) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support. |
 | [Service retirements](docs/tools.md#service-retirements) | Daily | Azure features being retired that your resources still use, with the date. |
-| [Certificates](docs/tools.md#certificates) | Daily | TLS certificates of App Service custom domains and listed websites: expiry, name, trust and reachability. |
+| [Certificates](docs/tools.md#certificates) | Daily | TLS certificates of App Service custom domains, application gateways and listed websites: expiry, name, trust and reachability. |
 | [Backup coverage](docs/tools.md#backup-coverage) | Daily | VMs with no backup, failing or old backups, and weak vault settings. |
 | [Resilience](docs/tools.md#resilience) | Daily | What one failure would take down: resources not spread over zones or instances. |
 | [Resource settings](docs/tools.md#resource-settings) | Daily | Risky settings on storage, SQL, web apps, registries, AKS, Redis and other services. |

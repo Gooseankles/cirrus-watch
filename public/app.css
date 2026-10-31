@@ -503,13 +503,19 @@ table.matrix td.cell { text-align: center; }
 .settings-row .field .input, .settings-row .field .select { flex: 1 1 240px; }
 .secret-state { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
 .secret-state.is-set { color: var(--good-text); }
+details.spn-all { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border); }
+details.spn-all > summary { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+details.spn-all[open] > summary { margin-bottom: 8px; }
+details.spn-all > .hint-top { margin-top: 0; }
 details.spn-tool { border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; margin-bottom: 8px; background: var(--surface-2); }
 details.spn-tool[open] { padding-bottom: 6px; }
-details.spn-tool summary { cursor: pointer; padding: 9px 0; display: flex; justify-content: space-between; align-items: center; font-size: 0.86rem; list-style: none; gap: 10px; }
-details.spn-tool summary::-webkit-details-marker { display: none; }
-details.spn-tool summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); margin-right: 10px; transition: transform 0.12s; flex: none; }
-details.spn-tool[open] summary::before { transform: rotate(45deg); }
-details.spn-tool summary span:first-child { flex: 1; }
+details.spn-tool summary, details.spn-all > summary { cursor: pointer; padding: 9px 0; display: flex; justify-content: space-between; align-items: center; list-style: none; gap: 10px; }
+details.spn-tool summary { font-size: 0.86rem; }
+details.spn-tool summary::-webkit-details-marker, details.spn-all > summary::-webkit-details-marker { display: none; }
+details.spn-tool summary::before, details.spn-all > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); margin-right: 10px; transition: transform 0.12s; flex: none; }
+details.spn-tool[open] summary::before, details.spn-all[open] > summary::before { transform: rotate(45deg); }
+details.spn-tool summary span:first-child, details.spn-all > summary span:first-child { flex: 1; }
+details.spn-all > summary .spn-badge { text-transform: none; letter-spacing: 0; }
 details.spn-tool .settings-row { border-bottom-color: var(--border); }
 .spn-badge { font-size: 0.7rem; color: var(--muted); border: 1px solid var(--border-strong); padding: 1px 8px; border-radius: 999px; }
 .spn-badge.own { color: var(--good-text); border-color: rgba(12, 163, 12, 0.45); }

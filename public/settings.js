@@ -148,25 +148,30 @@ const Settings = (() => {
       groups.get(g).push(f);
     }
     let html = "";
-    let introDone = false;
+    // Per-tool SPNs are rarely used: one closed section at the end of the page.
+    let spnHtml = "";
+    let spnCount = 0;
+    let spnOwn = 0;
     for (const [groupName, groupFields] of groups) {
       const collapsible = groupFields.some((f) => f.collapsible);
       const spnTool = groupFields[0].spnTool;
       const isSharedSpn = groupFields.some((f) => f.key === "AZURE_CLIENT_ID");
-      if (collapsible && !introDone) {
-        html += `<div class="settings-group"><h3>Per-tool SPNs (optional)</h3><div class="hint-top">Give a tool its own least-privilege service principal. A tool without a client ID here uses the shared SPN.</div></div>`;
-        introDone = true;
-      }
       const own = groupFields.some((f) => f.key.endsWith("AZURE_CLIENT_ID") && (f.value || f.envDefault));
       const body = groupFields.map(fieldHtml).join("");
       const test = collapsible || isSharedSpn
         ? `<div class="settings-row"><label>Connection<div class="hint">Saves these settings, then asks Azure for a token.</div></label><div class="field"><button type="button" class="btn small" data-test="1" data-tool="${esc(spnTool || "")}">${icon("play")} Test connection</button><span class="test-result"></span></div></div>`
         : "";
       if (collapsible) {
-        html += `<details class="settings-group spn-tool"${own ? " open" : ""}><summary><span>${esc(groupName.replace(/^SPN override: /, ""))}</span><span class="spn-badge${own ? " own" : ""}">${own ? "own SPN" : "shared SPN"}</span></summary>${body}${test}</details>`;
+        spnCount++;
+        if (own) spnOwn++;
+        spnHtml += `<details class="settings-group spn-tool"><summary><span>${esc(groupName.replace(/^SPN override: /, ""))}</span><span class="spn-badge${own ? " own" : ""}">${own ? "own SPN" : "shared SPN"}</span></summary>${body}${test}</details>`;
       } else {
         html += `<div class="settings-group"><h3>${esc(groupName)}</h3>${body}${test}</div>`;
       }
+    }
+    if (spnCount) {
+      const badge = spnOwn ? `${spnOwn} own` : "all shared";
+      html += `<details class="settings-group spn-all"><summary><span>Per-tool SPNs (advanced)</span><span class="spn-badge${spnOwn ? " own" : ""}">${badge}</span></summary><div class="hint-top">Optional. Give a tool its own least-privilege service principal; a tool without a client ID here uses the shared SPN.</div>${spnHtml}</details>`;
     }
     rows.innerHTML = html || `<div class="empty-state">No settings are exposed by this server.</div>`;
     for (const sel of $$("select[data-auth-type]", rows)) applyAuthType(sel);

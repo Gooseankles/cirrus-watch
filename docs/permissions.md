@@ -124,7 +124,7 @@ in the delegation and it scans those subscriptions like its own (Graph-based too
 
 ## Per-tool SPN (optional)
 
-A tool can scan as its own service principal (Settings → SPN override, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends
+A tool can scan as its own service principal (Settings → Per-tool SPNs (advanced), at the bottom of the Home tab, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends
 in `.env`). It needs only what that tool uses from the lists above, for example Cost Management Reader for the cost
 tools or `Application.Read.All` for app secret expiry.
 

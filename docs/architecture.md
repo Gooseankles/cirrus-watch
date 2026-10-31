@@ -116,7 +116,8 @@ minutes unless the tool or `SCAN_DEADLINE_MINUTES` says otherwise) counts as fai
 out" as the error.
 
 On read (`GET /api/tools/<id>/findings`) the app merges the tenants the person may see, adds subscription and tenant
-names, and marks accepted or snoozed findings. Compliance tags are added in the browser (`public/compliance.js`).
+names, and marks accepted or snoozed findings. Compliance tags are added in the browser (`public/compliance.js`), and so are the "How to fix" steps per kind
+(`public/fixes.js`).
 
 ## 6. Customer tenants
 

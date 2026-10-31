@@ -24,7 +24,7 @@ findings. An on-demand tool exports `{ id, label, registerRoutes(app) }` instead
 
 1. Register it in `server.js` with `registerScanTool` (or `registerActionTool`).
 2. Add it to the `TOOLS` list in `public/app.js`; each new finding kind gets a `KINDS` entry there and its controls
-   in `public/compliance.js`.
+   in `public/compliance.js`; short "How to fix" steps with a Microsoft Learn link can go in `public/fixes.js`.
 3. List what its identity needs in `src/toolPermissions.js` (`NEEDS`), give it an area in `src/access.js`
    (`TOOL_AREAS`) and an SPN override entry in `src/settings.js` (`TOOL_SPNS`).
 4. Add a `## <label>` section to [docs/tools.md](docs/tools.md) saying what it checks, and new access to

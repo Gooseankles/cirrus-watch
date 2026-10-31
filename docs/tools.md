@@ -134,6 +134,10 @@ Machines with no agent, the legacy agent, no collection rule or no heartbeat; al
 
 The page opens with one row of counts from the last scan: virtual machines, Arc servers and scale sets monitored out of all (the Azure Monitor Agent installed and not failed, at least one data collection rule and, where the heartbeat was read for a running machine, a recent one), with how many have no agent, only the legacy agent or no heartbeat; alert rules on out of all; data collection rules, action groups and workspaces.
 
+Each finding has a **How to fix** expander with short steps and a Microsoft Learn link; all of them, including how
+to add the Azure Monitor Agent to one VM, many machines or from the CLI, are in
+[Fixing Azure Monitor findings](guides/azure-monitor-fixes.md).
+
 ## Updates and patching
 
 Machines with pending Critical or Security updates, missing assessments or failed installations.

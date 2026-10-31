@@ -751,6 +751,15 @@ function ruleLink(f) {
   const url = ruleUrl(f);
   return url ? `<a class="rule-link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(`PSRule for Azure: ${f.rule.name} (${f.rule.severity}, ${f.rule.pillar})`)}">How to fix ${icon("arrow")}</a>` : "";
 }
+// Steps to fix a finding kind, from public/fixes.js: a quiet expander under the detail. Text in `backticks` is code.
+const fixText = (s) => String(s).split("`").map((part, i) => (i % 2 ? `<code>${esc(part)}</code>` : esc(part))).join("");
+function fixLink(f) {
+  const fix = typeof Fixes !== "undefined" ? Fixes.of(f.kind) : null;
+  if (!fix) return "";
+  const steps = fix.steps.map((s) => `<li>${fixText(s)}</li>`).join("");
+  const more = fix.url ? `<a href="${esc(fix.url)}" target="_blank" rel="noopener">Microsoft Learn ${icon("arrow")}</a>` : "";
+  return `<details class="fix"><summary>How to fix</summary><ol>${steps}</ol>${more}</details>`;
+}
 const acceptButton = (f) => (f.key && canRunFor(f) ? `<button type="button" class="btn small ghost accept-btn" data-accept="${esc(f.key)}" title="Accept or snooze this finding">${icon("check")} Accept</button>` : "");
 function moreButton(shown, total, t) {
   if (shown >= total) return "";
@@ -1802,7 +1811,7 @@ function genericRow(f, ranAt, hasSubs, hasExpiry) {
   const row = [kindBadge(f.kind), nameCell(f, ranAt, sec)];
   if (hasSubs) row.push(subCell(f));
   if (hasExpiry) row.push(expiryCell(f));
-  row.push(`${pathChain(f)}<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
+  row.push(`${pathChain(f)}<span class="detail-cell">${esc(f.detail || "")}</span>${ruleLink(f)}${fixLink(f)}${controlTags(f)}`, `<span class="muted" title="${esc(f.firstSeen || "")}">${esc(fmt.date(f.firstSeen))}</span>`);
   row.push(acceptButton(f));
   return row;
 }

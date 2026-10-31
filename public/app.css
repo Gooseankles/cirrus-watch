@@ -728,6 +728,20 @@ tr.pa-hit td { background: var(--accent-soft); }
 @media (max-width: 900px) { .pa-cols { grid-template-columns: minmax(0, 1fr); } }
 .rule-link { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 0.75rem; white-space: nowrap; }
 .rule-link svg { width: 12px; height: 12px; }
+/* How to fix: one quiet expander under a finding's detail (public/fixes.js) */
+details.fix { margin-top: 4px; font-size: 0.78rem; color: var(--text-2); max-width: 64ch; }
+details.fix > summary { display: inline-block; cursor: pointer; color: var(--accent-text); list-style: none; }
+details.fix > summary::-webkit-details-marker { display: none; }
+details.fix > summary::before { content: "\25B8"; display: inline-block; width: 1em; transition: transform 0.15s; }
+details.fix[open] > summary::before { transform: rotate(90deg); }
+details.fix ol { margin: 4px 0 4px 1.2em; padding: 0; line-height: 1.45; }
+details.fix li { margin: 2px 0; overflow-wrap: anywhere; }
+details.fix code { font-size: 0.74rem; padding: 0 3px; border-radius: 4px; background: var(--surface-2); overflow-wrap: anywhere; word-break: break-word; }
+details.fix a { display: inline-flex; align-items: center; gap: 3px; }
+details.fix a svg { width: 12px; height: 12px; }
+/* Phones: the findings table scrolls sideways and its detail column is narrow; an open fix widens it so the steps stay readable. */
+@media (max-width: 900px) { details.fix[open] { min-width: min(300px, 78vw); } }
+@media print { details.fix { display: none; } }
 
 /* Exposure paths: the route as a chain of steps, and the subnet map */
 .path-chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin-bottom: 6px; }

@@ -1,7 +1,8 @@
 // Writes the parts of the docs that follow from the code, so they cannot drift:
 // the README tools table (from the registered tools and docs/tools.md), the
 // Node.js version in the README (from the Dockerfile), the tool count in
-// docs/architecture.md and the tool id list in .env.example (from TOOL_SPNS).
+// docs/architecture.md, the tool id list in .env.example (from TOOL_SPNS) and
+// the Azure Monitor fix guide (from public/fixes.js).
 // It also checks that every registered tool is wired up everywhere it must be.
 //
 //   npm run docs          rewrite the files
@@ -115,6 +116,25 @@ for (const id of ids) {
 }
 lines[lines.length - 1] = lines[lines.length - 1].replace(/,$/, ".");
 out[".env.example"] = between(read(".env.example"), "# tool-ids:start", "# tool-ids:end", lines.join("\n"), ".env.example");
+
+// docs/guides/azure-monitor-fixes.md: the "How to fix" steps the app shows (public/fixes.js), one section per kind.
+const Fixes = require("./public/fixes.js");
+const kindLabel = (k) => {
+  const key = `"${k}": ["`;
+  const at = appJs.indexOf(key);
+  return at < 0 ? "" : appJs.slice(at + key.length, appJs.indexOf('"', at + key.length));
+};
+const fixGuide = "docs/guides/azure-monitor-fixes.md";
+const fixKinds = Object.keys(Fixes.KINDS).filter((k) => /^(monitor|dcr|alert|action-group|workspace)-/.test(k));
+const fixDoc = fixKinds
+  .map((k) => {
+    const fix = Fixes.KINDS[k];
+    if (!kindLabel(k)) problems.push(`public/fixes.js: ${k} has no KIND_LABELS entry in public/app.js`);
+    const steps = fix.steps.map((step, i) => `${i + 1}. ${step}`);
+    return [`### ${kindLabel(k) || k}`, "", `Finding kind \`${k}\`.`, "", ...steps, "", `Microsoft Learn: <${fix.url}>`].join("\n");
+  })
+  .join("\n\n");
+out[fixGuide] = between(read(fixGuide), "<!-- fixes:start -->", "<!-- fixes:end -->", fixDoc, fixGuide);
 
 // --- Write or compare -----------------------------------------------------------
 const stale = Object.keys(out).filter((f) => out[f] !== read(f));

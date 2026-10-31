@@ -24,6 +24,16 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.62.0.0] - 2026-10-31
+
+### Added
+
+- "How to fix" steps on Azure Monitor findings: each finding opens a few short steps and a Microsoft Learn link
+  under its detail. For a machine with no agent they cover one VM in the portal, many machines with Azure Policy,
+  the Azure CLI, and what the machine needs first. All of them are in
+  [Fixing Azure Monitor findings](docs/guides/azure-monitor-fixes.md). Other tools can add steps the same way
+  (`public/fixes.js`).
+
 ## [0.61.2.0] - 2026-10-31
 
 ### Added

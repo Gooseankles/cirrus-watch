@@ -7,6 +7,8 @@ Pick the part for what you are doing. The [README](../README.md) has the tool li
 - [Using the dashboard](guides/using-the-dashboard.md): scan pages, accepting findings, monthly report, trends,
   compliance pages.
 - [Tools](tools.md): what every scan checks.
+- [Fixing Azure Monitor findings](guides/azure-monitor-fixes.md): machines with no agent, broken alerts, full
+  workspaces.
 
 ## Setting it up
 

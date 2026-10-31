@@ -17,6 +17,8 @@ remembers which are folded.
 
 ## Findings, reports and compliance
 
+- **How to fix**: findings that follow a PSRule for Azure rule link to its page, and Azure Monitor findings open
+  short steps with a Microsoft Learn link under the detail ([Fixing Azure Monitor findings](azure-monitor-fixes.md)).
 - **Accept or snooze**: a finding that is known and fine (the public IP is the VPN gateway) can be accepted with a
   reason, for 30 to 365 days, until a chosen date or until reopened. It stays in the results but no longer counts as
   open; a snoozed one counts again from its end date. The **Accepted** chip on a scan page lists them, with who

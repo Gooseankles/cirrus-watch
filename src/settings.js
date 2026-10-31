@@ -116,6 +116,7 @@ const FIELDS = [
   { key: "CVE_MIN_SEVERITY", label: "List CVEs from severity", group: "Vulnerabilities (CVEs)", hint: "critical, high, medium, low or off; blank = critical. Known exploited and likely exploited CVEs are always listed" },
   { key: "CVE_EPSS_MIN", label: "Likely exploited from EPSS score", group: "Vulnerabilities (CVEs)", hint: "0 to 1, the chance of exploitation in the next 30 days; blank = 0.1 (10%), 0 = off" },
   { key: "CVE_FEEDS", label: "Fetch CVE ranking data", group: "Vulnerabilities (CVEs)", hint: "on or off; blank = on. Daily from CISA (known exploited list) and FIRST (EPSS); off = rank by Defender's severity only" },
+  { key: "DOMAIN_CHECKS", label: "Check domains and mail", group: "Domains and mail", options: [{ value: "off", label: "No: skip the scan, no lookups" }, { value: "on", label: "Yes: DNS (mail, delegation) and registration data (RDAP)" }, { value: "dns", label: "Yes, but DNS only (no RDAP lookups)" }], defaultValue: "off", hint: "Off = the Domains and mail scan makes no requests. On asks public DNS and rdap.org about the tenant's own domains (only domain names are sent)" },
   { key: "UPDATES_MAX_PENDING_DAYS", label: "Critical when a pending update is older than (days)", group: "Updates and patching", hint: "Age of the oldest pending Critical or Security update, from its release date (Windows only; Linux gives none). Blank = 30" },
   { key: "UPDATES_ASSESSMENT_MAX_AGE_DAYS", label: "Flag a machine not assessed for (days)", group: "Updates and patching", hint: "Azure keeps assessments for 7 days, so a machine with none in that time is always flagged. Blank = 7" },
   { key: "HEALTH_MAINTENANCE_DAYS", label: "Show planned maintenance starting within (days)", group: "Resource health", hint: "Blank = 14, 0 = off" },
@@ -173,6 +174,7 @@ const TOOL_SPNS = [
   { id: "network-hygiene", label: "Network hygiene" },
   { id: "connectivity", label: "Connectivity health" },
   { id: "avd", label: "Azure Virtual Desktop" },
+  { id: "domains", label: "Domains and mail" },
   { id: "history-storage", label: "History storage" },
 ];
 

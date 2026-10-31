@@ -158,7 +158,9 @@ firewall to reach Docker Hub, ARM and Graph. Two scans also fetch public data on
 The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
-last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call.
+last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call. The Domains
+and mail scan (off unless `DOMAIN_CHECKS` is `on` or `dns`) asks public DNS and, with `on`, `rdap.org` and the
+registry RDAP servers it redirects to (for example `rdap.verisign.com`, `rdap.nominet.uk`); it sends only domain names.
 
 ## 8. Build and release
 

@@ -312,6 +312,7 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/networkHygiene")),
   registerScanTool(app, require("./src/tools/connectivity")),
   registerScanTool(app, require("./src/tools/avd")),
+  registerScanTool(app, require("./src/tools/domains")),
   registerActionTool(app, require("./src/tools/accessLookup")),
 ];
 

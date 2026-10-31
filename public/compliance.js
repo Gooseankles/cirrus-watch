@@ -404,6 +404,11 @@ const KIND_CONTROLS = {
   ...Object.fromEntries(["avd-host-unavailable", "avd-host-not-ready", "avd-host-shutdown"].map((k) => [k, ["nis2:c", "nsm:3.2", "ir:3.2", "ir:4.1"]])),
   "avd-agent-update-failed": PATCHING,
   ...Object.fromEntries(["avd-host-drain-forgotten", "avd-pool-empty", "avd-pool-no-scaling", "avd-personal-unassigned", "avd-no-start-on-connect", "avd-appgroup-no-workspace", "avd-workspace-empty"].map((k) => [k, ASSETS])),
+  ...Object.fromEntries(["domain-expired", "domain-expiring", "domain-renewal-due", "asd-auto-renew-off"].map((k) => [k, CONTINUITY])),
+  "domain-unlocked": ASSETS,
+  "dns-zone-not-delegated": ASSETS,
+  ...Object.fromEntries(["spf-missing", "spf-multiple", "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"]
+    .map((k) => [k, ["nis2:i", "nsm:2.8", "ir:6.7"]])),
 };
 // Policy probes: what the probed resource itself would break.
 const PROBE_CONTROLS = {
@@ -460,6 +465,8 @@ const TOOL_KINDS = {
   connectivity: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("conn-")),
   avd: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("avd-")),
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing"],
+  domains: ["domain-expired", "domain-expiring", "domain-renewal-due", "domain-unlocked", "asd-auto-renew-off", "dns-zone-not-delegated", "spf-missing", "spf-multiple",
+    "spf-pass-all", "spf-neutral-all", "spf-too-many-lookups", "dmarc-missing", "dmarc-none", "dkim-missing"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-risky-delegated-consent", "user-consent-unrestricted"],
   "enterprise-apps": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("ent-")),
 };

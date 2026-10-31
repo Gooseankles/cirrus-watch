@@ -41,7 +41,8 @@ weekly, resource health once an hour); being a SIEM or replacing Microsoft Defen
 Besides Azure, the app reads three public data sources, each at most once a day: endoflife.date for end-of-support
 dates, and CISA's Known Exploited Vulnerabilities list and FIRST's EPSS scores to rank the CVEs that Defender for
 Cloud found. No tenant data is sent (the EPSS lookup sends CVE ids only). When a source cannot be reached, the last
-kept copy is used; the two CVE feeds can be turned off.
+kept copy is used; the two CVE feeds can be turned off. The opt-in Domains and mail scan asks public DNS and RDAP
+(`rdap.org` and the registries) about the tenant's own domain names, at most once a day.
 
 ## Building blocks
 

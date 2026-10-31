@@ -247,12 +247,72 @@ function workspaceFindings(rows) {
   return out;
 }
 
+/* ---------- coverage counts ---------- */
+
+// One machine's coverage, the first thing wrong with it (the same order as the
+// findings): "disconnected" (Arc), "noAgent", "legacy", "agentFailed", "noDcr",
+// "noHeartbeat", else "monitored": the Azure Monitor Agent installed and not
+// failed, at least one data collection rule and, where the heartbeat was read for
+// a running machine, one within the last `hours`. A stopped VM is judged by its setup.
+function machineStatus(m, hours, now = Date.now()) {
+  if (m.kind === "Arc" && !m.running) return "disconnected";
+  if (m.agent === "none") return "noAgent";
+  if (m.agent === "legacy") return "legacy";
+  if (low(m.agentState) === "failed") return "agentFailed";
+  if (!(m.rules || []).length) return "noDcr";
+  if (m.running && m.heartbeatChecked && (!m.lastHeartbeat || (now - Date.parse(m.lastHeartbeat)) / 3600000 > hours)) return "noHeartbeat";
+  return "monitored";
+}
+
+const MACHINE_KEYS = ["total", "monitored", "running", "noAgent", "legacy", "agentFailed", "noDcr", "noHeartbeat", "disconnected"];
+function machineCounts(list, hours, now) {
+  const c = Object.fromEntries(MACHINE_KEYS.map((k) => [k, 0]));
+  for (const m of list) {
+    c.total++;
+    if (m.running) c.running++;
+    c[machineStatus(m, hours, now)]++;
+  }
+  return c;
+}
+
+// The counts at the top of the page, saved with the inventory. machines and
+// rules as in the inventory (null when that check failed, so no false zeros);
+// dcrs, groups, workspaces and scaleSets as read from Resource Graph (null = not read).
+// scaleSets: [{ id, agent: "ama"|"legacy"|"none", rules: n }].
+function summaryOf({ machines, rules, dcrs = null, groups = null, workspaces = null, scaleSets = null, hours, now = Date.now() }) {
+  const count = (x) => (Array.isArray(x) ? x.length : null);
+  let sets = null;
+  if (Array.isArray(scaleSets)) {
+    sets = { total: scaleSets.length, monitored: 0, noAgent: 0, legacy: 0, noDcr: 0 };
+    for (const v of scaleSets) sets[v.agent === "none" ? "noAgent" : v.agent === "legacy" ? "legacy" : v.rules ? "monitored" : "noDcr"]++;
+  }
+  return {
+    vms: Array.isArray(machines) ? machineCounts(machines.filter((m) => m.kind !== "Arc"), hours, now) : null,
+    arc: Array.isArray(machines) ? machineCounts(machines.filter((m) => m.kind === "Arc"), hours, now) : null,
+    scaleSets: sets,
+    alertRules: Array.isArray(rules) ? { total: rules.length, enabled: rules.filter((r) => r.enabled).length } : null,
+    dataCollectionRules: count(dcrs),
+    actionGroups: count(groups),
+    workspaces: count(workspaces),
+  };
+}
+
+// Several tenants' summaries added up; a count one tenant could not read is unknown (null) in the total.
+function addSummaries(list) {
+  const add = (a, b) => {
+    if (a === null || b === null || a === undefined || b === undefined) return null;
+    if (typeof a === "number") return a + b;
+    return Object.fromEntries(Object.keys(a).map((k) => [k, add(a[k], b[k])]));
+  };
+  return list.length ? list.reduce((acc, x) => Object.fromEntries(Object.keys(acc).map((k) => [k, add(acc[k], x[k])]))) : null;
+}
+
 /* ---------- reading Azure ---------- */
 
 const q = (query) => resourceGraphQuery(query, { toolId: TOOL_ID });
 
 async function readAll() {
-  const [machines, exts, dcras, dcrRows, rules, groups, workspaces] = await Promise.all([
+  const [machines, exts, dcras, dcrRows, rules, groups, workspaces, scaleSets] = await Promise.all([
     q(`Resources
       | where type in~ ('microsoft.compute/virtualmachines', 'microsoft.hybridcompute/machines')
       | project id, name, type = tolower(type), resourceGroup, subscriptionId,
@@ -281,6 +341,11 @@ async function readAll() {
       | where type =~ 'microsoft.operationalinsights/workspaces'
       | project id, name, resourceGroup, subscriptionId, customerId = tostring(properties.customerId),
         ingestion = tostring(properties.workspaceCapping.dataIngestionStatus), dailyCapGb = todouble(properties.workspaceCapping.dailyQuotaGb)`),
+    // Scale sets only for the counts: whether the model has the agent. A failure leaves the count out.
+    q(`Resources
+      | where type =~ 'microsoft.compute/virtualmachinescalesets'
+      | extend e = tolower(tostring(properties.virtualMachineProfile.extensionProfile.extensions))
+      | project id, ama = e has '${AMA[0]}' or e has '${AMA[1]}', legacy = e has '${LEGACY[0]}' or e has '${LEGACY[1]}'`).catch(() => null),
   ]);
   const dcrs = dcrRows.map((d) => ({
     id: d.id,
@@ -291,7 +356,7 @@ async function readAll() {
     collects: Boolean(d.dataSources && Object.values(d.dataSources).some((v) => Array.isArray(v) && v.length)),
   }));
   // Without the rule links every machine would look unlinked: the machine check fails instead.
-  return { machines, exts, dcras: Array.isArray(dcras) ? dcras : [], dcrasError: Array.isArray(dcras) ? null : dcras, dcrs, rules: rules.map(ruleOf), groups: groups.map(groupOf), workspaces };
+  return { machines, exts, scaleSets, dcras: Array.isArray(dcras) ? dcras : [], dcrasError: Array.isArray(dcras) ? null : dcras, dcrs, rules: rules.map(ruleOf), groups: groups.map(groupOf), workspaces };
 }
 
 // Last heartbeat per machine from each workspace the running machines send to.
@@ -340,6 +405,7 @@ async function run() {
   const workspaceIds = new Set(data.workspaces.map((w) => low(w.id)));
   let machines = [];
   let rulesOut = [];
+  let machinesOk = false;
 
   const checks = {
     Machines: async () => {
@@ -352,6 +418,7 @@ async function run() {
       }).map(low))].filter((w) => workspaceIds.has(w));
       const hb = await readHeartbeats(wanted, new Map(data.workspaces.map((w) => [low(w.id), w.customerId])));
       machines = machineInventory({ ...data, heartbeats: hb.heartbeats, checked: hb.checked });
+      machinesOk = true;
       const errs = itemErrors(TOOL_ID, "heartbeats", "workspaces (heartbeat query; needs Reader or Log Analytics Reader)", hb.failures.map((f) => ({ ...f, item: { subscriptionId: subOf(f.item) } })), hb.total);
       return [...machineFindings(machines, { hours: heartbeatHours() }), ...dcrFindings(data.dcrs, data.dcras, workspaceIds, scannedSubs), ...errs];
     },
@@ -365,7 +432,12 @@ async function run() {
     Workspaces: async () => workspaceFindings(data.workspaces),
   };
   const findings = await runChecks(TOOL_ID, checks);
-  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: false, machines, rules: rulesOut });
+  const ruled = new Set(data.dcras.map((a) => low(a.resourceId)));
+  const scaleSets = Array.isArray(data.scaleSets) && !data.dcrasError
+    ? data.scaleSets.map((v) => ({ id: v.id, agent: v.ama ? "ama" : v.legacy ? "legacy" : "none", rules: ruled.has(low(v.id)) ? 1 : 0 }))
+    : null;
+  const summary = summaryOf({ machines: machinesOk ? machines : null, rules: data.rules, dcrs: data.dcrs, groups: data.groups, workspaces: data.workspaces, scaleSets, hours: heartbeatHours() });
+  await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: false, machines, rules: rulesOut, summary });
   return findings;
 }
 
@@ -373,7 +445,8 @@ async function run() {
 
 // Each tenant's machines and alert rules from its last scan, and which tenants have the check off.
 async function inventory(keys) {
-  const out = { updatedAt: null, machines: [], rules: [], off: [], failures: [] };
+  const out = { updatedAt: null, machines: [], rules: [], off: [], failures: [], summary: null };
+  const summaries = [];
   for (const k of keys) {
     const t = tenants.byKey(k);
     const on = t ? await tenantContext.runIn(t, async () => inUse()) : false;
@@ -385,12 +458,16 @@ async function inventory(keys) {
       out.failures.push({ tenant: k, error: `could not read the inventory: ${err.message}` });
       continue;
     }
-    if (!doc || !on) continue;
+    // A doc saved while the check was off (turned on since, not scanned yet) has no counts to add.
+    if (!doc || doc.off || !on) continue;
     if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
     const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
     out.machines.push(...(doc.machines || []).map(tag));
     out.rules.push(...(doc.rules || []).map(tag));
+    // A scan from before the counts were saved: what its machine and rule lists give.
+    summaries.push(doc.summary || summaryOf({ machines: doc.machines || [], rules: doc.rules || [], hours: heartbeatHours(), now: Date.parse(doc.updatedAt) || Date.now() }));
   }
+  out.summary = addSummaries(summaries);
   return out;
 }
 
@@ -412,5 +489,5 @@ module.exports = {
   schedule: "55 4 * * *", // daily at 04:55
   run,
   registerRoutes,
-  _test: { machineInventory, machineFindings, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, inUse },
+  _test: { machineInventory, machineFindings, machineStatus, summaryOf, addSummaries, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, inUse },
 };

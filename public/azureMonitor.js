@@ -1,5 +1,5 @@
 "use strict";
-/* Azure Monitor scan page: the findings, every machine with its agent, collection rules and last heartbeat
+/* Azure Monitor scan page: coverage counts at the top (machines monitored, alert rules on), the findings, every machine with its agent, collection rules and last heartbeat
    (Machines), and every alert rule with whether it is on and whom it tells (Alert rules). The lists come from
    /api/azure-monitor, saved by the last scan, which also names the tenants where the check is switched off
    (Settings, Azure Monitor). Uses app.js helpers. */
@@ -113,6 +113,38 @@
       moreButton(Math.min(list.length, t.shown), list.length, t);
   }
 
+  // One row of counts: findings, then what is monitored, from the summary the scan saved
+  // (added up over the tenants in view). Until the inventory loads, or with none, the usual tiles.
+  const MISSING = [["noAgent", "no agent"], ["legacy", "legacy agent"], ["agentFailed", "agent failed"], ["noDcr", "no collection rule"], ["noHeartbeat", "no heartbeat"], ["disconnected", "disconnected"]];
+  function coverTile(label, c) {
+    const gaps = MISSING.filter(([k]) => c[k]).map(([k, text]) => `${fmt.int(c[k])} ${text}`);
+    return statTile({
+      label,
+      value: `${fmt.int(c.monitored)} / ${fmt.int(c.total)}`,
+      delta: !c.total ? "none found" : gaps.length ? gaps.join(" · ") : "all monitored",
+      deltaCls: gaps.length ? "bad" : c.total ? "good" : "",
+    });
+  }
+  function stats(all, t) {
+    const inv = inventory(t);
+    const s = inv && inv.data && inv.data.summary;
+    if (!s) return genericStats(all, t);
+    const last = t.history[t.history.length - 1];
+    const tiles = [statTile({ label: "Open findings", value: fmt.int(all.length), delta: last ? `+${fmt.int(last.added)} new · −${fmt.int(last.resolved)} resolved` : "" })];
+    if (s.vms) tiles.push(coverTile("Virtual machines monitored", s.vms));
+    if (s.arc && s.arc.total) tiles.push(coverTile("Arc servers monitored", s.arc));
+    if (s.scaleSets && s.scaleSets.total) tiles.push(coverTile("Scale sets monitored", s.scaleSets));
+    if (s.alertRules) {
+      const off = s.alertRules.total - s.alertRules.enabled;
+      tiles.push(statTile({ label: "Alert rules on", value: `${fmt.int(s.alertRules.enabled)} / ${fmt.int(s.alertRules.total)}`, delta: off ? `${fmt.int(off)} off` : s.alertRules.total ? "all on" : "none found", deltaCls: off ? "bad" : "" }));
+    }
+    if (s.dataCollectionRules != null) {
+      const more = [[s.actionGroups, "action group"], [s.workspaces, "workspace"]].filter(([n]) => n != null).map(([n, w]) => `${fmt.int(n)} ${w}${n === 1 ? "" : "s"}`);
+      tiles.push(statTile({ label: "Data collection rules", value: fmt.int(s.dataCollectionRules), delta: more.join(" · ") }));
+    }
+    return tiles.join("");
+  }
+
   function page(all, t) {
     const v = viewOf(t);
     if (v === "machines") return machines(t);
@@ -120,5 +152,5 @@
     return null;
   }
 
-  VIEWS[ID] = { stats: genericStats, extra, page, showKinds: (t) => viewOf(t) === "findings", body: genericBody };
+  VIEWS[ID] = { stats, extra, page, showKinds: (t) => viewOf(t) === "findings", body: genericBody };
 })();

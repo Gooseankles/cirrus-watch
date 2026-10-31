@@ -11,6 +11,7 @@ const { requestTimeoutMs, isTimeout, timeoutTries, retryWaitMs, isRetryStatus, r
 
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 const GRAPH_ROOT = "https://graph.microsoft.com/v1.0";
+const GRAPH_BETA_ROOT = "https://graph.microsoft.com/beta";
 
 async function getGraphToken(toolId) {
   const token = await getCredential(toolId).getToken(GRAPH_SCOPE);
@@ -59,7 +60,9 @@ async function graphRequest(method, path, body, toolId) {
     await new Promise((r) => setTimeout(r, wait));
   }
   if (response.status >= 300) {
-    throw new Error(`Graph ${method.toUpperCase()} ${url} failed (${response.status}): ${JSON.stringify(response.data)} ${requestIds(clientRequestId, response)}`);
+    const err = new Error(`Graph ${method.toUpperCase()} ${url} failed (${response.status}): ${JSON.stringify(response.data)} ${requestIds(clientRequestId, response)}`);
+    err.status = response.status;
+    throw err;
   }
   return response.data;
 }
@@ -84,4 +87,20 @@ async function graphGetAll(path, toolId) {
   return results;
 }
 
-module.exports = { getGraphToken, graphGet, graphGetAll, graphPost, shouldRetry };
+// Runs read(root) against Graph beta first, then against v1.0 if beta fails.
+// For calls where v1.0 leaves something out (group members: v1.0 omits service
+// principals, a known Graph issue). A 401 or 403 is not retried on v1.0: the
+// same identity would be refused there too, and the admin should see it.
+// onFallback(err), when given, is told about the beta failure before the v1.0
+// read, so the caller can log that its answer may be incomplete.
+async function withBetaFallback(read, onFallback) {
+  try {
+    return await read(GRAPH_BETA_ROOT);
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) throw err;
+    if (onFallback) onFallback(err);
+    return read(GRAPH_ROOT);
+  }
+}
+
+module.exports = { getGraphToken, graphGet, graphGetAll, graphPost, shouldRetry, withBetaFallback, GRAPH_ROOT, GRAPH_BETA_ROOT };

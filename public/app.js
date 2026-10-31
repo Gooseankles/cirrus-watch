@@ -1977,7 +1977,7 @@ function arMembers(f) {
   const members = Array.isArray(f.members) ? f.members : [];
   const glyph = (m) => (m.type === "Group" ? icon("users") : m.type === "App" ? icon("app") : icon("user"));
   const card = (m) =>
-    `<div class="ar-member${m.enabled ? "" : " disabled"}" title="${esc(m.type || "")}${m.enabled ? "" : " (disabled)"}"><span class="m-ico">${glyph(m)}</span><div><div>${esc(m.name)}${m.enabled ? "" : ' <span class="muted">(disabled)</span>'}</div>${m.upn ? `<div class="secondary">${esc(m.upn)}</div>` : ""}</div></div>`;
+    `<div class="ar-member${m.enabled ? "" : " disabled"}" title="${esc(m.type || "")}${m.enabled ? "" : " (disabled)"}"><span class="m-ico">${glyph(m)}</span><div><div>${esc(m.name)}${m.enabled ? "" : ' <span class="muted">(disabled)</span>'}</div>${m.upn ? `<div class="secondary">${esc(m.upn)}</div>` : m.type === "App" ? `<div class="secondary">${m.appType === "ManagedIdentity" ? "Managed identity" : "App"}${m.appId ? ` · ${esc(m.appId)}` : ""}</div>` : ""}</div></div>`;
   // Runs before 0.13.1.0 kept one flat list (no `via`).
   if (!members.some((m) => m.via)) {
     const total = f.memberTotal != null ? f.memberTotal : members.length;

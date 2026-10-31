@@ -1,4 +1,4 @@
-const { graphGet, graphGetAll } = require("../graphClient");
+const { graphGet, graphGetAll, withBetaFallback } = require("../graphClient");
 const { resourceGraphQuery, subscriptionNames } = require("../armClient");
 const settings = require("../settings");
 const store = require("../findingsStore");
@@ -405,7 +405,8 @@ async function groupDetail(id) {
   const g = await graphGet(`/groups/${id}?${GROUP_FIELDS}`, TOOL_ID);
   const [acc, members] = await Promise.all([
     accessOf(id, "group"),
-    graphGet(`/groups/${id}/members?$select=id,displayName,userPrincipalName&$top=${MAX_MEMBERS}`, TOOL_ID),
+    // Beta: v1.0 leaves service principals out of group members.
+    withBetaFallback((root) => graphGet(`${root}/groups/${id}/members?$select=id,displayName,userPrincipalName&$top=${MAX_MEMBERS}`, TOOL_ID)),
   ]);
   const list = (members.value || []).map((m) => ({
     name: m.displayName || m.id,

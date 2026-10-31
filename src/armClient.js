@@ -8,7 +8,7 @@ const settings = require("./settings");
 const tenantContext = require("./tenantContext");
 
 const ARM_SCOPE = "https://management.azure.com/.default";
-const RESOURCE_GRAPH_API_VERSION = "2021-03-01";
+const RESOURCE_GRAPH_API_VERSION = "2024-04-01";
 // Log Analytics queries go to the Logs Query API v1 (the ARM route
 // .../api/query?api-version=2017-01-01-preview is retired), with its own token.
 const LOG_ANALYTICS_SCOPE = "https://api.loganalytics.io/.default";

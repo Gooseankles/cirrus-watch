@@ -24,6 +24,24 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.61.2.0] - 2026-10-31
+
+### Added
+
+- Azure Monitor: the page opens with a row of coverage counts: virtual machines, Arc servers and scale sets
+  monitored out of all, with what is missing; alert rules on out of all; data collection rules, action groups and
+  workspaces.
+
+### Changed
+
+- Resource Graph queries use API version 2024-04-01 (was 2021-03-01); the request and answer are the same.
+- The Azure Monitor scan runs one extra Resource Graph query to see which scale sets have the Azure Monitor Agent.
+
+### Fixed
+
+- Access review lists apps (service principals) in groups. Group members are read from Graph beta, since v1.0
+  leaves service principals out; v1.0 is the fallback if beta fails. Access lookup's group view lists them too.
+
 ## [0.61.1.0] - 2026-10-31
 
 ### Changed

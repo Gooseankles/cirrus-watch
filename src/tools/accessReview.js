@@ -1,5 +1,5 @@
 const { resourceGraphQuery } = require("../armClient");
-const { graphPost, graphGet } = require("../graphClient");
+const { graphPost, graphGet, withBetaFallback } = require("../graphClient");
 const settings = require("../settings");
 const log = require("../log");
 
@@ -50,21 +50,42 @@ function memberType(odataType) {
 }
 
 // A group's direct members; one fetch per group per run, since nested groups
-// are often shared between several assigned groups.
+// are often shared between several assigned groups. Read from Graph beta,
+// because v1.0 leaves service principals (apps) out of group members; v1.0 is
+// the fallback when beta fails for anything but a permission refusal.
+const MEMBER_FIELDS = "id,displayName,userPrincipalName,accountEnabled,appId,servicePrincipalType";
+
+async function readDirectMembers(groupId, root) {
+  const out = [];
+  let next = `${root}/groups/${groupId}/members?$select=${MEMBER_FIELDS}&$top=999`;
+  while (next) {
+    const page = await graphGet(next, TOOL_ID);
+    for (const m of page.value || []) {
+      const type = memberType(m["@odata.type"]);
+      const member = { id: m.id, name: m.displayName || m.id, upn: m.userPrincipalName || null, type, enabled: m.accountEnabled !== false };
+      if (type === "App") {
+        member.appId = m.appId || null;
+        member.appType = m.servicePrincipalType || null;
+      }
+      out.push(member);
+    }
+    next = page["@odata.nextLink"] || null;
+  }
+  return out;
+}
+
 async function directMembers(groupId, cache) {
   if (!cache.has(groupId)) {
     cache.set(
       groupId,
       (async () => {
-        const out = [];
-        let next = `/groups/${groupId}/members?$select=id,displayName,userPrincipalName,accountEnabled&$top=999`;
-        while (next) {
-          const page = await graphGet(next, TOOL_ID);
-          for (const m of page.value || []) {
-            out.push({ id: m.id, name: m.displayName || m.id, upn: m.userPrincipalName || null, type: memberType(m["@odata.type"]), enabled: m.accountEnabled !== false });
-          }
-          next = page["@odata.nextLink"] || null;
-        }
+        // Said once per run (the cache lives for one run): with v1.0 the apps are missing silently.
+        const onFallback = (err) => {
+          if (cache.betaFallbackLogged) return;
+          cache.betaFallbackLogged = true;
+          log.record({ tool: TOOL_ID, level: "warn", message: `Graph beta could not list the members of group ${groupId} (${err.message}); read from v1.0 instead, which leaves apps (service principals) out` });
+        };
+        const out = await withBetaFallback((root) => readDirectMembers(groupId, root), onFallback);
         return out.sort((a, b) => (a.type === "Group") - (b.type === "Group") || a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
       })()
     );
@@ -227,4 +248,5 @@ module.exports = {
   label: "Access review",
   schedule: "0 5 * * 1", // weekly, Monday 05:00
   run,
+  _test: { memberType, directMembers, groupMembers },
 };

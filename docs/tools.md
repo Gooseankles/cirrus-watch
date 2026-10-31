@@ -27,6 +27,9 @@ Long-standing Owner, Contributor and User Access Administrator grants, direct an
 
 Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups (nested groups shown as a tree).
 
+Group members are read from Graph beta, because v1.0 leaves service principals (apps) out of group members; if
+beta fails, v1.0 is used (apps are then missing). Access lookup's group view does the same.
+
 ## Expiring app credentials
 
 App secrets and certificates that expire soon, and app registrations with risky credentials or no owner.
@@ -128,6 +131,8 @@ Attack paths across resources: internet-facing VMs and web apps whose managed id
 Machines, alert rules, action groups and workspaces that Azure Monitor does not cover or that do not work.
 
 Machines with no agent, the legacy agent, no collection rule or no heartbeat; alert rules that are off, alert nobody or watch deleted resources; broken action groups; workspaces at their daily cap. Off per tenant for customers who do not use Azure Monitor.
+
+The page opens with one row of counts from the last scan: virtual machines, Arc servers and scale sets monitored out of all (the Azure Monitor Agent installed and not failed, at least one data collection rule and, where the heartbeat was read for a running machine, a recent one), with how many have no agent, only the legacy agent or no heartbeat; alert rules on out of all; data collection rules, action groups and workspaces.
 
 ## Updates and patching
 

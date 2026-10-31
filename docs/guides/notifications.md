@@ -39,4 +39,9 @@ The link carries its own signature, so it is kept like a client secret (the key 
 set, else `notify.json` under `DATA_DIR`) and never shown again. What is waiting is kept in `notify-queue.json`. A
 failed send is logged in Recent activity and tried again every hour. Send test posts a test message at once.
 
+Saving, changing and removing a link and every Send test go to the [audit log](../operations.md#audit-log)
+(`change-notify`, `test-notify`) with who, when, the tenant and whether it worked. The link itself is never written
+there: a web link shows only its host name (for example `contoso.webhook.office.com`), a list of email addresses
+only how many.
+
 Related: [Using the dashboard](using-the-dashboard.md), [Troubleshooting](../troubleshooting.md#notifications).

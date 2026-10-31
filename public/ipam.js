@@ -171,6 +171,9 @@
     const extra = have.filter((e) => !coveredBy(e, listSp));
     return { list: list.entries, skipped: list.skipped, missing, extra, same: list.entries.length - missing.length };
   }
+  // Double quotes work when pasted into bash, PowerShell and cmd.exe alike (single quotes do not in cmd.exe). The
+  // values cannot carry quotes or shell characters: a subscription GUID, Azure names (letters, digits, _ - . ( ))
+  // and addresses that extract() rebuilt from numbers.
   function azCommand(g, entries) {
     return `az network ip-group update --subscription "${g.subscriptionId}" --resource-group "${g.resourceGroup}" --name "${g.name}" --ip-addresses ${entries.join(" ")}`;
   }

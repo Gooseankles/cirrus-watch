@@ -102,8 +102,17 @@ async function startLogin(req, res) {
     });
     req.session.save(() => res.redirect(url));
   } catch (err) {
-    res.status(500).type("text/plain").send(`Could not start sign-in: ${err.message}`);
+    signInError(req, res, "Could not start sign-in", err);
   }
+}
+
+// What MSAL or Entra said can name the tenant, the app or how the secret is set up; it goes to the server log
+// under a short reference, and the browser gets a plain sentence with that reference.
+function signInError(req, res, what, err) {
+  const ref = crypto.randomBytes(4).toString("hex");
+  const upstream = req.get && (req.get("x-arr-log-id") || req.get("x-ms-request-id"));
+  console.error(`SSO: ${what.toLowerCase()} (ref ${ref}${upstream ? `, request ${String(upstream).slice(0, 64)}` : ""}${err && err.correlationId ? `, correlation ${err.correlationId}` : ""}):`, err);
+  res.status(500).type("text/plain").send(`${what}. Try again; if it keeps failing, ask an admin to look for reference ${ref} in the server log.`);
 }
 
 // Only people assigned an app role get in: Admin, User, a per-customer
@@ -162,8 +171,7 @@ async function handleCallback(req, res) {
       res.redirect("/");
     });
   } catch (err) {
-    console.error("SSO: sign-in failed:", err);
-    res.status(500).type("text/plain").send(`Sign-in failed: ${err.message}`);
+    signInError(req, res, "Sign-in failed", err);
   }
 }
 
@@ -171,22 +179,50 @@ async function handleCallback(req, res) {
 // LOGIN_WINDOW_MS that address must wait until the window ends.
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+// At most this many addresses are remembered (a guess from very many addresses); the oldest is forgotten first.
+const LOGIN_MAX_ADDRESSES = 10000;
 const loginFailures = new Map();
+// And across all addresses, against a guess spread over many addresses that each stay under their own limit:
+// after LOGIN_GLOBAL_MAX_FAILURES wrong passwords in one LOGIN_WINDOW_MS from all addresses together, every
+// address that sent a wrong password in that window is refused until the window ends, even with the right
+// password, and a new address gets one try before it is refused too. An address with no wrong password in the
+// window still signs in, so the break-glass login stays usable from the admin's own machine while someone else
+// is guessing; closing it for every address would let anyone keep it closed with 50 requests every 15 minutes.
+// Further failures do not extend the window. Sign in with Microsoft is not affected.
+const LOGIN_GLOBAL_MAX_FAILURES = 50;
+let globalFailures = { count: 0, resetAt: 0 };
+
+// Milliseconds the cap across all addresses still holds, or 0.
+function globalLockFor(now = Date.now()) {
+  if (globalFailures.resetAt <= now) return 0;
+  return globalFailures.count >= LOGIN_GLOBAL_MAX_FAILURES ? globalFailures.resetAt - now : 0;
+}
+
+// This address's wrong passwords in the current window, or null.
+function failuresOf(ip, now = Date.now()) {
+  const entry = loginFailures.get(ip);
+  return entry && entry.resetAt > now ? entry : null;
+}
 
 function loginBlockedFor(ip) {
-  const entry = loginFailures.get(ip);
-  if (!entry || entry.resetAt <= Date.now()) return 0;
-  return entry.count >= LOGIN_MAX_FAILURES ? entry.resetAt - Date.now() : 0;
+  const entry = failuresOf(ip);
+  return entry && entry.count >= LOGIN_MAX_FAILURES ? entry.resetAt - Date.now() : 0;
 }
 
 function recordLoginFailure(ip) {
   const now = Date.now();
-  if (loginFailures.size > 10000) {
+  if (loginFailures.size >= LOGIN_MAX_ADDRESSES && !loginFailures.has(ip)) {
     for (const [key, e] of loginFailures) if (e.resetAt <= now) loginFailures.delete(key);
+    // Still full (that many addresses in one window): forget the oldest; a Map keeps insertion order.
+    while (loginFailures.size >= LOGIN_MAX_ADDRESSES) loginFailures.delete(loginFailures.keys().next().value);
   }
   const entry = loginFailures.get(ip);
   if (!entry || entry.resetAt <= now) loginFailures.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
   else entry.count++;
+  if (globalFailures.resetAt <= now) globalFailures = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+  globalFailures.count++;
+  // true once, on the failure that reaches the cap (audited by the caller).
+  return globalFailures.count === LOGIN_GLOBAL_MAX_FAILURES;
 }
 
 // App Service's front end puts "ip:port" in X-Forwarded-For, and the port
@@ -208,10 +244,20 @@ function handleLocalLogin(req, res) {
     res.set("Retry-After", String(Math.ceil(wait / 1000)));
     return res.status(429).json({ error: `too many wrong passwords; try again in ${Math.ceil(wait / 60000)} minute(s)` });
   }
+  const locked = globalLockFor();
+  if (locked && failuresOf(ip)) {
+    res.set("Retry-After", String(Math.ceil(locked / 1000)));
+    return res.status(429).json({ error: `the local admin login is closed for this address for ${Math.ceil(locked / 60000)} minute(s): too many wrong passwords from many addresses; use Sign in with Microsoft or try again later` });
+  }
   const { username, password } = req.body || {};
   if (username !== "admin" || typeof password !== "string" || !timingSafeEquals(password, expected)) {
-    recordLoginFailure(ip);
+    const capped = recordLoginFailure(ip);
     audit.record(req, { action: "sign-in-failed", user: String(username || "").slice(0, 100) || "unknown", detail: "local admin: wrong username or password" });
+    if (capped) {
+      const until = new Date(globalFailures.resetAt).toISOString();
+      console.warn(`Local admin login: ${LOGIN_GLOBAL_MAX_FAILURES} wrong passwords from all addresses in ${LOGIN_WINDOW_MS / 60000} minutes; every address with a wrong password is refused until ${until}`);
+      audit.record(req, { action: "sign-in-locked", user: "admin", detail: `local admin login closed until ${until} for every address with a wrong password: ${LOGIN_GLOBAL_MAX_FAILURES} wrong passwords in ${LOGIN_WINDOW_MS / 60000} minutes from all addresses` });
+    }
     return res.status(401).json({ error: "wrong username or password" });
   }
   loginFailures.delete(ip);
@@ -236,7 +282,9 @@ function handleLogout(req, res) {
   });
 }
 
-const EXEMPT_PREFIXES = ["/auth/", "/api/me", "/login.html", "/login.js"];
+// Exact paths only, and nothing under /api/: a prefix would also let a later
+// route that starts the same through without a sign-in.
+const EXEMPT_PATHS = new Set(["/auth/login", "/auth/callback", "/auth/local-login", "/auth/logout", "/auth/methods", "/login.html", "/login.js"]);
 
 // A sign-in ends after 8 idle hours (the rolling cookie in server.js) and at the latest this long after signing in,
 // so a tab left open (it polls) does not stay signed in for ever.
@@ -249,7 +297,7 @@ function signInExpired(req) {
 }
 
 function requireAuth(req, res, next) {
-  if (EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+  if (EXEMPT_PATHS.has(req.path)) return next();
   if (!ssoConfigured() && !localAdminConfigured()) {
     const message = "No sign-in configured yet. Set DASHBOARD_ADMIN_PASSWORD (quick local admin login) and/or DASHBOARD_AZURE_* (SSO) in .env.";
     if (req.path.startsWith("/api/")) return res.status(503).json({ error: message });
@@ -281,4 +329,18 @@ module.exports = {
   handleLogout,
   requireAuth,
   requireRole,
+  _test: {
+    EXEMPT_PATHS,
+    LOGIN_MAX_FAILURES,
+    LOGIN_GLOBAL_MAX_FAILURES,
+    LOGIN_MAX_ADDRESSES,
+    LOGIN_WINDOW_MS,
+    signInError,
+    recordLoginFailure,
+    addressCount: () => loginFailures.size,
+    resetLoginLimits() {
+      loginFailures.clear();
+      globalFailures = { count: 0, resetAt: 0 };
+    },
+  },
 };

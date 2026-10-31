@@ -38,7 +38,17 @@ Two ways to sign in, either or both: a local admin account and SSO.
 
 Set `DASHBOARD_ADMIN_PASSWORD`. The username is always `admin` and it always has the Admin role. Handy before SSO
 exists or as a break-glass login; leave it blank to turn it off. Use a strong password if the dashboard is
-reachable by anyone else. After 10 wrong passwords from one address, that address must wait 15 minutes.
+reachable by anyone else (the app warns at startup when it is shorter than 16 characters).
+
+Wrong passwords are limited twice (`src/auth.js`), and every failure is in the audit log (`sign-in-failed`):
+
+- **Per address:** after 10 wrong passwords from one address in 15 minutes, that address must wait until the
+  15 minutes are over.
+- **Across all addresses:** after 50 wrong passwords from all addresses together in 15 minutes, every address that
+  sent a wrong password in that window is refused for the rest of it, even with the right password ("the local admin
+  login is closed for this address for N minute(s)…"), and a new address is refused after one wrong try. An address
+  with no wrong password still signs in, so the break-glass login stays usable from your own machine while someone
+  else is guessing. The audit log gets one `sign-in-locked` line. Sign in with Microsoft keeps working.
 
 ## SSO with an Entra ID app registration
 

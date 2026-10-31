@@ -1,7 +1,7 @@
 (async () => {
   let me = {};
   try {
-    me = await (await fetch("/api/me")).json();
+    me = await (await fetch("/auth/methods")).json();
   } catch (err) { /* treat as not signed in */ }
   if (me.signedIn) {
     window.location.href = "/";

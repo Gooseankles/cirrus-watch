@@ -109,37 +109,25 @@ const VERSION = (() => {
   }
 })();
 
-// Sign-in routes (exempt from requireAuth below) and whoami.
+// Sign-in routes (exempt from requireAuth below). /auth/methods tells the
+// login page which sign-in buttons to show; it says nothing else.
 app.get("/auth/login", auth.startLogin);
 app.get("/auth/callback", auth.handleCallback);
 app.post("/auth/local-login", auth.handleLocalLogin);
 app.get("/auth/logout", auth.handleLogout);
-app.get("/api/me", (req, res) => {
-  const user = req.session && req.session.user;
-  const acc = access.accessOf(user);
-  const seen = user ? access.visibleTenants(user) : [];
-  res.json({
-    ssoConfigured: auth.ssoConfigured(),
-    localAdminConfigured: auth.localAdminConfigured(),
-    signedIn: Boolean(user),
-    name: user ? user.name : null,
-    roles: user ? user.roles : [],
-    isAdmin: Boolean(user && acc.admin),
-    canRun: Boolean(user && acc.canRun),
-    // Tenants this person may see; the page shows a tab per tenant when there is more than one.
-    tenants: seen.map((t) => ({ ...t, scansOff: settings.scansOff(t.key) })),
-    // Areas (access.js) the person may read in at least one tenant.
-    areas: access.AREAS.filter((a) => seen.some((t) => t.areas.includes(a))),
-    areaLabels: access.AREA_LABELS,
-    multiTenant: Boolean(user) && tenants.isMultiTenant(),
-    version: VERSION,
-  });
-});
+app.get("/auth/methods", (req, res) => res.json({
+  ssoConfigured: auth.ssoConfigured(),
+  localAdminConfigured: auth.localAdminConfigured(),
+  signedIn: Boolean(req.session && req.session.user),
+}));
 
-// Everything below this line needs a signed-in session (auth/me routes are
-// exempted inside requireAuth itself).
+// Everything below this line needs a signed-in session (the /auth routes
+// above are exempted inside requireAuth itself).
 app.use(auth.requireAuth);
 app.use(audit.middleware);
+// Who is signed in: name, roles, tenants, areas and the version (src/me.js).
+const { meReply } = require("./src/me");
+app.get("/api/me", (req, res) => res.json(meReply(req.session && req.session.user, VERSION)));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ?tenant=<customer key> = that tenant's own tool settings; none or home = the
@@ -251,6 +239,8 @@ app.get("/api/notify", auth.requireRole("Admin"), (req, res) => {
 app.post("/api/notify", auth.requireRole("Admin"), async (req, res) => {
   const key = notifyTenant(req, res);
   if (!key) return;
+  // Audit line (src/audit.js): set or changed, and the link's host only, never the link.
+  req.auditDetail = audit.notifyLinkDetail(req.body, notify.describe(key).isSet);
   try {
     res.json(await notify.setLink(key, req.body || {}));
   } catch (err) {
@@ -259,7 +249,10 @@ app.post("/api/notify", auth.requireRole("Admin"), async (req, res) => {
 });
 app.post("/api/notify/test", auth.requireRole("Admin"), async (req, res) => {
   const key = notifyTenant(req, res);
-  if (key) res.json(await notify.sendTest(key));
+  if (!key) return;
+  const result = await notify.sendTest(key);
+  req.auditDetail = result.ok ? `test message sent (${result.kind})` : "test message failed";
+  res.json(result);
 });
 notify.start();
 

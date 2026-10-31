@@ -72,3 +72,32 @@ test("an SSO user's oid and tid go into the line next to the UPN; a local admin 
   assert.equal(local.user, "admin");
   assert.equal("oid" in local || "tid" in local, false);
 });
+
+test("notification link changes and test sends are audited, never with the link itself", () => {
+  const secretLink = "https://contoso.webhook.office.com/webhookb2/abc@def/IncomingWebhook/SECRETTOKEN123/xyz";
+  assert.deepEqual(matchRule("POST", "/api/notify", { query: { tenant: "Contoso" }, body: { url: secretLink } }), {
+    action: "change-notify",
+    target: "contoso",
+    detail: "set the link to a web link on contoso.webhook.office.com",
+  });
+  assert.deepEqual(matchRule("POST", "/api/notify", { query: {}, body: { clear: true } }), { action: "change-notify", target: "home", detail: "removed the link" });
+  assert.deepEqual(matchRule("POST", "/api/notify/test", { query: { tenant: "fabrikam" } }), { action: "test-notify", target: "fabrikam" });
+  assert.equal(matchRule("GET", "/api/notify", { query: {} }), null, "reading whether a link is set is not logged");
+
+  assert.equal(audit.notifyLinkDetail({ url: secretLink }, true), "changed the link to a web link on contoso.webhook.office.com");
+  assert.equal(audit.notifyLinkDetail({ url: "a@contoso.com, b@contoso.com" }, false), "set the link to 2 email addresses");
+  assert.equal(audit.notifyLinkDetail({ url: "https://exa mple" }), "set the link to something that is not a valid link");
+  assert.equal(audit.notifyLinkDetail({}), "no change");
+
+  // Through the middleware: the route adds set / changed; the written line holds the host, not the token.
+  const req = { method: "POST", path: "/api/notify", body: { url: secretLink }, query: { tenant: "contoso" }, ip: "127.0.0.1", session: { user: { upn: "admin@example.com" } } };
+  const res = new EventEmitter();
+  res.statusCode = 200;
+  audit.middleware(req, res, () => {});
+  req.auditDetail = audit.notifyLinkDetail(req.body, true);
+  res.emit("finish");
+  const [entry] = audit.readAll({ action: "change-notify", limit: 1 });
+  assert.deepEqual([entry.target, entry.tenant, entry.status, entry.user], ["contoso", "contoso", 200, "admin@example.com"]);
+  assert.equal(entry.detail, "changed the link to a web link on contoso.webhook.office.com");
+  assert.equal(require("fs").readFileSync(audit._test.FILE, "utf8").includes("SECRETTOKEN123"), false);
+});

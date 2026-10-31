@@ -77,7 +77,9 @@ The managed identities have no secrets to rotate.
 Admin → **Audit log** shows who signed in (and refused or failed sign-ins), which pages they opened (each scan,
 the monthly report, cost history, a past run, a subscription's cost), whom they looked up in Access lookup, and
 what they changed: Run now, accepted, snoozed and reopened findings, settings (which ones, never the values),
-customer tenants and Test buttons. A refused request (403) is kept too. Opening the same page again within ten
+customer tenants, notification links (`change-notify`: set, changed or removed, with the link's host name only,
+never the link) and Test buttons (`test-tenant`, `test-spn`, `test-notify`). A refused request (403) is kept too.
+Local admin lockouts are `sign-in-locked` (50 wrong passwords from all addresses in 15 minutes; every address that sent one is refused until the window ends). Opening the same page again within ten
 minutes counts once. Kept `AUDIT_RETENTION_DAYS` (default 365); only Admin can read it. A single sign-on user's
 lines show the UPN and also hold the Entra object ID (`oid`) and tenant ID (`tid`) in `audit.jsonl`, so a person
 can be followed across a UPN change.

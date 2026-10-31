@@ -80,6 +80,11 @@ pages (the content security policy blocks them).
   the Trivy gate runs on it before it is merged. Patch updates (and a new digest for the same Node image) merge by
   themselves once the build passes (`.github/workflows/dependabot-merge.yml`); minor and major updates wait for a
   person.
+- **Pinned actions**: every `uses:` in `.github/workflows/` names a full commit SHA with its version as a comment,
+  for example `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1`; a tag can be moved, a SHA
+  cannot. Dependabot (github-actions) updates the SHA and the comment together. To add an action, look up the SHA of
+  the release tag with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` (for an annotated tag, its `object.sha` is a
+  tag object: follow it with `gh api repos/<owner>/<repo>/git/tags/<sha>`).
 - **Weekly rebuild**: `docker.yml` also runs on Tuesdays, so the image picks up new Alpine and Node fixes and the
   merged updates, and the Trivy gate sees new CVEs. Promoting to `stable` stays a hand step.
 - **CodeQL** (`.github/workflows/codeql.yml`) scans the JavaScript and the workflows on every push and weekly;

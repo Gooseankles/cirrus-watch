@@ -139,7 +139,11 @@ Things to know:
 The session lasts 8 hours without use and at most 24 hours. Roles live only in Entra; a change takes effect at the
 next sign-in. A person with no app role is refused at the login page. The local admin account
 (`DASHBOARD_ADMIN_PASSWORD`) skips Entra and always has the Admin role; after ten wrong passwords from one address
-that address must wait 15 minutes. On an `https://` site the session cookie is marked Secure.
+that address must wait 15 minutes, and after 50 from all addresses together every address with a wrong password in
+those 15 minutes is refused until they are over, a new address after one wrong try (audited once as
+`sign-in-locked`); an address with no wrong password still signs in. When the Entra sign-in fails, the browser gets a
+plain sentence with a short reference; what Entra or MSAL said is in the server log under that reference. On an
+`https://` site the session cookie is marked Secure.
 
 ## 6. The path of a request
 
@@ -155,8 +159,11 @@ Every request from the browser goes through the same chain of checks in `server.
   site gets 403.
 - `GET /health` comes before the session and sign-in checks: no cookie, no audit line, and only
   `{"status":"ok"}` or `{"status":"stale"}`.
-- Only `/health`, `/auth/*`, `/api/me` and the login page work without a session. Everything else needs one that is less
-  than 24 hours old: API calls get 401, pages are sent to the login page.
+- Only `/health`, the sign-in routes (`/auth/login`, `/auth/callback`, `/auth/local-login`, `/auth/logout`,
+  `/auth/methods`) and the login page (`/login.html`, `/login.js`) work without a session. They are matched exactly,
+  and none is under `/api/`, so every API route needs a session. Everything else needs a session that is less than
+  24 hours old: API calls get 401, pages are sent to the login page. `/auth/methods` says only which sign-in methods
+  are set up and whether the browser is signed in; the login page uses it to pick its buttons.
 - Reading routes (findings, history, report, cost) return only the tenants and areas the roles reach.
 - **Run now** and accepting a finding need a role that reaches that scan in at least one tenant, else 403. Run now
   answers 202 when the scan has started, or 409 when the scan is turned off in that tenant.
@@ -320,7 +327,7 @@ only drops its Settings changes.
 <sub>Source: [lld-update.mmd](diagrams/lld-update.mmd)</sub>
 
 Every push to the app's main branch builds the image and, once the Trivy scan passes, pushes it as `:latest` and
-`:<version>`; a `v*` git tag adds that version as a tag too. `:stable` moves only by hand (the promote workflow),
+`:<version>`, with an SBOM and build provenance attached; a `v*` git tag adds that version as a tag too. `:stable` moves only by hand (the promote workflow),
 which then calls the deploy webhooks it knows.
 
 | Change | What happens |

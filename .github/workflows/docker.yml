@@ -29,8 +29,8 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: npm
@@ -44,7 +44,7 @@ jobs:
       contents: read
       security-events: write # Trivy results in the Security tab
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -88,7 +88,7 @@ jobs:
 
       - name: Upload scan results
         if: always() && github.event_name != 'pull_request' && hashFiles('trivy.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: trivy.sarif
           category: trivy-image
@@ -103,11 +103,18 @@ jobs:
             "$TRIVY" image --quiet --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --ignorefile .trivyignore \
             --exit-code 1 "scan-target:${{ github.sha }}"
 
+      # The pushed image carries an SBOM (the packages inside it) and SLSA
+      # provenance (how and from which commit it was built) as attestations;
+      # `docker buildx imagetools inspect <image> --format '{{ json .SBOM }}'`
+      # reads them. The scan build above loads into the local Docker, which
+      # cannot hold attestations, so only this step has them.
       - name: Push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          sbom: true
+          provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -121,7 +128,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 

@@ -23,7 +23,11 @@ to the tenant.
 
 - **Sign-in:** use SSO with Entra (`DASHBOARD_AZURE_*`), so the tenant's MFA and Conditional Access apply. The local
   admin login is meant for setup: give it a long random password (the app warns at startup when it is shorter than
-  16 characters), or leave `DASHBOARD_ADMIN_PASSWORD` unset to turn it off once SSO works.
+  16 characters), or leave `DASHBOARD_ADMIN_PASSWORD` unset to turn it off once SSO works. Wrong passwords are
+  limited per address (10 in 15 minutes) and across all addresses (after 50 in 15 minutes, every address that sent a
+  wrong password is refused until the window ends; an address with none, and SSO, keep working); see
+  [Sign-in and roles](docs/guides/sign-in-and-roles.md#local-admin-account).
+  Sign-in errors show the browser a reference only; the detail is in the server log.
 - **Roles:** give people the narrowest app role that fits (`User-<key>`, an area role) rather than `Admin`.
 - **Session key:** set `SESSION_SECRET` to a long random value (the Terraform module does). Without one the app
   makes its own and keeps it in `DATA_DIR/session-secret`.
@@ -34,8 +38,12 @@ to the tenant.
 - **The app's own identity:** grant only what the scans need (Reader, Cost Management Reader and the Graph
   read permissions in [docs/permissions.md](docs/permissions.md)). It needs no write rights anywhere.
 - **Updates:** run the `stable` image and update it regularly. Every image is scanned by Trivy before it is pushed,
-  the image is rebuilt every week for new Alpine and Node fixes, and CodeQL checks the code on every push.
+  the image is rebuilt every week for new Alpine and Node fixes, and CodeQL checks the code on every push. Each
+  pushed image carries an SBOM and build provenance (`docker buildx imagetools inspect`), and the workflows pin
+  every action to a commit SHA. To pin the image itself, use its digest (`trozity/azure-ops-dashboard@sha256:...`).
 - **Cross-site requests:** a request that changes something (POST, PUT, DELETE) must come from the dashboard's own
   pages (the browser's `Sec-Fetch-Site` or `Origin`); others get 403. The session cookie is `SameSite=Lax` as well.
-- **Audit:** sign-ins, Run now, accepted findings and settings changes go to the audit log; review it now and
-  then.
+- **Audit:** sign-ins, Run now, accepted findings, settings changes and notification link changes go to the audit
+  log (never secret values or the notification link itself); review it now and then.
+- **No open API routes:** every `/api/` route needs a session, `/api/me` too. The login page asks `/auth/methods`,
+  which says only which sign-in methods are set up.

@@ -75,7 +75,8 @@
 
   let csvUrl = null;
   function csvLink(list) {
-    const cell = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    // csvCell (app.js) also keeps a cell Excel would read as a formula as text.
+    const cell = csvCell;
     const cols = [["Person", (r) => r.name], ["Sign-in name", (r) => r.upn], ["Guest", (r) => (r.guest ? "yes" : "")], ["Disabled", (r) => (r.disabled ? "yes" : "")],
       ["Role", (r) => r.role], ["Privileged", (r) => (r.privileged ? "yes" : "")], ["Plane", (r) => (r.plane === "entra" ? "Entra" : "Azure")], ["Scope", (r) => r.scopeText],
       ["Subscription", (r) => r.subscriptionName || r.subscriptionId], ["How", howText], ["State", (r) => (STATE[r.state] || [r.state])[0]], ["Ends", (r) => r.end || "never"],

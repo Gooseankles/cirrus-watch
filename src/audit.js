@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { LOG_DIR } = require("./paths");
+const { HOME } = require("./tenantContext");
 const FILE = path.join(LOG_DIR, "audit.jsonl");
 const DAY = 86400000;
 // The same person reading the same page again within this counts once.
@@ -82,6 +83,27 @@ function settingsChanged(body) {
   return [set.length ? `set ${set.join(", ")}` : "", cleared.length ? `cleared ${cleared.join(", ")}` : ""].filter(Boolean).join("; ");
 }
 
+// A notification link change (POST /api/notify body: { url } or { clear }).
+// The link itself is never written: a Teams, Slack or other webhook link
+// carries its secret in the URL. A web link shows its host name only, a list
+// of email addresses only how many. hadLink (when the route knows it) tells a
+// first link from a changed one.
+function notifyLinkDetail(body, hadLink) {
+  const url = body && typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) return body && body.clear ? "removed the link" : "no change";
+  const verb = hadLink ? "changed the link to" : "set the link to";
+  if (/^https?:/i.test(url)) {
+    try {
+      return `${verb} a web link on ${clip(new URL(url).hostname, 100)}`;
+    } catch {
+      return `${verb} something that is not a valid link`;
+    }
+  }
+  const mails = url.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+  return `${verb} ${mails.length} email address${mails.length === 1 ? "" : "es"}`;
+}
+const tenantOf = (req) => clip(String(q(req, "tenant") || HOME).toLowerCase(), 60);
+
 // [method, path, what to log, view?]. Views are de-duplicated; changes never.
 const RULES = [
   ["GET", /^\/api\/tools\/([\w-]+)\/history\/(.+)$/, (m) => ({ action: "view-past-run", target: m[1], detail: clip(decodeURIComponent(m[2]), 40) }), true],
@@ -99,6 +121,9 @@ const RULES = [
   ["POST", /^\/api\/tenants\/([\w-]+)\/remove$/, (m) => ({ action: "remove-tenant", target: m[1] }), false],
   ["POST", /^\/api\/tenants\/([\w-]+)\/restore$/, (m) => ({ action: "restore-tenant", target: m[1] }), false],
   ["POST", /^\/api\/tenants\/([\w-]+)\/test$/, (m) => ({ action: "test-tenant", target: m[1] }), false],
+  // The route puts set / changed and sent / failed in req.auditDetail once it knows.
+  ["POST", /^\/api\/notify$/, (m, req) => ({ action: "change-notify", target: tenantOf(req), detail: notifyLinkDetail(req.body) }), false],
+  ["POST", /^\/api\/notify\/test$/, (m, req) => ({ action: "test-notify", target: tenantOf(req) }), false],
 ];
 
 // The page sends which page it opened (scan results load in the background
@@ -162,4 +187,4 @@ function facets() {
   return { users: [...users].sort(), actions: [...actions].sort() };
 }
 
-module.exports = { record, middleware, pageView, readAll, facets, retentionDays, _test: { RULES, prune, FILE } };
+module.exports = { record, middleware, pageView, readAll, facets, retentionDays, notifyLinkDetail, _test: { RULES, prune, FILE } };

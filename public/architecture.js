@@ -1243,7 +1243,7 @@
     const signIns = inv.signInTo.get(r.id) || [];
     const peTarget = r.type === "microsoft.network/privateendpoints" && r.link ? inv.byId.get(r.link.split("/").slice(0, 9).join("/")) : null;
     const rows = [
-      ["Type", `${r.t.label}${r.kind ? ` <span class="muted">(${esc(r.kind)})</span>` : ""}${r.sku ? ` · ${esc(r.sku)}` : ""}`],
+      ["Type", `${esc(r.t.label)}${r.kind ? ` <span class="muted">(${esc(r.kind)})</span>` : ""}${r.sku ? ` · ${esc(r.sku)}` : ""}`],
       ["Resource group", esc(r.resourceGroup)],
       ["Subscription", esc(inv.subName.get(`${r.tenant}|${r.subscriptionId}`) || r.subscriptionId)],
       ["Location", esc(r.location || "")],

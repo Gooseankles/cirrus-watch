@@ -84,7 +84,9 @@ Four kinds of identity. Only the customer apps use a secret, and that secret liv
 <sub>Source: [arch-sign-in.mmd](diagrams/arch-sign-in.mmd)</sub>
 
 The break-glass local account (`admin` + `DASHBOARD_ADMIN_PASSWORD`) skips Entra and always has the Admin role; ten
-wrong passwords from one address lock that address for 15 minutes.
+wrong passwords from one address lock that address for 15 minutes, and after 50 from all addresses together every
+address that sent a wrong password in those 15 minutes is refused until they are over, even with the right password
+(an address with no wrong password still gets in; SSO is not affected).
 
 What each role may do (`src/access.js`):
 
@@ -178,6 +180,10 @@ registry RDAP servers it redirects to (for example `rdap.verisign.com`, `rdap.no
   URL in the `STABLE_DEPLOY_WEBHOOKS` secret (the module's `deploy_webhook_url` output, one per line).
 - `docker.yml` also runs every Tuesday so the image gets new base-image fixes; the Node base image is pinned by
   digest and Dependabot moves it.
+- The pushed image carries an SBOM and SLSA provenance as attestations (`sbom: true`, `provenance: mode=max`);
+  `docker buildx imagetools inspect trozity/azure-ops-dashboard:<version> --format '{{ json .SBOM }}'` shows the SBOM.
+- Every action in the workflows is pinned to a full commit SHA with its version as a comment (`# v7.0.1`);
+  Dependabot moves the SHA and the comment together.
 - Pull requests build the image but do not push it.
 
 ## 9. Inside the app (low-level design)
@@ -216,7 +222,8 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | Route | Who | What |
 |---|---|---|
 | `GET /health` | anyone, no session | `{"status":"ok"}` (200) or `{"status":"stale"}` (503): no scheduled scan finished well in `HEALTH_SCAN_MAX_AGE_HOURS` (26) |
-| `GET /api/me` | anyone | Signed in?, roles, tenants, version |
+| `GET /auth/methods` | anyone | Which sign-in methods are set up and whether this browser is signed in; nothing else |
+| `GET /api/me` | signed in | Name, roles, tenants, areas and the app version |
 | `GET /api/tools` | signed in | Tools and the permissions each needs |
 | `GET /api/tools/<id>/findings` | signed in | Latest results for the tenants the person sees |
 | `POST /api/tools/<id>/run` | Anyone who may see the scan in that tenant | Start a scan (202, runs in the background) |
@@ -252,10 +259,10 @@ scheduler is in-process (every instance would run every scan), so run **one inst
 |---|---|
 | Secrets | None for the home tenant (managed identities, federated credential); customer secrets only in the key vault; storage account keys off |
 | Least privilege | Read-only ARM roles and Graph permissions; optional per-tool identities; the vault role is on that one vault |
-| Sign-in | Entra with PKCE and state check; assignment required and an app role required; local admin rate-limited |
+| Sign-in | Entra with PKCE and state check; assignment required and an app role required; local admin limited per address and across all addresses; sign-in errors show a reference, the detail stays in the server log |
 | Sessions | Server-side, httpOnly, Secure on HTTPS, SameSite=Lax, 8 hours, regenerated at sign-in |
 | Browser | Strict Content-Security-Policy (own scripts only), no framing, nosniff, HSTS |
 | Tenant isolation | One container per customer; every read and run checks the person's tenant scope |
 | Traceability | Audit log of sign-ins, page views, lookups and changes (never secret values); activity log of every scan |
 | Network | HTTPS only, TLS 1.2+, FTPS off; optional IP restrictions and private endpoints |
-| Container | Alpine Node 26 with security updates, production dependencies only, no npm, runs as non-root `node`; Trivy scan before every push (results in the GitHub Security tab), Dependabot weekly |
+| Container | Alpine Node 26 with security updates, production dependencies only, no npm, runs as non-root `node`; Trivy scan before every push (results in the GitHub Security tab), SBOM and provenance attestations, actions pinned by commit SHA, Dependabot weekly |

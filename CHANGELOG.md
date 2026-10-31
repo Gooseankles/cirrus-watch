@@ -11,6 +11,8 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.64.1.0: `/api/me` needs a sign-in.** A script that called it without a session gets 401; use
+  `/auth/methods` to ask which sign-in methods are set up.
 - **0.64.0.0: the new Legacy sign-ins scan reads the sign-in log, which needs Entra ID P1 or P2.** Without it the
   scan notes the missing licence in the log and reports nothing; turn it off for such tenants. No new Graph
   permissions: everything the new checks read is already in the module's default `graph_permissions`.
@@ -26,6 +28,28 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.64.1.0] - 2026-10-31
+
+### Changed
+
+- Every `/api/` route needs a sign-in, `/api/me` too. The login page asks the new `/auth/methods`, which says only
+  which sign-in methods are set up.
+- The pushed image carries an SBOM next to its build provenance, and every GitHub Action is pinned by commit.
+
+### Fixed
+
+- The PIM export guards cells against Excel formulas, like the other CSV exports.
+- The architecture details panel escapes the resource type label.
+
+### Security
+
+- Saving, changing or removing a notification link and sending a test message go to the audit log, with the link's
+  host name only, never the link.
+- After 50 wrong local admin passwords from all addresses in 15 minutes, every address that sent one is refused until
+  the window ends. An address with none still signs in, and Microsoft sign-in is not affected.
+- Sign-in routes are matched exactly, so a later route that starts the same way still needs a sign-in.
+- A failed Microsoft sign-in shows a short reference instead of the error; the detail is in the server log.
 
 ## [0.64.0.0] - 2026-10-31
 

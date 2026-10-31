@@ -51,6 +51,7 @@ Steps needed when moving past a version. Read this before you change the image t
 
 - Blob reads and writes of the findings store are retried on short outages.
 - A scan that hangs no longer leaves the tenant on "already running".
+- follow-redirects 1.16.2 (CVE-2026-116689, information disclosure through cross-origin redirects).
 
 ## [0.60.0.4] - 2026-10-30
 

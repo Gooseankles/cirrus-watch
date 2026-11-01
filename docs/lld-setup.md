@@ -298,9 +298,7 @@ only drops its Settings changes.
   public data two scans fetch once a day: `endoflife.date` for End of
   support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids. A blocked host
   means that scan uses its last kept copy; without one, End of support uses its built-in dates and the CVE scan
-  ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call. With `DOMAIN_CHECKS = on` the Domains
-  and mail scan also needs outbound DNS and HTTPS to `rdap.org` and the registry RDAP servers it redirects to
-  (`DOMAIN_CHECKS = dns` needs DNS only).
+  ranks by Defender's severity only. `CVE_FEEDS = off` makes neither CVE call.
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
   rules, always (module v1.10.0; before it, `continuous_deployment` kept it open for a deploy webhook).
   `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;

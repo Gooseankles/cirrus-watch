@@ -11,6 +11,10 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.68.0.0: the Domains and mail scan is gone.** Domain registration, DNS and mail records (SPF, DMARC, DKIM)
+  are left to whoever runs the domains. A `DOMAIN_CHECKS` setting is ignored and can be removed, old findings from
+  the scan drop out after the next scans, and `rdap-cache.json` in the data folder can be deleted.
+
 - **0.65.0.0: images are signed, and Promote to stable only moves `stable` to a signed image.** 0.64.1.0 and older
   are unsigned and can no longer be promoted; the first signed version is the first one to promote. Promote to
   stable no longer calls deploy webhooks: it restarts the apps in the repo variable `STABLE_DEPLOYMENTS` through
@@ -38,6 +42,13 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.68.0.0] - 2026-11-01
+
+### Removed
+
+- The Domains and mail scan (domain expiry, App Service Domain renewal, DNS zone delegation, SPF, DMARC and DKIM).
+  Domains and mail records are not the dashboard's job. The app no longer sends anything to public DNS or `rdap.org`.
 
 ## [0.67.0.0] - 2026-10-31
 

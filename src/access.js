@@ -44,7 +44,6 @@ const TOOL_AREAS = {
   "exposure-paths": ["security", "platform"],
   "firewall-policies": ["security", "platform"],
   "network-hygiene": ["security", "platform"],
-  domains: ["security", "platform"],
   "key-vault": ["security", "platform"],
   "resource-settings": ["security", "platform"],
   "diagnostic-settings": ["security", "platform"],

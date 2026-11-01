@@ -73,7 +73,6 @@ const NEEDS = {
   "network-hygiene": { azure: READER },
   connectivity: { azure: READER },
   avd: { azure: READER },
-  domains: { azure: READER, graph: ["User.Read.All"] },
   "access-lookup": {
     azure: READER,
     graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup"],

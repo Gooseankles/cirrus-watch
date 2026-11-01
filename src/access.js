@@ -52,6 +52,8 @@ const TOOL_AREAS = {
   "tag-compliance": ["platform"],
   "end-of-support": ["platform"],
   "service-retirements": ["platform"],
+  "azure-updates": ["platform"],
+  "m365-roadmap": ["platform"],
   certificates: ["platform"],
   "backup-coverage": ["platform"],
   resilience: ["platform"],

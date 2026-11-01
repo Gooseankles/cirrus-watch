@@ -13,7 +13,8 @@ their results are hidden (also in the report, trends and compliance), and a scan
 leaves the menu. A customer tenant's list does not follow Home: there, all scans are on until you untick some.
 
 The sidebar groups (Access, Identity, Resources and so on) fold away with a click on their heading; the browser
-remembers which are folded.
+remembers which are folded. The Upcoming group gathers what Microsoft is changing: End of support, Service
+retirements, Azure news (marked where your resources use them) and the Microsoft 365 roadmap.
 
 ## Findings, reports and compliance
 

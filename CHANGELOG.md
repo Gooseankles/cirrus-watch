@@ -11,6 +11,10 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.69.0.0: Azure news and Microsoft 365 roadmap fetch from `www.microsoft.com` once a day.** A firewall or NAT
+  that limits the app's outbound traffic (`vnet_route_all`) must allow HTTPS to that host, or set
+  `RELEASE_FEEDS = off`; the pages then stay empty. No new permission.
+
 - **0.68.0.0: the Domains and mail scan is gone.** Domain registration, DNS and mail records (SPF, DMARC, DKIM)
   are left to whoever runs the domains. A `DOMAIN_CHECKS` setting is ignored and can be removed, old findings from
   the scan drop out after the next scans, and `rdap-cache.json` in the data folder can be deleted.
@@ -42,6 +46,28 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.69.0.0] - 2026-11-01
+
+### Added
+
+- Azure news: what Microsoft announces for Azure (new and generally available features, previews and
+  retirements) from the public Azure Updates feed, changed in the last 180 days or with a date still ahead. Updates
+  about services your resources use are marked In use, from the Architecture scan's resource list. Chips for All,
+  New & GA, Preview, Retiring and In use, a product list, a search box and a link to Microsoft's page per update.
+  Read route `/api/azure-updates`.
+- Microsoft 365 roadmap: features in development, rolling out, or launched in the last 60 days, from the public
+  Microsoft 365 roadmap, with status chips, a product list, a search box and a link to the roadmap page per feature.
+  Read route `/api/m365-roadmap`.
+- Both run daily early in the morning and fetch once a day from `www.microsoft.com` with nothing about the tenant
+  in the request. The last good copy is kept (`release-feeds.json` in the data folder) and the page says when it
+  was fetched. `RELEASE_FEEDS = off` (Settings, Upcoming) stops both calls. Neither needs a permission, and neither
+  makes findings.
+
+### Changed
+
+- A new Upcoming group in the sidebar, after Cost, holds End of support, Service retirements, Azure news and
+  Microsoft 365 roadmap. End of support and Service retirements keep their ids, findings and settings.
 
 ## [0.68.0.0] - 2026-11-01
 

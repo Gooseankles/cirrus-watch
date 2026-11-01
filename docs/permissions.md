@@ -122,6 +122,11 @@ tools they serve, and a failed scan shows the permissions its tool needs.
 A customer delegated to your tenant with **Azure Lighthouse** needs none of this: give the shared SPN the Azure roles
 in the delegation and it scans those subscriptions like its own (Graph-based tools then only see your home tenant).
 
+Azure news and Microsoft 365 roadmap need no permission at all: they read Microsoft's public release feeds from
+`www.microsoft.com` once a day, without signing in and with nothing about the tenant in the request. The "In use"
+marks on Azure news come from the Architecture scan's stored resource list, so no extra read is made. They have no
+per-tool SPN setting. The tenant's own Message center (Microsoft Graph `ServiceMessage.Read.All`) is not used.
+
 ## Per-tool SPN (optional)
 
 A tool can scan as its own service principal (Settings → Per-tool SPNs (advanced), at the bottom of the Home tab, or `<TOOL_ID>_AZURE_CLIENT_ID` and friends

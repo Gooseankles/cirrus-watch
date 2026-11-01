@@ -52,7 +52,8 @@ const toolsBlock = appJs.slice(appJs.indexOf("const TOOLS = ["), appJs.indexOf("
 const frontIds = new Set([...toolsBlock.matchAll(/\{ id: "([\w-]+)"/g)].map((m) => m[1]));
 const spnIds = new Set(TOOL_SPNS.map((t) => t.id));
 for (const t of tools) {
-  if (!spnIds.has(t.id)) problems.push(`${t.id}: not in TOOL_SPNS (src/settings.js)`);
+  // A tool that calls neither Azure nor Graph (NEEDS says none) has no identity to override.
+  if (!spnIds.has(t.id) && !(NEEDS[t.id] && NEEDS[t.id].none)) problems.push(`${t.id}: not in TOOL_SPNS (src/settings.js)`);
   if (!TOOL_AREAS[t.id]) problems.push(`${t.id}: not in TOOL_AREAS (src/access.js)`);
   if (!NEEDS[t.id]) problems.push(`${t.id}: not in src/toolPermissions.js`);
   if (!t.action && !frontIds.has(t.id)) problems.push(`${t.id}: not in TOOLS (public/app.js)`);

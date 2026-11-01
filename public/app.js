@@ -38,6 +38,8 @@ const ICON_PATHS = {
   chevron: '<polyline points="9 18 15 12 9 6"/>',
   report: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
   globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
@@ -119,8 +121,10 @@ const TOOLS = [
   { id: "role-assignments", group: "access", label: "Role assignments", icon: "users", schedule: "Daily at 04:15", sub: "Assignments whose user, group or app was deleted (\"Identity not found\": safe to remove), Owner and access-granting roles given to a person directly on a whole subscription, Azure roles held by guests, custom roles that allow everything or can hand out access, and subscriptions close to Azure's limit of 4,000 role assignments." },
   { id: "policy-check", group: "governance", label: "Policy check", icon: "policy", schedule: "Daily at 05:30", sub: "Probes ask Azure whether risky resources (public storage, plain HTTP, public IPs, open SQL, untagged, blocked regions) would be allowed in each subscription; nothing is created. Health checks find policy assignments that cannot work." },
   { id: "internet-exposure", group: "resources", label: "Internet exposure", icon: "globe", schedule: "Daily at 03:30", sub: "Network security group rules open to the whole internet (admin and database ports, all ports), VMs with a public IP, storage containers anyone can read and database firewalls open to everyone or to all of Azure." },
-  { id: "end-of-support", group: "resources", label: "End of support", icon: "clock", schedule: "Weekly, Monday at 06:00", sub: "AKS clusters on a Kubernetes version Azure no longer supports, App Service runtimes (Node.js, Python, .NET, PHP) and VM operating systems past or near end of support, and services that still accept TLS 1.0 or 1.1." },
-  { id: "service-retirements", group: "resources", label: "Service retirements", icon: "calendar", schedule: "Daily at 06:15", sub: "Azure features and services being retired that your resources still use, from Azure Advisor, with the retirement date." },
+  { id: "end-of-support", group: "upcoming", label: "End of support", icon: "clock", schedule: "Weekly, Monday at 06:00", sub: "AKS clusters on a Kubernetes version Azure no longer supports, App Service runtimes (Node.js, Python, .NET, PHP) and VM operating systems past or near end of support, and services that still accept TLS 1.0 or 1.1." },
+  { id: "service-retirements", group: "upcoming", label: "Service retirements", icon: "calendar", schedule: "Daily at 06:15", sub: "Azure features and services being retired that your resources still use, from Azure Advisor, with the retirement date." },
+  { id: "azure-updates", group: "upcoming", info: true, feed: true, label: "Azure news", icon: "megaphone", schedule: "Daily at 05:10", sub: "What Microsoft announces for Azure: new and generally available features, previews and retirements from the public Azure Updates feed, changed in the last 180 days or with a date still ahead. Updates about services your resources use are marked In use (from the Architecture scan's resource list). For information: no findings." },
+  { id: "m365-roadmap", group: "upcoming", info: true, feed: true, label: "Microsoft 365 roadmap", icon: "map", schedule: "Daily at 05:15", sub: "What Microsoft plans for Microsoft 365: features in development, rolling out, or launched in the last 60 days, from the public Microsoft 365 roadmap, with product, release phase and expected month. The same list for every tenant. For information: no findings." },
   { id: "certificates", group: "resources", label: "Certificates", icon: "lock", schedule: "Daily at 06:20", sub: "TLS certificates of your websites: the custom domains of App Service apps found in Azure, plus any address listed in Settings. Flags certificates that expired or expire soon, are not for the site's name, or that browsers will not trust, and sites that do not answer. Application gateways: listener and trusted root certificates from the gateway's settings, and listeners pinned to one version of a Key Vault secret. The In use tab lists every certificate found, also the healthy and unused ones, with where it is used and when it expires." },
   { id: "defender", group: "resources", label: "Defender for Cloud", icon: "shield", schedule: "Daily at 06:40", sub: "Microsoft Defender for Cloud in short: subscriptions whose secure score is low, unhealthy recommendations with how many resources each hits, Defender plans that are off although they should be on, plans that are on in some subscriptions but off in others, Servers Plan 1 where others have Plan 2, agentless scanning turned off, security contacts that tell nobody about alerts, and open High and Medium alerts." },
   { id: "safety-nets", group: "governance", label: "Safety nets", icon: "alert", schedule: "Daily at 06:50", sub: "Subscriptions with no cost budget, or a budget that alerts nobody, and key resources (key vaults, backup vaults, VNets, DNS zones, Log Analytics workspaces, SQL servers, AKS clusters, Azure Firewalls) with no delete lock on them, their resource group or their subscription." },
@@ -164,6 +168,7 @@ const TOOL_GROUPS = [
   { id: "resources", label: "Resources" },
   { id: "governance", label: "Governance" },
   { id: "cost", label: "Cost" },
+  { id: "upcoming", label: "Upcoming" },
 ];
 const TOOL_BY_ID = Object.fromEntries(TOOLS.map((t) => [t.id, t]));
 
@@ -1115,7 +1120,7 @@ function toolCard(tool) {
     : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.accepted.length ? fmt.int(t.accepted.length) + " accepted · " : ""}${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
   return `<a class="tool-card" href="#/scan/${esc(tool.id)}">
     <div class="tc-head">${icon(tool.icon)}<span>${esc(tool.label)}</span></div>
-    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.id === "architecture" ? "drawing" : tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
+    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.id === "architecture" ? "drawing" : tool.feed ? "news feed" : tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
     <div class="tc-delta">${delta}</div>
     <div class="tc-spark" data-spark="${esc(tool.id)}"></div>
     <div class="tc-kinds">${kinds.map(([k, c]) => `${kindBadge(k).replace("</span>", ` ${fmt.int(c)}</span>`)}`).join("")}</div>
@@ -2411,10 +2416,11 @@ function renderHistory(id) {
   const h = t.history;
   const chartEl = $("#scan-chart");
   if (!chartEl) return;
-  // A drawing has no findings to count over time.
+  // A drawing or a news feed has no findings to count over time.
+  const noHist = Boolean(TOOL_BY_ID[id].drawing || TOOL_BY_ID[id].feed);
   const card = $("#scan-hist-card");
-  if (card) card.classList.toggle("hidden", !!TOOL_BY_ID[id].drawing);
-  if (TOOL_BY_ID[id].drawing) return;
+  if (card) card.classList.toggle("hidden", noHist);
+  if (noHist) return;
   $("#scan-hist-meta").textContent = h.length ? `${fmt.int(h.length)} run${h.length === 1 ? "" : "s"} kept · since ${fmt.date(h[0].ranAt)}` : "";
   if (!h.length) {
     Charts.columns(chartEl, { data: [], emptyText: t.loaded ? "No runs yet" : "Loading…" });
@@ -2596,6 +2602,7 @@ function renderRunState(id) {
     else if (t.runFinished && Date.now() - t.runFinished < 60000) {
       const last = t.history[t.history.length - 1] || {};
       if (TOOL_BY_ID[id].drawing) setStatus(st, "Run finished: the drawing is up to date.", "ok");
+      else if (TOOL_BY_ID[id].feed) setStatus(st, "Run finished: the list is up to date.", "ok");
       else setStatus(st, `Run finished: ${fmt.int(t.data.findings.length)} findings (+${fmt.int(last.added || 0)} new, −${fmt.int(last.resolved || 0)} resolved).`, "ok");
     } else setStatus(st, "");
   }

@@ -56,6 +56,9 @@ const FIELDS = [
   { key: "NOTIFY_TIME", label: "Send the daily message at (HH:MM, server time)", group: "Notifications", hint: "After the nightly scans; blank = 08:30. Each tenant's link or email addresses are set in the Notifications card on its tab" },
   { key: "NOTIFY_MAIL_FROM", label: "Send email from (mailbox)", group: "Notifications", hint: "Only for tenants whose notifications go to email addresses: a mailbox in the home tenant (a shared mailbox is fine). The dashboard's identity needs the Exchange role Application Mail.Send scoped to this mailbox (RBAC for Applications; see docs/guides/notifications.md), not Graph Mail.Send in Entra" },
 
+  // Microsoft's public release feeds are the same for every tenant, so not per tenant.
+  { key: "RELEASE_FEEDS", label: "Fetch Microsoft release news", group: "Upcoming", hint: "on or off; blank = on. Once a day from www.microsoft.com (Azure news, Microsoft 365 roadmap), nothing about your tenants is sent; off = neither is fetched and the last copy stays" },
+
   // Scans a tenant does not need. Unlike the other tenant fields, a customer's
   // list does not fall back to the home tenant's: blank = every scan runs.
   { key: "SCANS_OFF", label: "Scans that are on", group: "Scans", scanPicker: true, noInherit: true, hint: "Untick the scans this tenant does not need: they do not run here and their results are hidden" },

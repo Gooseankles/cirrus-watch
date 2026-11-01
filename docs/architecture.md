@@ -163,11 +163,14 @@ reached only with Entra tokens. Three optional layers:
 
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
 firewall to reach Docker Hub, ARM, Graph and `api.loganalytics.azure.com` (the Azure Monitor scan's heartbeat
-query). Two scans also fetch public data once a day (no tenant data is sent).
+query). Four scans also fetch public data once a day (no tenant data is sent).
 The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
-last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call.
+last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call. The Azure
+updates and Microsoft 365 roadmap scans fetch Microsoft's release communications from `www.microsoft.com`
+(`/releasecommunications/api/v2/azure` and `/m365`; the request holds only dates and fixed filters); if it is
+blocked, the pages show the last kept copy. `RELEASE_FEEDS = off` makes neither call.
 
 ## 8. Build and release
 
@@ -242,6 +245,8 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | `GET /api/report?month=` | signed in | Monthly report |
 | `GET /api/cost/history[/<sub>]` | signed in | Cost history |
 | `GET /api/certificates` | Anyone who may see the Certificates scan | Every certificate the last scan saw (In use), for the tenants the person sees |
+| `GET /api/azure-updates` | Anyone who may see the Azure news scan | The kept Azure news, with In use marks from the tenants the person sees |
+| `GET /api/m365-roadmap` | Anyone who may see the Microsoft 365 roadmap scan | The kept Microsoft 365 roadmap (the same list for every tenant) |
 | `GET/POST /api/settings`, `/api/tenants` | Admin | Settings and customer tenants (secrets go to the vault) |
 | `POST /api/tenants/<key>/remove` | Admin | Delete a customer tenant and everything held for it (the body repeats the key); the reply lists what was deleted and what failed |
 | `POST /api/tenants/<key>/restore`, `DELETE /api/tenants/<key>` | Admin | Undo a removed Terraform tenant (its data stays deleted); drop a Terraform tenant's Settings changes |

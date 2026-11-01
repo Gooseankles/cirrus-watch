@@ -269,6 +269,7 @@ table.data .secondary code { color: var(--muted); font-size: 0.74rem; }
 .kind.k-crit { border-color: rgba(208, 59, 59, 0.5); color: var(--critical-text); background: rgba(208, 59, 59, 0.1); }
 .kind.k-warn { border-color: rgba(250, 178, 25, 0.45); color: var(--warning); background: rgba(250, 178, 25, 0.08); }
 .kind.k-good { border-color: rgba(12, 163, 12, 0.45); color: var(--good-text); background: rgba(12, 163, 12, 0.08); }
+.kind.k-info { border-color: rgba(57, 135, 229, 0.5); color: var(--accent-text); background: var(--accent-soft); }
 .new-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; color: #fff; background: var(--accent); vertical-align: middle; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); vertical-align: middle; margin-right: 6px; }
 .dot.error { background: var(--critical); }
@@ -1012,3 +1013,16 @@ details.fix a svg { width: 12px; height: 12px; }
   .fw-center { position: static; order: -1; }
   .fw-col:first-child .fw-card::after, .fw-col:last-child .fw-card::before { content: none; }
 }
+
+/* --- Upcoming: Azure updates and Microsoft 365 roadmap (upcoming.js) --- */
+.feed-chips { margin-bottom: 4px; }
+#scan-extra { max-width: 100%; min-width: 0; }
+.select.feed-product { width: 280px; max-width: 100%; text-overflow: ellipsis; }
+.feed-note { margin: 6px 0 10px; }
+.feed-title { min-width: 26ch; max-width: 72ch; overflow-wrap: anywhere; }
+.feed-title > a { color: var(--text); font-weight: 500; text-decoration: none; }
+.feed-title > a:hover { color: var(--accent-text); text-decoration: underline; }
+.feed-title > a.feed-link { display: inline-block; margin-top: 4px; font-size: 0.76rem; font-weight: 400; color: var(--accent-text); text-decoration: none; }
+.feed-title > a.feed-link:hover { text-decoration: underline; }
+.feed-inuse { margin-top: 4px; font-size: 0.76rem; }
+table.data td.feed-products { min-width: 16ch; max-width: 28ch; color: var(--text-2); }

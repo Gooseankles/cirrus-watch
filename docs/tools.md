@@ -78,6 +78,26 @@ Azure features being retired that your resources still use, with the date.
 
 Azure features being retired that your resources still use (from Azure Advisor), with the date.
 
+## Azure news
+
+What Microsoft announces for Azure: new features, previews and retirements, marked where your resources use them.
+
+What Microsoft announces for Azure: new and generally available features, previews and retirements from the public Azure Updates feed, changed in the last 180 days or with a date still ahead. Updates about services your resources use are marked In use (from the Architecture scan's resource list). Chips pick New & GA, Preview, Retiring or In use; a product list and a search box narrow the rows, and each row links to Microsoft's page for it. Fetched once a day from `www.microsoft.com` with nothing about the tenant in the request; the last good copy stays when Microsoft cannot be reached. For information: no findings, and it needs no permission.
+
+"In use" compares the products named on an update with a built-in list of the Azure resource types behind each
+product (for example Azure Functions is a `microsoft.web/sites` resource whose kind says `functionapp`). A product
+the list does not know is never marked. A tenant whose Architecture scan has not run yet shows as not known.
+`RELEASE_FEEDS = off` (Settings → Upcoming) stops both Microsoft feeds; the pages then show the last kept copy.
+
+## Microsoft 365 roadmap
+
+What Microsoft plans for Microsoft 365: features in development, rolling out, or launched in the last 60 days.
+
+What Microsoft plans for Microsoft 365: features in development, rolling out, or launched in the last 60 days, from the public Microsoft 365 roadmap, with product, release phase, platforms and expected month. Chips pick a status; a product list and a search box narrow the rows, and each row links to the roadmap page for it. The same list for every tenant, fetched once a day from `www.microsoft.com` with nothing about the tenant in the request. For information: no findings, and it needs no permission.
+
+The tenant's own Message center posts (Microsoft Graph `ServiceMessage.Read.All`) are not read: that would need a new
+permission.
+
 ## Certificates
 
 TLS certificates of App Service custom domains, application gateways and listed websites: expiry, name, trust and reachability.

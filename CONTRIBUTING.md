@@ -26,7 +26,8 @@ findings. An on-demand tool exports `{ id, label, registerRoutes(app) }` instead
 2. Add it to the `TOOLS` list in `public/app.js`; each new finding kind gets a `KINDS` entry there and its controls
    in `public/compliance.js`; short "How to fix" steps with a Microsoft Learn link can go in `public/fixes.js`.
 3. List what its identity needs in `src/toolPermissions.js` (`NEEDS`), give it an area in `src/access.js`
-   (`TOOL_AREAS`) and an SPN override entry in `src/settings.js` (`TOOL_SPNS`).
+   (`TOOL_AREAS`) and an SPN override entry in `src/settings.js` (`TOOL_SPNS`). A tool that calls nothing in the
+   tenant (`NEEDS` entry `{ none: true }`, such as Azure news) gets no `TOOL_SPNS` entry.
 4. Add a `## <label>` section to [docs/tools.md](docs/tools.md) saying what it checks, and new access to
    [docs/permissions.md](docs/permissions.md).
 5. Run `npm run docs`. It writes the README tools table, the tool count and the tool ids in `.env.example`, and

@@ -3,7 +3,7 @@
 // SECURE_SCORE_DROP_POINTS percentage points against the snapshot about a week
 // older, and, for information, the five open improvement actions worth the most
 // points. Always one info finding with the current score, so the page shows it.
-// Opt-in (extraChecks.js): Graph SecurityEvents.Read.All.
+// Extra Graph check, on by default (extraChecks.js): Graph SecurityEvents.Read.All.
 //   GET /security/secureScores?$top=8   daily snapshots, newest first
 //   GET /security/secureScoreControlProfiles   the improvement actions
 // A control is open when it is not deprecated, its latest state is not Ignored

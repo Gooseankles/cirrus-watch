@@ -5,8 +5,9 @@
 // that are off, alert nobody, use a deleted action group or watch a deleted
 // resource; action groups that are off, empty or unsubscribed; workspaces that
 // hit their daily cap; machines whose data goes only to workspaces that no
-// enabled log alert rule reads (alerts are tied to one workspace). Off per tenant (AZURE_MONITOR_IN_USE) for customers who
-// do not use Azure Monitor: then no request is made and nothing is found.
+// enabled log alert rule reads (alerts are tied to one workspace). Per tenant (AZURE_MONITOR_IN_USE): "auto" (default)
+// checks a tenant that has the Azure Monitor Agent or a data collection rule and skips the others (one Resource Graph
+// query); "on" always checks; "off" makes no request and finds nothing.
 // Reader is enough; the heartbeat check queries each workspace through the Logs Query API.
 const settings = require("../settings");
 const store = require("../findingsStore");
@@ -25,7 +26,11 @@ const HEARTBEAT_DAYS = 7;
 const AMA = ["azuremonitorwindowsagent", "azuremonitorlinuxagent"];
 const LEGACY = ["microsoftmonitoringagent", "omsagentforlinux"];
 
-const inUse = () => String(settings.get("AZURE_MONITOR_IN_USE") || "off").toLowerCase() === "on";
+// "on", "off" or "auto" (anything else, including an old blank value, is auto).
+const mode = () => {
+  const v = String(settings.get("AZURE_MONITOR_IN_USE") || "auto").toLowerCase();
+  return v === "on" || v === "off" ? v : "auto";
+};
 const heartbeatHours = () => numberSetting("AZURE_MONITOR_HEARTBEAT_HOURS", 2, { min: 1, max: 168 });
 // The workspaces alerts are set up on, when given (resource IDs or names); blank = read from the log alert rules.
 const alertWorkspacesSetting = () => String(settings.get("AZURE_MONITOR_ALERT_WORKSPACES") || "");
@@ -482,9 +487,20 @@ async function existingResources(ids) {
   return found;
 }
 
+// Auto mode: does the tenant use Azure Monitor at all? Any Azure Monitor Agent or data collection rule says yes.
+async function foundInTenant() {
+  const rows = await q(`Resources
+    | where type =~ 'microsoft.insights/datacollectionrules'
+      or (type in~ ('microsoft.compute/virtualmachines/extensions', 'microsoft.hybridcompute/machines/extensions')
+        and tolower(tostring(properties.type)) in ('${AMA.join("', '")}'))
+    | take 1 | project id`);
+  return rows.length > 0;
+}
+
 async function run() {
-  if (!inUse()) {
-    await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: true, machines: [], rules: [] });
+  const m = mode();
+  if (m === "off" || (m === "auto" && !(await foundInTenant()))) {
+    await store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), off: true, reason: m, machines: [], rules: [] });
     return [];
   }
   const [data, subs] = await Promise.all([readAll(), subscriptionIdsToScan(TOOL_ID)]);
@@ -532,23 +548,26 @@ async function run() {
 
 /* ---------- read routes ---------- */
 
-// Each tenant's machines and alert rules from its last scan, and which tenants have the check off.
+// Each tenant's machines and alert rules from its last scan, and which tenants were not checked:
+// reason "off" (set to No) or "auto" (Auto found no agent or data collection rule at the last scan).
 async function inventory(keys) {
   const out = { updatedAt: null, machines: [], rules: [], off: [], failures: [], summary: null, alertWorkspaces: [] };
   const summaries = [];
   for (const k of keys) {
     const t = tenants.byKey(k);
-    const on = t ? await tenantContext.runIn(t, async () => inUse()) : false;
-    if (!on) out.off.push({ key: k, name: tenants.nameOf(k) });
+    const m = t ? await tenantContext.runIn(t, async () => mode()) : "off";
     let doc;
     try {
       doc = await store.getDoc(INVENTORY_KEY, k);
     } catch (err) {
+      if (m === "off") out.off.push({ key: k, name: tenants.nameOf(k), reason: "off" });
       out.failures.push({ tenant: k, error: `could not read the inventory: ${err.message}` });
       continue;
     }
+    if (m === "off") out.off.push({ key: k, name: tenants.nameOf(k), reason: "off" });
+    else if (doc && doc.off && doc.reason === "auto" && m === "auto") out.off.push({ key: k, name: tenants.nameOf(k), reason: "auto" });
     // A doc saved while the check was off (turned on since, not scanned yet) has no counts to add.
-    if (!doc || doc.off || !on) continue;
+    if (!doc || doc.off || m === "off") continue;
     if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
     const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
     out.machines.push(...(doc.machines || []).map(tag));
@@ -579,5 +598,5 @@ module.exports = {
   schedule: "55 4 * * *", // daily at 04:55
   run,
   registerRoutes,
-  _test: { machineInventory, machineFindings, machineStatus, summaryOf, alertReach, alertCoverageOf, alertWorkspacesSetting, addSummaries, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, inUse },
+  _test: { machineInventory, machineFindings, machineStatus, summaryOf, alertReach, alertCoverageOf, alertWorkspacesSetting, addSummaries, dcrFindings, ruleOf, groupOf, scopeResource, alertFindings, workspaceFindings, mode, foundInTenant },
 };

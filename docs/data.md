@@ -23,6 +23,11 @@ What the dashboard stores, where, and for how long. Back-up and restore steps ar
   reads them (`machines[].alert`: `workspace`, `scope`, `none`, or null when not judged), the alert rules, the
   counts the page opens with (`summary`) and where the enabled log alerts look (`alertWorkspaces`: `source` is
   `rules`, `setting` or null, `names` the workspaces). A tenant with the check off gets only `off: true`.
+- **The certificate inventory** (`certificates/inventory.json`, with each tenant's scan results, rewritten by every
+  scan): `certs`, every certificate the last scan saw with where it is used, expiry and state (the In use tab), and
+  `gateways`, every running application gateway with its frontends (public IP and DNS name, private IP) and
+  listeners (port, host names, certificate and its state, and `checks`: what each address answered live, or
+  `unreachable` / `unchecked`) for the Application gateways tab.
 - **Other Settings page overrides and sign-in sessions**: under `DATA_DIR`. A sign-in ends after 8 hours without use
   and at the latest 24 hours after signing in. In Docker, map `DATA_DIR` to a volume, or every image update signs
   everyone out.

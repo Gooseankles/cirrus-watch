@@ -622,7 +622,6 @@ function dropAdvisorRepeats(findings) {
 // archive and old data is never deleted. One ARM read per account (Reader); 404 = no policy. What it would save
 // depends on how much data the account holds and how often it is read, so it is not estimated.
 const MAX_LIFECYCLE_READS = 300;
-const isOn = (v) => /^(on|yes|true|1)$/i.test(String(v || "").trim());
 
 // The management policy body (null when there is none) -> true when at least one rule is turned on.
 function hasLifecycleRule(policy) {
@@ -653,9 +652,9 @@ async function storageWithoutLifecycle() {
 }
 
 // Log Analytics workspaces with no daily cap: a noisy source can bill without limit. Many want no cap (a cap drops
-// logs), so this is off unless LAW_DAILY_CAP_CHECK is on.
+// logs), so LAW_DAILY_CAP_CHECK can turn it off (on by default).
 async function uncappedWorkspaces() {
-  if (!isOn(settings.get("LAW_DAILY_CAP_CHECK"))) return [];
+  if (isOff(settings.get("LAW_DAILY_CAP_CHECK"))) return [];
   const rows = await resourceGraphQuery(
     `Resources
     | where type == 'microsoft.operationalinsights/workspaces' and todouble(properties.workspaceCapping.dailyQuotaGb) < 0

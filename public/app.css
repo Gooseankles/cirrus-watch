@@ -400,6 +400,25 @@ tr.ip-hit td { background: var(--accent-soft); }
 .ip-peers { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .tag.bad { border-color: rgba(208, 59, 59, 0.5); color: var(--critical-text); }
 .ip-h3 { font-size: 0.9rem; margin: 18px 0 8px; }
+/* Certificates: Application gateways */
+.agw { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.agw-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.agw-head .name-cell .primary { font-weight: 600; }
+.agw-head .secondary { color: var(--muted); font-size: 0.76rem; }
+.agw-head .sub-cell { font-size: 0.82rem; }
+.agw-fronts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 6px; font-size: 0.82rem; overflow-wrap: anywhere; }
+.agw-check + .agw-check { margin-top: 6px; }
+.agw-cards { display: none; }
+.agw-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; overflow-wrap: anywhere; font-size: 0.86rem; }
+.agw-card > .name-cell .primary { font-weight: 600; }
+.agw-card .secondary { color: var(--muted); font-size: 0.78rem; }
+.agw-line { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; padding-top: 7px; margin-top: 7px; border-top: 1px solid var(--border); }
+.agw-label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; padding-top: 2px; }
+@media (max-width: 700px) {
+  .agw-table { display: none; }
+  .agw-cards { display: block; }
+  .agw-head .sub-cell .secondary { overflow-wrap: anywhere; }
+}
 .ip-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 12px; }
 .ip-form label { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; color: var(--text-2); }
 .ip-form .select, .ip-form .input { max-width: 100%; }
@@ -501,7 +520,8 @@ table.matrix td.cell { text-align: center; }
 .settings-row label { font-size: 0.86rem; padding-top: 6px; }
 .settings-row label .hint { color: var(--muted); font-size: 0.75rem; margin-top: 2px; font-weight: 400; line-height: 1.35; }
 .settings-row .field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.settings-row .field .input, .settings-row .field .select { flex: 1 1 240px; }
+.settings-row .field .input, .settings-row .field .select { flex: 1 1 240px; min-width: 0; max-width: 100%; }
+.settings-row .field .select { text-overflow: ellipsis; }
 .secret-state { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
 .secret-state.is-set { color: var(--good-text); }
 details.spn-all { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border); }
@@ -544,7 +564,7 @@ details.spn-tool .settings-row { border-bottom-color: var(--border); }
   .page-head { flex-direction: column; gap: 10px; }
   .page-actions { justify-content: flex-start; }
   .last-run { text-align: left; }
-  .settings-row { grid-template-columns: 1fr; gap: 4px; }
+  .settings-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .settings-row label { padding-top: 0; }
   .card { padding: 14px; }
   .table-wrap, .matrix-wrap { margin: 0 -14px; padding: 0 14px; }

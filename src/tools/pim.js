@@ -16,12 +16,12 @@
 //   role-assignable, or also have permanent members who skip PIM;
 // - permanent Azure Owners next to people who must activate the same role.
 // Graph: RoleManagement.Read.Directory, User.Read.All, GroupMember.Read.All,
-// PrivilegedEligibilitySchedule.Read.AzureADGroup and
+// AuditLog.Read.All (Entra activations), PrivilegedEligibilitySchedule.Read.AzureADGroup and
 // PrivilegedAssignmentSchedule.Read.AzureADGroup. Azure: Reader. Entra ID P2.
 const store = require("../findingsStore");
 const log = require("../log");
 const tenants = require("../tenants");
-const { graphGetAll } = require("../graphClient");
+const { graphGet, graphGetAll } = require("../graphClient");
 const { armGet, subscriptionIdsToScan, subscriptionNames } = require("../armClient");
 const { numberSetting, mapLimit, runChecks, scanError, itemErrors, graphHint, daysUntil } = require("./util");
 
@@ -123,18 +123,31 @@ async function roleDefinitions() {
   return byId;
 }
 
-// When each principal last activated each role, from PIM's own request history.
+// When each principal last activated each Entra role, from the directory audit log. PIM's own request list
+// (roleAssignmentScheduleRequests) takes only a ReadWrite permission, which a read-only scanner does not ask
+// for. The audit log goes back as far as the tenant keeps it (30 days with Entra ID P1 or P2).
+const ACTIVATED = "Add member to role completed (PIM activation)";
 async function entraActivations() {
-  const rows = await graphGetAll("/roleManagement/directory/roleAssignmentScheduleRequests?$select=principalId,roleDefinitionId,action,createdDateTime", TOOL_ID);
-  const h = history();
-  for (const r of rows) h.add(r.createdDateTime, r.action === "selfActivate" && `${r.principalId}|entra|${r.roleDefinitionId}`);
+  const rows = await graphGetAll(`/auditLogs/directoryAudits?$filter=loggedByService eq 'PIM' and activityDisplayName eq '${ACTIVATED}'`, TOOL_ID);
+  const h = history("entra");
+  for (const r of rows) h.add(r.activityDateTime, activationKey(r));
   return h;
 }
 
-// Activation history: key -> latest time, plus how far back the history goes.
-function history() {
+// "<principal>|entra|<role>" for one PIM activation audit event: the role is the Role target, the person the
+// one who started it (an activation is always the person's own), else the User target.
+function activationKey(r) {
+  const targets = Array.isArray(r.targetResources) ? r.targetResources : [];
+  const role = targets.find((t) => /role/i.test(String(t.type)));
+  const who = (r.initiatedBy && r.initiatedBy.user && r.initiatedBy.user.id) || (targets.find((t) => /^user$/i.test(String(t.type))) || {}).id;
+  return role && role.id && who ? `${who}|entra|${role.id}` : null;
+}
+
+// Activation history of one plane ("entra", "azure" or "group"): key -> latest time, plus how far back it goes.
+function history(plane) {
   const last = new Map();
   return {
+    plane,
     last,
     oldest: Date.now(),
     add(when, key) {
@@ -175,9 +188,14 @@ async function entraGrants(ctx) {
 
   const findings = [];
   try {
-    ctx.histories.push(await entraActivations());
+    const h = await entraActivations();
+    ctx.histories.push(h);
+    const days = numberSetting("PIM_UNUSED_DAYS", 90, { min: 14, max: 730 });
+    if (h.oldest > Date.now() - days * DAY) {
+      ctx.notes.push(`Entra role activations come from the directory audit log, which here goes back to ${new Date(h.oldest).toISOString().slice(0, 10)} (30 days with Entra ID P1 or P2), so unused Entra role eligibility is not judged over ${days} days. Azure roles and PIM for Groups are judged as before.`);
+    }
   } catch (err) {
-    findings.push(scanError(TOOL_ID, "entra-history", "Unused Entra role eligibility not checked", graphHint(err, "RoleManagement.Read.Directory")));
+    findings.push(scanError(TOOL_ID, "entra-history", "Unused Entra role eligibility not checked", graphHint(err, "AuditLog.Read.All")));
   }
   try {
     findings.push(...(await entraSettings(roles, new Set(out.filter((g) => g.state === "eligible" && g.privileged).map((g) => g.roleKey)))));
@@ -268,7 +286,7 @@ async function azureGrants(ctx) {
       out.push(g);
     }
     const inUse = new Set(mine.filter((g) => g.state === "eligible" && g.privileged).map((g) => guid(g.roleKey)));
-    const h = history();
+    const h = history("azure");
     try {
       for (const r of await armAll(`${base}/roleAssignmentScheduleRequests?api-version=2020-10-01`)) {
         const p = r.properties || {};
@@ -327,22 +345,41 @@ function standingFindings(grants, inUse, s, subName) {
 
 // --- Principals and groups ---
 
+// Objects of one type by id with an "in" filter. Graph sometimes answers the whole filter with
+// Request_ResourceNotFound when one id is a deleted object; then each id is asked for alone and the
+// missing ones are left out (an access held by a deleted object shows as its id, like any unknown one).
+async function byIds(type, ids, select) {
+  const list = ids.map((id) => `'${id}'`).join(",");
+  try {
+    return await graphGetAll(`/${type}?$filter=id in (${list})&$select=${select}`, TOOL_ID);
+  } catch (err) {
+    if (!notFound(err)) throw err;
+  }
+  const found = [];
+  for (const id of ids) {
+    try {
+      found.push(await graphGet(`/${type}/${id}?$select=${select}`, TOOL_ID));
+    } catch (err) {
+      if (!notFound(err)) throw err;
+    }
+  }
+  return found;
+}
+const notFound = (err) => (err && err.status === 404) || /Request_ResourceNotFound/.test(String(err && err.message));
+
 // Users, groups and apps by id, in batches of 15 (the most an "in" filter takes).
 async function lookUp(ids, ctx) {
   const todo = [...new Set(ids)].filter((id) => id && !ctx.people.has(id) && !ctx.groupInfo.has(id) && !ctx.apps.has(id));
   const batches = [];
   for (let i = 0; i < todo.length; i += 15) batches.push(todo.slice(i, i + 15));
   const failures = await mapLimit(batches, 4, async (b) => {
-    const list = b.map((id) => `'${id}'`).join(",");
-    for (const u of await graphGetAll(`/users?$filter=id in (${list})&$select=id,displayName,userPrincipalName,userType,accountEnabled`, TOOL_ID)) ctx.people.set(u.id, u);
+    for (const u of await byIds("users", b, "id,displayName,userPrincipalName,userType,accountEnabled")) ctx.people.set(u.id, u);
     const rest = b.filter((id) => !ctx.people.has(id));
     if (!rest.length) return;
-    const list2 = rest.map((id) => `'${id}'`).join(",");
-    for (const g of await graphGetAll(`/groups?$filter=id in (${list2})&$select=id,displayName,isAssignableToRole,securityEnabled`, TOOL_ID)) ctx.groupInfo.set(g.id, g);
+    for (const g of await byIds("groups", rest, "id,displayName,isAssignableToRole,securityEnabled")) ctx.groupInfo.set(g.id, g);
     const left = rest.filter((id) => !ctx.groupInfo.has(id));
     if (!left.length) return;
-    const list3 = left.map((id) => `'${id}'`).join(",");
-    for (const a of await graphGetAll(`/servicePrincipals?$filter=id in (${list3})&$select=id,displayName`, TOOL_ID)) ctx.apps.set(a.id, a);
+    for (const a of await byIds("servicePrincipals", left, "id,displayName")) ctx.apps.set(a.id, a);
   });
   const errors = itemErrors(TOOL_ID, "principals", "batches of people, groups and apps looked up", failures, batches.length);
   for (const e of errors) e.detail = graphHint({ message: e.detail }, "User.Read.All and GroupMember.Read.All");
@@ -381,7 +418,7 @@ async function readGroup(id, ctx) {
     ]);
     g.eligible = eligible.map((e) => ({ principalId: e.principalId, access: e.accessId, start: e.startDateTime || null, end: e.endDateTime || null }));
     g.activated = active.filter((a) => a.assignmentType === "Activated").map((a) => ({ principalId: a.principalId, access: a.accessId, end: a.endDateTime || null }));
-    const h = history();
+    const h = history("group");
     for (const r of requests) h.add(r.createdDateTime, r.action === "selfActivate" && `${r.principalId}|group|${id}|${r.accessId}`);
     ctx.histories.push(h);
   } catch (err) {
@@ -405,7 +442,12 @@ function lastUse(ctx, keys) {
   }
   return best;
 }
-const historyReaches = (ctx, t) => ctx.histories.length > 0 && Math.min(...ctx.histories.map((h) => h.oldest)) <= t;
+// Whether the plane's history goes back to t: every history of that plane read, and the oldest event at or before t.
+// Per plane, since the Entra audit log may keep only 30 days while Azure's request list goes back further.
+const historyReaches = (ctx, t, plane) => {
+  const list = ctx.histories.filter((h) => h.plane === plane);
+  return list.length > 0 && Math.min(...list.map((h) => h.oldest)) <= t;
+};
 
 function personOf(ctx, id) {
   const u = ctx.people.get(id);
@@ -489,7 +531,7 @@ function peopleFindings(rows, ctx) {
     // Unused: access older than the window and no activation in a history that reaches back that far.
     // Not judged for role eligibility through a group: members' activations are not tied to the group in the history.
     const since = Date.parse(r.start);
-    if (r.via !== "group" && Number.isFinite(since) && since < windowStart && historyReaches(ctx, windowStart)) {
+    if (r.via !== "group" && Number.isFinite(since) && since < windowStart && historyReaches(ctx, windowStart, r.via === "direct" ? r.plane : "group")) {
       const last = r.lastActivated ? Date.parse(r.lastActivated) : null;
       if (!last || last < windowStart) {
         out.push({ ...base, kind: "pim-eligible-unused", id: `${TOOL_ID}/${r.id}#unused`, detail: `Can activate ${what} but has not done so in ${unusedDays} days${last ? ` (last ${r.lastActivated.slice(0, 10)})` : ""}. Remove the access if it is not needed` });
@@ -629,5 +671,5 @@ module.exports = {
   schedule: "10 5 * * *", // daily at 05:10
   run,
   registerRoutes,
-  _test: { policyProblems, buildRows, peopleFindings, groupFindings, groupHistoryRefused, hours },
+  _test: { activationKey, byIds, policyProblems, buildRows, peopleFindings, groupFindings, groupHistoryRefused, hours },
 };

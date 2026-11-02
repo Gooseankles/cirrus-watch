@@ -8,7 +8,7 @@
 // Plain AUs with no scoped admins, dynamic rules and AU sizes are not findings:
 // they carry no risk on their own and would be noise. Scoped admins that are
 // groups or apps are left to Privileged roles.
-// Opt-in (extraChecks.js): Graph AdministrativeUnit.Read.All for the AU list
+// Extra Graph check, on by default (extraChecks.js): Graph AdministrativeUnit.Read.All for the AU list
 // and members. scopedRoleMembers and directoryRoles use RoleManagement.Read.
 // Directory, user details User.Read.All (both in the default set). Listing AUs
 // works on Entra ID Free; each AU-scoped admin needs Entra ID P1.

@@ -1,6 +1,6 @@
-// The opt-in Graph checks (risky users, Secure Score, admin units, directory
+// The extra Graph checks (risky users, Secure Score, admin units, directory
 // sync) and guest owners. Graph is stubbed; no Azure. Covers each tool's pure
-// logic and the paths around it: off by default (no Graph call), a 403 (one
+// logic and the paths around it: on by default, none = off (no Graph call), a 403 (one
 // scan-error finding naming the permission), no Entra ID P2 (an info log line,
 // no findings), and a customer tenant never inheriting the home tenant's list.
 const { test, after, beforeEach } = require("node:test");
@@ -42,9 +42,12 @@ function graphError(status, body = "{}") {
 const NOW = Date.parse("2026-10-31T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600000).toISOString();
 
-// ---- opt-in switch ----
+// ---- on by default, none turns them off ----
 
-test("every opt-in check is off by default and calls nothing", async () => {
+test("every extra check is on by default; none turns them off and calls nothing", async () => {
+  assert.deepEqual(extra.enabledChecks().sort(), Object.keys(extra.EXTRA_CHECKS).sort());
+  process.env.EXTRA_GRAPH_CHECKS = "none";
+  assert.deepEqual(extra.enabledChecks(), []);
   for (const tool of [riskyUsers, secureScore, adminUnits, directorySync]) {
     assert.deepEqual(await tool.run(), [], tool.id);
   }
@@ -59,12 +62,11 @@ test("EXTRA_GRAPH_CHECKS takes a list or all, ignores unknown ids", () => {
 });
 
 test("a customer tenant never inherits the home tenant's list", async () => {
-  process.env.EXTRA_GRAPH_CHECKS = "all";
+  process.env.EXTRA_GRAPH_CHECKS = "none";
   await runIn({ key: "contoso" }, async () => {
     assert.equal(settings.get("EXTRA_GRAPH_CHECKS"), "");
-    assert.deepEqual(await directorySync.run(), []);
+    assert.equal(extra.enabledChecks().length, Object.keys(extra.EXTRA_CHECKS).length, "its own blank = all");
   });
-  assert.equal(calls.length, 0);
   await settings.setMany({ values: { EXTRA_GRAPH_CHECKS: "directory-sync" } }, "contoso");
   await runIn({ key: "contoso" }, async () => {
     assert.deepEqual(extra.enabledChecks(), ["directory-sync"]);
@@ -317,7 +319,7 @@ test("guest owners: a guest owner is a warning, critical on a role-assignable gr
   assert.doesNotMatch(out[0].detail, /no member owner/);
 });
 
-test("guest owners: runs without the opt-in, re-reads groups with 20 owners in the expand", async () => {
+test("guest owners: runs without the extra checks, re-reads groups with 20 owners in the expand", async () => {
   const twenty = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}`, userType: "Member" }));
   answer = (m, url) => {
     if (url.startsWith("/groups?")) return [{ id: "big", displayName: "Big", owners: twenty }, { id: "small", owners: [] }];

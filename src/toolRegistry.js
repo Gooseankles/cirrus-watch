@@ -5,7 +5,7 @@ const tenants = require("./tenants");
 const tenantContext = require("./tenantContext");
 const access = require("./access");
 const suppressions = require("./suppressions");
-const { subscriptionNames } = require("./armClient");
+const { subscriptionNames, excludedSubscriptionIds } = require("./armClient");
 const monitor = require("./monitor");
 const notify = require("./notify");
 const settings = require("./settings");
@@ -156,8 +156,11 @@ function registerScanTool(app, tool) {
             ms,
             `scan timed out: no result after ${Math.round(ms / 60000) || "<1"} minute(s); the next run starts fresh`
           );
-          await addSubscriptionNames(tool.id, list);
-          return list;
+          // Safety net for tenant-wide reads: nothing from a subscription left out (EXCLUDED_SUBSCRIPTIONS).
+          const out = excludedSubscriptionIds();
+          const kept = out.size ? list.filter((f) => !f.subscriptionId || !out.has(String(f.subscriptionId).toLowerCase())) : list;
+          await addSubscriptionNames(tool.id, kept);
+          return kept;
         });
         for (const f of found) {
           delete f.tenantName;

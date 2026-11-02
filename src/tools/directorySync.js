@@ -6,7 +6,7 @@
 // DIRECTORY_SYNC_MAX_HOURS (default 3: six missed cycles, which rides out a
 // server restart or an upgrade but not a stopped service); critical after a day.
 // Cloud-only tenants (onPremisesSyncEnabled null or false) report nothing.
-// Opt-in (extraChecks.js): Graph Organization.Read.All for GET /organization
+// Extra Graph check, on by default (extraChecks.js): Graph Organization.Read.All for GET /organization
 // (with less, Graph answers but returns everything except id, displayName and
 // verifiedDomains as null, so a null createdDateTime counts as refused). Runs
 // hourly: one small request. /directory/onPremisesSynchronization is not used: it has no

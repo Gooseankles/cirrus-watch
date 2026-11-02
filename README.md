@@ -19,7 +19,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Cost anomalies](docs/tools.md#cost-anomalies) | Daily | Resource groups whose cost yesterday jumped against the day before. |
 | [Access review](docs/tools.md#access-review) | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups. |
 | [Expiring app credentials](docs/tools.md#expiring-app-credentials) | Daily | App secrets and certificates that expire soon, and app registrations with risky credentials or no owner. |
-| [Key Vault](docs/tools.md#key-vault) | Daily | Vault settings, expiring vault items (optional) and who can read secrets. |
+| [Key Vault](docs/tools.md#key-vault) | Daily | Vault settings, expiring vault items and who can read secrets. |
 | [Access packages](docs/tools.md#access-packages) | Daily | Entra access packages that expire, wait for approval, go unused or cannot be approved. |
 | [Role assignments](docs/tools.md#role-assignments) | Daily | Assignments to deleted identities and subscriptions near the role assignment limit. |
 | [Policy check](docs/tools.md#policy-check) | Daily | Whether Azure Policy actually blocks risky resources, and assignments that cannot work. |

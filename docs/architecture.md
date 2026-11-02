@@ -244,7 +244,7 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | `POST /api/tools/<id>/run` | Anyone who may see the scan in that tenant | Start a scan (202, runs in the background) |
 | `GET /api/report?month=` | signed in | Monthly report |
 | `GET /api/cost/history[/<sub>]` | signed in | Cost history |
-| `GET /api/certificates` | Anyone who may see the Certificates scan | Every certificate the last scan saw (In use), for the tenants the person sees |
+| `GET /api/certificates` | Anyone who may see the Certificates scan | Every certificate the last scan saw (In use) and every application gateway with its addresses, listeners and live checks (Application gateways), for the tenants the person sees |
 | `GET /api/azure-updates` | Anyone who may see the Azure news scan | The kept Azure news, with In use marks from the tenants the person sees |
 | `GET /api/m365-roadmap` | Anyone who may see the Microsoft 365 roadmap scan | The kept Microsoft 365 roadmap (the same list for every tenant) |
 | `GET/POST /api/settings`, `/api/tenants` | Admin | Settings and customer tenants (secrets go to the vault) |
@@ -276,7 +276,7 @@ scheduler is in-process (every instance would run every scan), so run **one inst
 | Area | Control |
 |---|---|
 | Secrets | None for the home tenant (managed identities, federated credential); customer secrets only in the key vault; storage account keys off |
-| Least privilege | Read-only ARM roles and Graph permissions; Graph permissions beyond the default set only for the extra Graph checks a tenant turns on (`EXTRA_GRAPH_CHECKS`, never inherited by a customer tenant); optional per-tool identities; the vault role is on that one vault |
+| Least privilege | Read-only ARM roles and Graph permissions; Graph permissions beyond the default set only for the extra Graph checks (`EXTRA_GRAPH_CHECKS`, on by default, a tenant can turn them off; never inherited by a customer tenant); optional per-tool identities; the vault role is on that one vault |
 | Sign-in | Entra with PKCE and state check; assignment required and an app role required; local admin limited per address and across all addresses; sign-in errors show a reference, the detail stays in the server log |
 | Sessions | Server-side, httpOnly, Secure on HTTPS, SameSite=Lax, 8 hours, regenerated at sign-in |
 | Browser | Strict Content-Security-Policy (own scripts only), no framing, nosniff, HSTS |

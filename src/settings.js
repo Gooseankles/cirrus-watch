@@ -62,10 +62,12 @@ const FIELDS = [
   // Scans a tenant does not need. Unlike the other tenant fields, a customer's
   // list does not fall back to the home tenant's: blank = every scan runs.
   { key: "SCANS_OFF", label: "Scans that are on", group: "Scans", scanPicker: true, noInherit: true, hint: "Untick the scans this tenant does not need: they do not run here and their results are hidden" },
-  // Opt-in checks that need extra Graph permissions (src/tools/extraChecks.js).
+  // Subscriptions no scan looks at (src/armClient.js); a customer's list never falls back to the home tenant's.
+  { key: "EXCLUDED_SUBSCRIPTIONS", label: "Subscriptions to leave out", group: "Scans", noInherit: true, pattern: /^[0-9a-fA-F-]{36}(\s*,\s*[0-9a-fA-F-]{36})*$/, patternError: "must be subscription IDs (GUIDs), comma-separated", hint: "Comma-separated subscription IDs. No scan reads them and their findings drop out at the next scan. Blank = none" },
+  // Checks that need extra Graph permissions, on by default (src/tools/extraChecks.js).
   // Like SCANS_OFF, a customer's list never falls back to the home tenant's, so
   // a customer is only scanned with what was granted in its own tenant.
-  { key: "EXTRA_GRAPH_CHECKS", label: "Extra Graph checks (need more permissions)", group: "Extra Graph checks", noInherit: true, hint: "Comma-separated: risky-users (IdentityRiskyUser.Read.All, Entra ID P2), secure-score (SecurityEvents.Read.All), admin-units (AdministrativeUnit.Read.All), directory-sync (Organization.Read.All), or all. Grant the permission in this tenant first (Terraform: extra_graph_checks). Blank = none; a customer tenant does not use the home tenant's list" },
+  { key: "EXTRA_GRAPH_CHECKS", label: "Extra Graph checks (need more permissions)", group: "Extra Graph checks", noInherit: true, hint: "Comma-separated: risky-users (IdentityRiskyUser.Read.All, Entra ID P2), secure-score (SecurityEvents.Read.All), admin-units (AdministrativeUnit.Read.All), directory-sync (Organization.Read.All), all or none. Blank = all: each check reports a scan error until its permission is granted in this tenant (Terraform: extra_graph_checks). A customer tenant does not use the home tenant's value" },
   { key: "RISKY_USERS_MAX", label: "Most risky users to list", group: "Extra Graph checks", hint: "Compromised and high risk first, then the oldest; blank = 50" },
   { key: "SECURE_SCORE_DROP_POINTS", label: "Flag a Secure Score drop of (points) in a week", group: "Extra Graph checks", hint: "Percentage points against the score about 7 days earlier; blank = 5, 0 = off" },
   { key: "DIRECTORY_SYNC_MAX_HOURS", label: "Flag directory sync older than (hours)", group: "Extra Graph checks", hint: "Entra Connect syncs every 30 minutes; blank = 3 (critical after 24)" },
@@ -79,7 +81,7 @@ const FIELDS = [
   { key: "OLD_SNAPSHOT_DAYS", label: "Old snapshot age (days)", group: "Orphaned resources", hint: "Snapshots older than this are listed with what they cost; blank = 180, 0 = off" },
   { key: "ADVISOR_COST_TIPS", label: "Azure Advisor cost tips", group: "Orphaned resources", hint: "on or off; blank = on. Advisor's own savings estimates for resizing or shutting down resources" },
   { key: "STORAGE_LIFECYCLE_CHECK", label: "Storage lifecycle policy check", group: "Orphaned resources", hint: "on or off; blank = on. Standard v2 and blob storage accounts with no lifecycle rule (one read per account, at most 300)" },
-  { key: "LAW_DAILY_CAP_CHECK", label: "Log Analytics daily cap check", group: "Orphaned resources", hint: "on or off; blank = off. Lists workspaces with no daily cap (a cap drops logs once reached, so many want none)" },
+  { key: "LAW_DAILY_CAP_CHECK", label: "Log Analytics daily cap check", group: "Orphaned resources", options: [{ value: "on", label: "Yes" }, { value: "off", label: "No" }], defaultValue: "on", hint: "Lists workspaces with no daily cap (a cap drops logs once reached, so many want none)" },
   { key: "AZURE_REQUIRED_TAGS", label: "Required tags", group: "Tag compliance", hint: "Comma-separated tag names" },
   { key: "AZURE_SENSITIVE_TAGS", label: "Sensitive-data tags", group: "Exposure paths", hint: "Comma-separated tag names; a resource whose tag says confidential, restricted, sensitive, secret, high or PII counts as sensitive (default DataClassification,Sensitivity,Confidentiality,Sensitive)" },
   { key: "AZURE_COST_ANOMALY_THRESHOLD_PCT", label: "Cost jump threshold (%)", group: "Cost anomalies" },
@@ -87,7 +89,7 @@ const FIELDS = [
   { key: "AZURE_ACCESS_REVIEW_STALE_DAYS", label: "Stale direct-assignment age (days)", group: "Access review" },
   { key: "SECRET_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Expiring app credentials", hint: "Also used by Enterprise apps (SAML signing certificates, service principal credentials); blank = 30" },
   { key: "APP_SECRET_MAX_DAYS", label: "Longest allowed client secret (days)", group: "Expiring app credentials", hint: "Blank = 365" },
-  { key: "KEYVAULT_ITEM_CHECK", label: "Check secret, key and certificate expiry", group: "Key Vault", hint: "on or off; blank = off. Needs Key Vault Reader (names and expiry dates, never values)" },
+  { key: "KEYVAULT_ITEM_CHECK", label: "Check secret, key and certificate expiry", group: "Key Vault", options: [{ value: "on", label: "Yes" }, { value: "off", label: "No" }], defaultValue: "on", hint: "Needs Key Vault Reader (names and expiry dates, never values); without it each vault shows an error" },
   { key: "KEYVAULT_EXPIRY_WARN_DAYS", label: "Warn before expiry (days)", group: "Key Vault", hint: "Blank = 30" },
   { key: "KEYVAULT_MAX_READERS", label: "Most identities that may read secrets", group: "Key Vault", hint: "Per vault; blank = 10" },
   { key: "KEYVAULT_UNUSED_DAYS", label: "Unused after (days)", group: "Key Vault", hint: "No reads or writes for this long; blank = 30, at most 90" },
@@ -100,7 +102,8 @@ const FIELDS = [
   { key: "RETIREMENT_WARN_DAYS", label: "Warn before retirement (days)", group: "Service retirements", hint: "Later retirements are listed as planned; blank = 180" },
   { key: "CERT_CHECK_URLS", label: "Websites to check", group: "Certificates", hint: "Comma-separated or one per line, e.g. https://shop.example.com, example.org:8443. Checked as well as the web apps found in Azure; blank = none" },
   { key: "CERT_AZURE_SITES", label: "Check web apps found in Azure", group: "Certificates", options: [{ value: "on", label: "Yes: custom domains of App Service apps and slots" }, { value: "off", label: "No: only the websites listed above" }], defaultValue: "on", hint: "*.azurewebsites.net and other Microsoft names are skipped; Microsoft keeps those valid" },
-  { key: "CERT_AZURE_GATEWAYS", label: "Check application gateways", group: "Certificates", options: [{ value: "on", label: "Yes: listener and trusted root certificates" }, { value: "off", label: "No" }], defaultValue: "on", hint: "Expiry is read from the gateway's settings (private gateways too); public HTTPS listeners with a host name are also opened over TLS" },
+  { key: "CERT_AZURE_GATEWAYS", label: "Check application gateways", group: "Certificates", options: [{ value: "on", label: "Yes: listener and trusted root certificates" }, { value: "off", label: "No" }], defaultValue: "on", hint: "Expiry is read from the gateway's settings (private gateways too); HTTPS listeners are also opened over TLS" },
+  { key: "CERT_PROBE_PRIVATE", label: "Open private gateway addresses", group: "Certificates", options: [{ value: "on", label: "Yes: also open listeners on private frontend IPs" }, { value: "off", label: "No: only public frontend IPs" }], defaultValue: "on", hint: "A private IP answers only where the dashboard's network reaches it (VNet integration, peering); otherwise the row says it was not reachable. Expiry from the settings is checked either way" },
   { key: "CERT_WARN_DAYS", label: "Warn before a certificate expires (days)", group: "Certificates", hint: "Blank = 30" },
   { key: "BACKUP_MAX_AGE_HOURS", label: "Newest backup at most (hours) old", group: "Backup coverage", hint: "Blank = 48" },
   { key: "DIAGNOSTICS_RESOURCE_TYPES", label: "Resource types that must keep logs", group: "Diagnostic settings", hint: "Comma-separated, e.g. microsoft.network/azurefirewalls. Blank = AKS, app gateways, firewalls, Front Door/CDN, API Management, backup vaults, Event Hubs, Service Bus, SQL databases, storage" },
@@ -114,14 +117,14 @@ const FIELDS = [
   { key: "STALE_GUEST_DAYS", label: "Guest accounts are stale after (days)", group: "Stale accounts", hint: "Also how long a guest invitation may stay unaccepted; blank = 90" },
   { key: "PIM_MAX_ACTIVATION_HOURS", label: "Longest allowed activation (hours)", group: "PIM", hint: "For privileged roles; blank = 8" },
   { key: "PIM_EXPIRY_WARN_DAYS", label: "Warn when eligibility ends within (days)", group: "PIM", hint: "Blank = 14" },
-  { key: "PIM_UNUSED_DAYS", label: "Eligibility is unused after (days)", group: "PIM", hint: "No activation for this long; blank = 90" },
+  { key: "PIM_UNUSED_DAYS", label: "Eligibility is unused after (days)", group: "PIM", hint: "No activation for this long; blank = 90. Entra role activations come from the audit log (30 days), so Entra roles are judged only when this fits" },
   { key: "BREAK_GLASS_ACCOUNTS", label: "Emergency access accounts", group: "Privileged roles", hint: "Comma-separated UPNs of the break-glass accounts; each is checked. Blank = look for at least two (cloud-only, permanent Global Administrator, outside Conditional Access for all users)" },
   { key: "MFA_NEW_USER_DAYS", label: "Leave new accounts alone for (days)", group: "MFA coverage", hint: "Time to set up MFA before an account is flagged; blank = 14" },
   { key: "CA_MAX_EXCLUSIONS", label: "Flag a policy excluding more than", group: "Conditional Access", hint: "Excluded users, groups and roles together; blank = 5" },
   { key: "DEFENDER_MIN_SCORE", label: "Flag a secure score below (%)", group: "Defender for Cloud", hint: "Per subscription; blank = 70, 0 = off" },
   { key: "DEFENDER_MIN_SEVERITY", label: "Recommendations from severity", group: "Defender for Cloud", hint: "high, medium or low; blank = medium" },
   { key: "LOCK_RESOURCE_TYPES", label: "Resource types that need a delete lock", group: "Safety nets", hint: "Comma-separated, e.g. microsoft.sql/servers. Blank = key vaults, Recovery Services and backup vaults, VNets, DNS and private DNS zones, Log Analytics workspaces, SQL servers, AKS clusters and Azure Firewalls; none = off" },
-  { key: "AZURE_MONITOR_IN_USE", label: "Uses Azure Monitor", group: "Azure Monitor", options: [{ value: "off", label: "No: skip the check, no findings" }, { value: "on", label: "Yes: check agents, alerts and workspaces" }], defaultValue: "off", hint: "Off = the Azure Monitor scan makes no requests and reports nothing for this tenant" },
+  { key: "AZURE_MONITOR_IN_USE", label: "Uses Azure Monitor", group: "Azure Monitor", options: [{ value: "auto", label: "Auto: check when the tenant has the Azure Monitor Agent or a data collection rule" }, { value: "on", label: "Yes: check agents, alerts and workspaces" }, { value: "off", label: "No: skip the check, no findings" }], defaultValue: "auto", hint: "Auto = one Resource Graph query per scan decides; a tenant with neither is skipped. Off = the Azure Monitor scan makes no requests and reports nothing for this tenant" },
   { key: "AZURE_MONITOR_HEARTBEAT_HOURS", label: "Flag a running machine with no heartbeat for (hours)", group: "Azure Monitor", hint: "Blank = 2" },
   { key: "AZURE_MONITOR_ALERT_WORKSPACES", label: "Workspaces your alerts read", group: "Azure Monitor", hint: "Comma-separated Log Analytics workspace names or resource IDs. A machine whose data goes to none of them is flagged. Blank = the workspaces your enabled log alert rules are scoped to" },
   { key: "DEFENDER_REQUIRED_PLANS", label: "Plans that must be on", group: "Defender for Cloud", hint: "Comma-separated plan names, e.g. VirtualMachines, StorageAccounts, KeyVaults, SqlServers, Arm, Containers. all = every plan; blank = no plan check" },
@@ -367,6 +370,11 @@ function setTenant(tenantKey, values) {
   for (const key of PER_TENANT_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
     const v = typeof values[key] === "string" ? values[key].trim() : values[key];
+    const field = FIELDS.find((f) => f.key === key);
+    if (field.options && v && !field.options.some((o) => o.value === v)) continue;
+    if (field.pattern && v && !field.pattern.test(String(v))) {
+      throw Object.assign(new Error(`${field.label} ${field.patternError}`), { status: 400 });
+    }
     if (v === "" || v === null || v === undefined) delete own[key];
     else own[key] = v;
   }

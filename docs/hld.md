@@ -145,8 +145,8 @@ sign in and count as `<Area>.Read`.
 
 ## Quality attributes
 
-- **Security:** read-only scan roles, managed identities, extra Graph permissions only for the opt-in checks a tenant
-  turns on ([permissions](permissions.md#shared-spn-home-tenant)), PKCE sign-in, roles from Entra, origin check on changing
+- **Security:** read-only scan roles, managed identities, extra Graph permissions only for the extra checks (on by
+  default, each can be turned off) ([permissions](permissions.md#shared-spn-home-tenant)), PKCE sign-in, roles from Entra, origin check on changing
   requests, strict content security policy, secrets never returned by the API, audit log, images signed with
   cosign and checked before `stable` moves, continuous deployment without a publishing password. See
   [SECURITY.md](../SECURITY.md) and [architecture section 11](architecture.md#11-security-controls-in-short).

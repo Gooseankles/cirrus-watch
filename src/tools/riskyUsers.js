@@ -3,7 +3,7 @@
 // Remediated, dismissed and confirmed-safe users are left out, as are low risk
 // and deleted users. Oldest first (the longest left alone), compromised and
 // high before medium, at most RISKY_USERS_MAX findings.
-// Opt-in (extraChecks.js): Graph IdentityRiskyUser.Read.All. Risk detections
+// Extra Graph check, on by default (extraChecks.js): Graph IdentityRiskyUser.Read.All. Risk detections
 // are not read, so IdentityRiskEvent.Read.All is not needed. Reading risky
 // users needs Microsoft Entra ID P2; without it the run notes that and reports
 // nothing. GET /identityProtection/riskyUsers takes $filter and $top (500 at

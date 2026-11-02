@@ -11,6 +11,23 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
+  only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
+  reachable from the dashboard" and nothing is reported. The first scan may bring new findings from listeners that
+  were not opened before (basic listeners, wildcard host names, private frontends). No new permission. Set
+  Open private gateway addresses to No (`CERT_PROBE_PRIVATE=off`) to open only public IPs.
+- **0.70.0.0: checks that were off by default are now on.** The extra Graph checks (risky users, Secure Score,
+  administrative units, directory sync), the Log Analytics daily cap check and the Key Vault item check run unless
+  turned off, in every tenant. Each extra Graph check reports one scan error until its permission is granted (the
+  module's `extra_graph_checks` now grants all four by default), and the Key Vault item check shows an error per
+  vault without Key Vault Reader. To keep them off: Settings → Extra Graph checks `none` (or a list of the ones you
+  want), and No for Log Analytics daily cap check and Key Vault item check (`EXTRA_GRAPH_CHECKS=none`,
+  `LAW_DAILY_CAP_CHECK=off`, `KEYVAULT_ITEM_CHECK=off`).
+- **0.70.0.0: Uses Azure Monitor has a new default, Auto.** A tenant that kept the old default (No) is now checked
+  when it has the Azure Monitor Agent or a data collection rule, and the first scan may bring findings there. A
+  customer tenant set to No stays off. In the home tenant, No was the default, so choosing it was not saved: choose
+  No again after upgrading if the home tenant should stay off (or set `AZURE_MONITOR_IN_USE=off`).
+
 - **0.69.0.0: Azure news and Microsoft 365 roadmap fetch from `www.microsoft.com` once a day.** A firewall or NAT
   that limits the app's outbound traffic (`vnet_route_all`) must allow HTTPS to that host, or set
   `RELEASE_FEEDS = off`; the pages then stay empty. No new permission.
@@ -46,6 +63,56 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.70.0.0] - 2026-11-02
+
+### Added
+
+- Certificates: an Application gateways tab. Every running application gateway with its addresses: public
+  frontends (IP and DNS name) and private frontends, then every listener with protocol, address and port, host
+  names (wildcards and basic listeners shown as such), the certificate from the settings with its state and expiry,
+  and what each address answered live. On a phone each listener is a card instead of a table row. An address that does not answer says "Not reachable from the dashboard".
+- Certificates: a new finding, Gateway serves another cert (`agw-cert-served-differs`), when a listener answers
+  with another certificate than the one its settings name. For a Key Vault secret without a version it waits for
+  a renewal: not reported while the gateway already serves a newer certificate than the settings show, or while
+  the certificate in the settings is less than 24 hours old.
+
+- Settings, Scans: Subscriptions to leave out (`EXCLUDED_SUBSCRIPTIONS`, per tenant). No scan reads the subscriptions
+  listed (they are taken out of the per-subscription list and the Resource Graph scope) and their findings drop out
+  at the next scan.
+- Settings, Certificates: Open private gateway addresses (`CERT_PROBE_PRIVATE`, Yes by default). No opens only the
+  public frontend IPs; expiry from the gateway settings is checked either way.
+
+### Changed
+
+- The extra Graph checks, the Log Analytics daily cap check and the Key Vault item check are on by default and can
+  be turned off. Extra Graph checks takes `none` to turn them all off; blank means all, also in a customer tenant.
+- Certificates: more gateway listeners are opened live. Basic listeners (no host name) are opened on the frontend
+  IP with no SNI, with no name check; wildcard host names with a made-up name the wildcard matches; private
+  frontend IPs are tried too. No answer is still never a finding, and expiry is still reported once, from the
+  settings.
+- Certificates: a Key Vault certificate whose expiry the gateway settings do not give is marked so, takes its
+  expiry from the live answer (one finding per certificate, source "Key Vault, read live"), or says it is not
+  readable when no listener answered. A live-read expiry finding now has the certificate's id, not the listener's,
+  so such a finding that was accepted or snoozed before shows again once.
+- Azure Monitor: Uses Azure Monitor (Settings, per tenant) has a new default, Auto. It checks a tenant that has the
+  Azure Monitor Agent or a data collection rule (one Resource Graph query per scan) and skips the others; the page
+  says which tenants Auto skipped. Before, the scan found nothing until the setting was changed to Yes.
+- PIM: when each person last activated an Entra role now comes from PIM activation events in the directory audit
+  log (`AuditLog.Read.All`, already granted), as far back as the tenant keeps it (30 days with Entra ID P1 or P2).
+  PIM's own request list, read before, takes only a ReadWrite permission, so the unused-eligibility check was
+  refused. With a 30-day audit log, unused Entra role eligibility is judged only when Eligibility is unused after
+  (`PIM_UNUSED_DAYS`) fits in it; the PIM page says so. Azure roles and PIM for Groups are judged as before.
+
+### Fixed
+
+- Settings: on a phone a long choice (Check web apps found in Azure) no longer runs past the edge of the card.
+- PIM: unused eligibility is judged only on the activation history of its own kind (Entra roles, Azure roles, PIM
+  for Groups) when that history reaches back over the whole window. Before, a long Azure history could stand in
+  for a short Entra one.
+- PIM: a deleted user, group or app among the ids being looked up made Graph refuse the whole batch
+  (`Request_ResourceNotFound`), which showed as a scan error. Such a batch is now looked up one id at a time and
+  the deleted ones are left out.
 
 ## [0.69.0.0] - 2026-11-01
 

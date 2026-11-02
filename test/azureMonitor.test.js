@@ -253,3 +253,19 @@ test("only machines that send data are judged, and the summary counts alert cove
   assert.equal(addSummaries([a, a]).alertCoverage.covered, 6);
   assert.equal(addSummaries([a, summaryOf({ machines: [m()], rules: [], hours: 2, now: NOW })]).alertCoverage, null);
 });
+
+test("Uses Azure Monitor: auto by default and for unknown values; on and off as set", () => {
+  const { mode } = require("../src/tools/azureMonitor")._test;
+  const before = process.env.AZURE_MONITOR_IN_USE;
+  try {
+    delete process.env.AZURE_MONITOR_IN_USE;
+    assert.equal(mode(), "auto");
+    for (const [v, want] of [["on", "on"], ["OFF", "off"], ["auto", "auto"], ["maybe", "auto"]]) {
+      process.env.AZURE_MONITOR_IN_USE = v;
+      assert.equal(mode(), want, v);
+    }
+  } finally {
+    if (before === undefined) delete process.env.AZURE_MONITOR_IN_USE;
+    else process.env.AZURE_MONITOR_IN_USE = before;
+  }
+});

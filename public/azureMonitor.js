@@ -76,9 +76,11 @@
     $("#scan-q").placeholder = v === "findings" ? "Search name, detail, subscription" : "Search name, resource group, subscription";
     const inv = inventory(t);
     const off = inv && inv.data ? inv.data.off : [];
-    const note = off.length
-      ? `<div class="note">Not checked in ${esc(off.map((o) => o.name).join(", "))}: set to not using Azure Monitor (Settings, Azure Monitor).</div>`
-      : "";
+    const names = (reason) => off.filter((o) => (o.reason || "off") === reason).map((o) => o.name).join(", ");
+    const note = [
+      names("off") && `Not checked in ${esc(names("off"))}: set to not using Azure Monitor (Settings, Azure Monitor).`,
+      names("auto") && `Not checked in ${esc(names("auto"))}: no Azure Monitor Agent or data collection rule found at the last scan. Set Uses Azure Monitor to Yes in Settings to check anyway.`,
+    ].filter(Boolean).map((t) => `<div class="note">${t}</div>`).join("");
     return `<div class="seg">${VIEW_LABELS.map(([k, label]) => `<button type="button" data-view="${k}" class="${v === k ? "active" : ""}">${label}${k === "findings" ? ` <span class="n">${fmt.int(all.length)}</span>` : ""}</button>`).join("")}</div>${note}`;
   }
 

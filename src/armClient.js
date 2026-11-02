@@ -172,9 +172,21 @@ function configuredSubscriptionIds() {
     .filter(Boolean);
 }
 
+// Subscriptions no scan looks at in the tenant being scanned (EXCLUDED_SUBSCRIPTIONS), lower case.
+function excludedSubscriptionIds() {
+  return new Set(String(settings.get("EXCLUDED_SUBSCRIPTIONS") || "").split(/[\s,;]+/).map((s) => s.toLowerCase()).filter(Boolean));
+}
+
 // Every enabled subscription the tool's identity can see (AZURE_SUBSCRIPTION_IDS
-// wins when set), for tools that call per-subscription APIs.
+// wins when set), less the excluded ones, for tools that call per-subscription APIs.
 async function subscriptionIdsToScan(toolId) {
+  const out = excludedSubscriptionIds();
+  return (await visibleOrConfigured(toolId, true)).filter((id) => !out.has(String(id).toLowerCase()));
+}
+
+// enabledOnly: per-subscription API callers skip disabled and warned subscriptions; a Resource Graph scope
+// keeps them (the Subscriptions scan reports their state).
+async function visibleOrConfigured(toolId, enabledOnly) {
   const configured = configuredSubscriptionIds();
   if (configured.length) return configured;
   const ids = [];
@@ -182,7 +194,7 @@ async function subscriptionIdsToScan(toolId) {
   while (url) {
     const page = await armGet(url, toolId);
     for (const s of page.value || []) {
-      if (s.state === "Enabled") ids.push(s.subscriptionId);
+      if (!enabledOnly || s.state === "Enabled") ids.push(s.subscriptionId);
     }
     url = page.nextLink;
   }
@@ -191,9 +203,26 @@ async function subscriptionIdsToScan(toolId) {
 
 // Runs a Kusto-style query against Azure Resource Graph, scoped to
 // AZURE_SUBSCRIPTION_IDS if set, otherwise every subscription the calling
-// identity can see. Follows $skipToken, since one page holds at most 1000 rows.
+// identity can see, less EXCLUDED_SUBSCRIPTIONS (then the remaining ones are
+// named; none left = no rows). An explicit subscriptions list, [] for tenant-wide
+// reads, is used as given. Follows $skipToken, since one page holds at most 1000 rows.
+const SCOPE_TTL_MS = 5 * 60 * 1000;
+const scopeCache = new Map(); // tenant|toolId|excluded -> { at, subs }
+async function defaultScope(toolId) {
+  const out = excludedSubscriptionIds();
+  if (!out.size) return configuredSubscriptionIds();
+  const tenant = tenantContext.current();
+  const key = `${tenantContext.isHome(tenant) ? tenantContext.HOME : tenant.key}|${toolId || ""}|${[...out].sort().join(",")}`;
+  const hit = scopeCache.get(key);
+  if (hit && Date.now() - hit.at < SCOPE_TTL_MS) return hit.subs;
+  const subs = (await visibleOrConfigured(toolId, false)).filter((id) => !out.has(String(id).toLowerCase()));
+  scopeCache.set(key, { at: Date.now(), subs });
+  return subs;
+}
+
 async function resourceGraphQuery(query, { subscriptions, toolId } = {}) {
-  const subs = subscriptions || configuredSubscriptionIds();
+  const subs = subscriptions || (await defaultScope(toolId));
+  if (!subscriptions && !subs.length && excludedSubscriptionIds().size) return [];
   const url = `https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=${RESOURCE_GRAPH_API_VERSION}`;
   const rows = [];
   let skipToken;
@@ -236,6 +265,7 @@ function forgetTenant(tenantKey) {
   for (const k of [...subNameCache.keys()]) {
     if (k.startsWith(`${tenantKey}|`)) n += Number(subNameCache.delete(k));
   }
+  for (const k of [...scopeCache.keys()]) if (k.startsWith(`${tenantKey}|`)) scopeCache.delete(k);
   return n;
 }
 
@@ -273,4 +303,5 @@ module.exports = {
   resourceGraphQuery,
   configuredSubscriptionIds,
   subscriptionIdsToScan,
+  excludedSubscriptionIds,
 };

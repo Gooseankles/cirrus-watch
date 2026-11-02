@@ -94,7 +94,9 @@ const Settings = (() => {
       const opts = f.options.map((o) => (o && typeof o === "object" ? { value: String(o.value), label: String(o.label || o.value) } : { value: String(o), label: String(o) }));
       // A customer tenant's field may follow Home (blank).
       const tenantField = f.homeValue !== undefined;
-      const current = tenantField ? f.value || "" : f.value || f.envDefault || f.defaultValue || "";
+      // An on/off value saved in another spelling (yes, no, true, 0...) shows as the option it means.
+      const spelled = (v) => (opts.some((o) => o.value === v) ? v : /^(no|false|0)$/i.test(v) && opts.some((o) => o.value === "off") ? "off" : /^(yes|true|1)$/i.test(v) && opts.some((o) => o.value === "on") ? "on" : v);
+      const current = spelled(tenantField ? f.value || "" : f.value || f.envDefault || f.defaultValue || "");
       const homeOpt = opts.find((o) => o.value === (f.homeValue || f.defaultValue || ""));
       control = `<select class="select" data-setting="${esc(f.key)}"${/AZURE_AUTH_TYPE$/.test(f.key) ? ' data-auth-type="1"' : ""} data-fallback="${esc(tenantField ? "" : f.envDefault || f.defaultValue || "")}">${
         tenantField ? `<option value=""${current ? "" : " selected"}>Same as Home${homeOpt ? ` (${esc(homeOpt.label)})` : ""}</option>` : ""
@@ -106,7 +108,7 @@ const Settings = (() => {
       }`;
     } else {
       // A noInherit field on a customer tab does not follow Home: blank is blank.
-      const ph = f.homeValue !== undefined ? (f.noInherit ? "none" : f.homeValue ? `Home: ${f.homeValue}` : "same as Home") : f.envDefault || "not set in .env";
+      const ph = f.homeValue !== undefined ? (f.noInherit ? (f.key === "EXTRA_GRAPH_CHECKS" ? "all" : "none") : f.homeValue ? `Home: ${f.homeValue}` : "same as Home") : f.envDefault || "not set in .env";
       control = `<input class="input" type="text" data-setting="${esc(f.key)}" placeholder="${esc(ph)}" value="${esc(f.value || "")}" />`;
     }
     return `<div class="settings-row"${rowAttrs}>${labelHtml}<div class="field">${control}</div></div>`;

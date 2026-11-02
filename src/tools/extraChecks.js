@@ -1,8 +1,8 @@
-// Opt-in checks that need Microsoft Graph application permissions the app is
-// not granted by default. A tenant turns them on in Settings ("Extra Graph
-// checks", EXTRA_GRAPH_CHECKS: a comma-separated list of the tool ids below, or
-// "all"). A customer tenant uses only its own list, never the home tenant's, so
-// a customer who has not granted the extra permission is never scanned with it.
+// Checks that need Microsoft Graph application permissions beyond the default
+// set. They are on by default: Settings ("Extra Graph checks",
+// EXTRA_GRAPH_CHECKS) blank or "all" runs every one, a comma-separated list of
+// the tool ids below runs only those, and "none" turns them all off. A customer
+// tenant uses only its own value, never the home tenant's.
 // The Terraform module's extra_graph_checks variable grants the permissions in
 // the home tenant and sets the list there; the customer_onboarding output names
 // them for each customer.
@@ -23,11 +23,12 @@ const EXTRA_CHECKS = {
   "directory-sync": ["Organization.Read.All"],
 };
 
-// The ids listed for the tenant being scanned (settings.get knows which).
+// The ids on for the tenant being scanned (settings.get knows which).
 function enabledChecks() {
   const raw = String(settings.get("EXTRA_GRAPH_CHECKS") || "").toLowerCase();
   const ids = raw.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-  if (ids.includes("all")) return Object.keys(EXTRA_CHECKS);
+  if (ids.includes("none")) return [];
+  if (!ids.length || ids.includes("all")) return Object.keys(EXTRA_CHECKS);
   return ids.filter((id) => EXTRA_CHECKS[id]);
 }
 const isOn = (toolId) => enabledChecks().includes(toolId);
@@ -40,7 +41,7 @@ function permissionMissing(toolId, label, err) {
   const permission = EXTRA_CHECKS[toolId].join(" and ");
   const hint = graphHint(err, permission);
   log.record({ tool: toolId, level: "warn", message: `${label} not checked: ${hint}` });
-  return [scanError(toolId, "permission", `${label} not checked: Graph permission ${permission} missing`, `${hint}. Grant it (Terraform: add "${toolId}" to extra_graph_checks; a customer tenant: add it to the app registration there and grant admin consent), or take ${toolId} out of Extra Graph checks in Settings`)];
+  return [scanError(toolId, "permission", `${label} not checked: Graph permission ${permission} missing`, `${hint}. Grant it (Terraform: add "${toolId}" to extra_graph_checks; a customer tenant: add it to the app registration there and grant admin consent), or turn it off in Settings → Extra Graph checks (list only the checks you want, or none)`)];
 }
 
 module.exports = { EXTRA_CHECKS, enabledChecks, isOn, noPremium, refused, permissionMissing };

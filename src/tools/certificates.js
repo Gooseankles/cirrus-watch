@@ -8,6 +8,8 @@
 // Every certificate seen is also saved as a list (In use on the page): where
 // it is used, who issued it, when it expires and its state, also when all is
 // well. App Service certificate resources are listed too, with their bindings.
+// Every application gateway is saved with its addresses (Application gateways
+// on the page): frontends, listeners and what each listener answered live.
 const tls = require("tls");
 const net = require("net");
 const crypto = require("crypto");
@@ -165,6 +167,7 @@ function leafOf(certs) {
 
 const x509Subject = (c) => (/(?:^|\n)CN=([^\n]+)/.exec(c.subject || "") || [])[1] || (c.subjectAltName || "").replace(/DNS:/g, "").split(",")[0] || "?";
 const x509Issuer = (c) => (/(?:^|\n)O=([^\n]+)/.exec(c.issuer || "") || /(?:^|\n)CN=([^\n]+)/.exec(c.issuer || "") || [])[1] || "unknown issuer";
+const DAY = 86400000;
 
 // A Key Vault secret id with a version after the name: the gateway never picks up a renewal.
 const PINNED_SECRET = /\/secrets\/[^/]+\/[^/]+\/?$/i;
@@ -173,7 +176,7 @@ async function gatewayRows() {
   return resourceGraphQuery(
     `resources
     | where type =~ 'microsoft.network/applicationgateways' and tostring(properties.operationalState) !~ 'Stopped'
-    | project id, name, resourceGroup, subscriptionId,
+    | project id, name, resourceGroup, subscriptionId, sku = tostring(properties.sku.tier),
         certs = properties.sslCertificates, roots = properties.trustedRootCertificates,
         listeners = properties.httpListeners, backendSettings = properties.backendHttpSettingsCollection,
         frontends = properties.frontendIPConfigurations, ports = properties.frontendPorts`,
@@ -181,15 +184,16 @@ async function gatewayRows() {
   );
 }
 
+// The gateways' public IPs: id -> { ip, fqdn } (fqdn is the Azure DNS name, when one is set).
 async function gatewayPublicIps() {
   const rows = await resourceGraphQuery(
     `resources
     | where type =~ 'microsoft.network/publicipaddresses' and isnotempty(properties.ipAddress)
     | where tostring(properties.ipConfiguration.id) contains '/applicationGateways/'
-    | project id, ip = tostring(properties.ipAddress)`,
+    | project id, ip = tostring(properties.ipAddress), fqdn = tolower(tostring(properties.dnsSettings.fqdn))`,
     { toolId: TOOL_ID }
   );
-  return new Map(rows.map((r) => [lower(r.id), r.ip]));
+  return new Map(rows.map((r) => [lower(r.id), { ip: r.ip, fqdn: r.fqdn || null }]));
 }
 
 // Expiry of the certificates a gateway uses, from its settings: listener
@@ -205,7 +209,7 @@ function judgeGateway(gw, warn, now = Date.now()) {
   const out = [];
   const read = new Set();
   const rows = [];
-  const row = (id, name, type, usedBy, source, cert, used) => {
+  const row = (id, name, type, usedBy, source, cert, used, extra) => {
     const days = cert ? daysUntil(cert.validTo, now) : null;
     rows.push({
       ...base,
@@ -220,6 +224,7 @@ function judgeGateway(gw, warn, now = Date.now()) {
       days,
       thumbprint: cert ? thumbOf(cert.fingerprint) : null,
       status: !used ? "unused" : !cert ? "unread" : expiryState(days, warn),
+      ...extra,
     });
   };
 
@@ -240,7 +245,15 @@ function judgeGateway(gw, warn, now = Date.now()) {
     const pinned = PINNED_SECRET.test(kv);
     const leaf = leafOf(certsFromBase64(p.publicCertData));
     const usedBy = users.length ? `Gateway ${gw.name}: listener${users.length > 1 ? "s" : ""} ${users.join(", ")}` : `Gateway ${gw.name}: no listener uses it`;
-    row(id, name, "gateway", usedBy, pinned ? "Key Vault (one version)" : kv ? "Key Vault" : "Uploaded", leaf, users.length > 0);
+    // ref: the listener certificate's id as listeners point at it, to match live answers to this row.
+    row(id, name, "gateway", usedBy, pinned ? "Key Vault (one version)" : kv ? "Key Vault" : "Uploaded", leaf, users.length > 0, {
+      ref: lower(c.id || id),
+      // For the live check's renewal grace (not saved): a Key Vault secret without a version, and when the
+      // certificate the settings give became valid.
+      kvLatest: Boolean(kv && !pinned),
+      validFrom: leaf ? new Date(leaf.validFrom).toISOString() : null,
+      ...(!leaf && users.length && { note: "Expiry not readable from the gateway settings" }),
+    });
     if (!users.length) continue;
     const where = `Listener certificate ${c.name} on application gateway ${gw.name} (listener${users.length > 1 ? "s" : ""} ${users.join(", ")}).`;
     if (pinned) {
@@ -266,56 +279,210 @@ function judgeGateway(gw, warn, now = Date.now()) {
   return { findings: out, read, rows };
 }
 
-// Live targets for the HTTPS listeners on a public frontend: connect to the
-// public IP with the listener's host name, so DNS need not point there yet.
-// Listeners with only a wildcard or no host name are left to the settings check.
-function gatewayTargets(gw, ips, read) {
-  const frontIp = new Map(arr(gw.frontends).map((f) => [lower(f.id), ips.get(lower(f.properties && f.properties.publicIPAddress && f.properties.publicIPAddress.id))]));
-  const portOf = new Map(arr(gw.ports).map((p) => [lower(p.id), Number(p.properties && p.properties.port) || 443]));
+const lastPart = (id) => String(id || "").split("/").pop() || null;
+const pipOf = (ips, id) => {
+  const v = ips.get(lower(id));
+  return typeof v === "string" ? { ip: v, fqdn: null } : v || null;
+};
+
+// A gateway's frontends with their addresses: a public IP (and its Azure DNS
+// name) or a private IP. A public IP without an address gets ip null.
+function gatewayFrontends(gw, ips) {
   const out = [];
-  for (const l of arr(gw.listeners)) {
+  for (const f of arr(gw.frontends)) {
+    const p = f.properties || {};
+    const name = f.name || lastPart(f.id);
+    if (p.publicIPAddress && p.publicIPAddress.id) {
+      const pip = pipOf(ips, p.publicIPAddress.id);
+      out.push({ ref: lower(f.id), name, kind: "public", ip: (pip && pip.ip) || null, fqdn: (pip && pip.fqdn) || null });
+    } else if (p.privateIPAddress) {
+      out.push({ ref: lower(f.id), name, kind: "private", ip: p.privateIPAddress, fqdn: null });
+    }
+  }
+  return out;
+}
+
+// A listener's host names as written (wildcards too); none means a basic listener.
+const hostNamesOf = (p) => [...new Set([...arr(p.hostName), ...arr(p.hostNames)].map(lower))].filter(Boolean);
+const isWildcard = (h) => /[*?]/.test(h);
+
+// A made-up name the wildcard matches, sent as SNI so the gateway picks that
+// listener ("*.contoso.com" -> "cirrus-watch-probe.contoso.com"). Without SNI a
+// multi-site gateway answers with whatever its default is.
+const WILDCARD_LABEL = "cirrus-watch-probe";
+const wildcardProbeName = (h) => h.replace(/\*/g, WILDCARD_LABEL).replace(/\?/g, "x");
+
+// Every listener of a gateway with its addresses: protocol, port, host names
+// (wildcards and none = basic), the frontend and its address, and the
+// certificate it names. Checks are filled in after the live connections.
+function gatewayAddresses(gw, ips) {
+  const fronts = gatewayFrontends(gw, ips);
+  const portOf = new Map(arr(gw.ports).map((p) => [lower(p.id), Number(p.properties && p.properties.port) || null]));
+  const listeners = arr(gw.listeners).map((l) => {
     const p = l.properties || {};
-    if (lower(p.protocol) !== "https") continue;
-    const ip = frontIp.get(lower(p.frontendIPConfiguration && p.frontendIPConfiguration.id));
-    if (!ip) continue;
-    const port = portOf.get(lower(p.frontendPort && p.frontendPort.id)) || 443;
-    const hosts = [...new Set([...arr(p.hostName), ...arr(p.hostNames)].map(lower))].filter((h) => h && !h.includes("*"));
-    const certKnown = read.has(lower(p.sslCertificate && p.sslCertificate.id));
-    for (const h of hosts) {
+    const f = fronts.find((x) => x.ref === lower(p.frontendIPConfiguration && p.frontendIPConfiguration.id)) || null;
+    const protocol = lower(p.protocol) === "https" ? "HTTPS" : lower(p.protocol) === "http" ? "HTTP" : p.protocol || null;
+    const certRef = protocol === "HTTPS" ? lower(p.sslCertificate && p.sslCertificate.id) || null : null;
+    return {
+      name: l.name,
+      protocol,
+      port: portOf.get(lower(p.frontendPort && p.frontendPort.id)) || (protocol === "HTTP" ? 80 : 443),
+      hostNames: hostNamesOf(p),
+      frontend: f ? f.name : lastPart(p.frontendIPConfiguration && p.frontendIPConfiguration.id),
+      frontendKind: f ? f.kind : null,
+      ip: f ? f.ip : null,
+      fqdn: f ? f.fqdn : null,
+      certificate: certRef ? lastPart(certRef) : null,
+      certRef,
+      checks: [],
+    };
+  });
+  return {
+    id: gw.id,
+    name: gw.name,
+    sku: gw.sku || null,
+    resourceGroup: gw.resourceGroup || null,
+    subscriptionId: gw.subscriptionId || null,
+    frontends: fronts.map(({ ref, ...f }) => f),
+    listeners,
+  };
+}
+
+// Live targets for every HTTPS listener, on each address its frontend has (the
+// public IP, or the private IP, which answers when the dashboard runs inside a
+// network that reaches it; CERT_PROBE_PRIVATE off skips private IPs). The host name goes as SNI, so DNS need not point
+// there yet. A wildcard listener is reached with a made-up name the wildcard
+// matches, a basic listener (no host name) with no SNI at all; no name is
+// judged on a basic listener. certs: the gateway's list rows from judgeGateway,
+// whose thumbprints say which certificate each listener should serve. No answer
+// is never a finding: many gateways let in only Front Door or known addresses.
+const probePrivate = () => !/^(off|no|false|0)$/i.test(String(settings.get("CERT_PROBE_PRIVATE") || "").trim());
+function gatewayTargets(gw, ips, certs = []) {
+  const listing = gatewayAddresses(gw, ips);
+  const byRef = new Map(certs.filter((c) => c.ref).map((c) => [c.ref, c]));
+  const out = [];
+  // Public addresses first: their answer is the one browsers see.
+  const order = (l) => (l.frontendKind === "public" ? 0 : 1);
+  for (const l of [...listing.listeners].sort((a, b) => order(a) - order(b))) {
+    if (l.protocol !== "HTTPS" || !l.ip) continue;
+    if (l.frontendKind === "private" && !probePrivate()) continue;
+    const cert = byRef.get(l.certRef) || null;
+    const ways = l.hostNames.length
+      ? l.hostNames.map((h) => (isWildcard(h) ? { shown: h, sni: wildcardProbeName(h), name: wildcardProbeName(h), wildcard: true } : { shown: h, sni: h, name: h }))
+      : [{ shown: null, sni: undefined, name: l.ip, basic: true }];
+    for (const w of ways) {
+      const address = `${l.ip}:${l.port}`;
+      const shown = w.shown || address;
       out.push({
-        host: ip,
-        port,
-        sni: h,
-        name: h,
-        key: `${ip}:${port}:${h}`,
-        label: port === 443 ? h : `${h}:${port}`,
-        id: `${gw.id}/listeners/${l.name}/${h}`,
+        host: l.ip,
+        port: l.port,
+        sni: w.sni,
+        name: w.name,
+        // What the name check is said to be against: the wildcard as written.
+        nameShown: w.shown,
+        key: `${address}:${w.sni || ""}`,
+        label: w.shown ? (l.port === 443 ? w.shown : `${w.shown}:${l.port}`) : address,
+        // One id per listener and host name (a listener has one frontend, so one
+        // address); the same as before 0.70, so accepted findings keep their key.
+        id: `${gw.id}/listeners/${l.name}/${w.shown || "basic"}`,
         resourceGroup: gw.resourceGroup,
         subscriptionId: gw.subscriptionId,
-        where: `Listener ${l.name} on application gateway ${gw.name}. `,
+        where: `Listener ${l.name} on application gateway ${gw.name}, checked on ${l.frontendKind} address ${address}${w.basic ? " with no host name" : w.wildcard ? ` as ${w.sni} (matches ${shown})` : ""}. `,
         type: "gatewaylive",
         usedBy: `Gateway ${gw.name}: listener ${l.name}`,
-        // Listed from the settings when they gave the certificate.
-        inventory: !certKnown,
-        // The settings check already reports expiry. Many gateways let in only
-        // Front Door or known addresses, so no answer is not a finding.
-        skipExpiry: certKnown,
+        // Listed from the settings (judgeGateway's row), filled in from here when unread.
+        inventory: false,
+        // Expiry comes from the settings, or once per certificate from the live answers.
+        skipExpiry: true,
         skipUnreachable: true,
+        // The certificate the settings say this listener serves, when they gave it.
+        expectThumb: (cert && cert.thumbprint) || null,
+        // A Key Vault secret without a version follows renewals: see check()'s grace.
+        expectKvLatest: Boolean(cert && cert.kvLatest),
+        expectFrom: (cert && cert.validFrom) || null,
+        gateway: lower(gw.id),
+        listener: l.name,
+        certRef: l.certRef,
+        address,
+        frontendKind: l.frontendKind,
+        sniShown: w.basic ? null : w.shown,
       });
     }
   }
   return out;
 }
 
-async function gateways(warn, gwFindings, inv) {
+// After the live connections: each listener gets its checks (address, what was
+// sent as SNI, the answer), and a listener certificate the settings could not
+// read (a Key Vault reference without its public part) takes its expiry from the
+// worst live answer, with one expiry finding per certificate. Returns those findings.
+function finishGateways(listings, targets, certs, warn) {
+  const findings = [];
+  const byListener = new Map();
+  for (const t of targets) {
+    const k = `${t.gateway}|${lower(t.listener)}`;
+    if (!byListener.has(k)) byListener.set(k, []);
+    byListener.get(k).push(t);
+  }
+  for (const g of listings) {
+    for (const l of g.listeners) {
+      l.checks = (byListener.get(`${lower(g.id)}|${lower(l.name)}`) || []).map((t) => ({
+        address: t.address,
+        frontendKind: t.frontendKind,
+        sni: t.sniShown,
+        ...(t.live || { status: "unchecked" }),
+      }));
+    }
+  }
+  for (const c of certs) {
+    if (c.type !== "gateway" || c.status !== "unread") continue;
+    const answers = targets.filter((t) => t.certRef === c.ref && t.live && t.live.expires && t.live.days !== null);
+    if (!answers.length) {
+      c.note = "Not readable: the gateway settings do not give its expiry and no listener answered the dashboard";
+      continue;
+    }
+    const worst = answers.reduce((a, b) => (b.live.days < a.live.days ? b : a));
+    const v = worst.live;
+    Object.assign(c, {
+      subject: v.subject,
+      issuer: v.issuer,
+      expires: v.expires,
+      days: v.days,
+      thumbprint: v.thumbprint,
+      status: expiryState(v.days, warn),
+      source: `${c.source}, read live`,
+      note: `Expiry not readable from the gateway settings; checked live on ${worst.address}${worst.sniShown ? ` (${worst.sniShown})` : ""}`,
+    });
+    const about = `${v.subject}, issued by ${v.issuer}, valid until ${v.expires}`;
+    const where = `Listener certificate ${lastPart(c.id)} on application gateway ${String(c.name).split("/")[0]} (${String(c.usedBy).replace(/^Gateway [^:]+: /, "")}). The gateway settings do not give its expiry, so it was read from a live connection to ${worst.address}.`;
+    const base = { id: c.id, name: c.name, resourceGroup: c.resourceGroup, subscriptionId: c.subscriptionId, expires: v.expires };
+    if (v.days < 0) findings.push({ ...base, kind: "cert-expired", detail: `${where} Expired ${-v.days} day(s) ago (${about}).` });
+    else if (v.days <= warn) findings.push({ ...base, kind: "cert-expiring", detail: `${where} Expires in ${v.days} day(s) (${about}).` });
+  }
+  // The certificate state each listener shows: from its list row.
+  const byRef = new Map(certs.filter((c) => c.ref).map((c) => [c.ref, c]));
+  for (const g of listings) {
+    for (const l of g.listeners) {
+      const c = l.certRef && byRef.get(l.certRef);
+      if (c) Object.assign(l, { certSource: c.source, certStatus: c.status, certExpires: c.expires, certDays: c.days, certSubject: c.subject, certNote: c.note || null });
+      delete l.certRef;
+    }
+  }
+  return findings;
+}
+
+async function gateways(warn, ctx) {
   const [rows, ips] = await Promise.all([gatewayRows(), gatewayPublicIps()]);
   const targets = [];
   for (const gw of rows) {
-    const { findings, read, rows: certs } = judgeGateway(gw, warn);
-    gwFindings.push(...findings);
-    inv.push(...certs);
-    targets.push(...gatewayTargets(gw, ips, read));
+    const { findings, rows: certs } = judgeGateway(gw, warn);
+    ctx.findings.push(...findings);
+    ctx.certs.push(...certs);
+    ctx.listings.push(gatewayAddresses(gw, ips));
+    targets.push(...gatewayTargets(gw, ips, certs));
   }
+  ctx.targets = targets;
+  ctx.on = true;
   return targets;
 }
 
@@ -345,8 +512,10 @@ function probe({ host, port, sni }) {
 const subjectOf = (cert) => (cert.subject && cert.subject.CN) || (cert.subjectaltname || "").replace(/DNS:/g, "").split(",")[0] || "?";
 const issuerOf = (cert) => (cert.issuer && (cert.issuer.O || cert.issuer.CN)) || "unknown issuer";
 
-// The findings for one address, and its row for the list (null when not listed).
-async function check(target, warn) {
+// The findings for one address, its row for the list (null when not listed) and
+// what it answered (live), which gateway listeners show as their checks. open:
+// the TLS connection (tests hand in a fake one); now: the clock (tests).
+async function check(target, warn, open = probe, now = Date.now()) {
   const name = target.name || target.host;
   const label = target.label || (target.port === 443 ? target.host : `${target.host}:${target.port}`);
   const base = {
@@ -370,36 +539,62 @@ async function check(target, warn) {
   });
   let res;
   try {
-    res = await probe(target);
+    res = await open(target);
   } catch (err) {
-    if (target.skipUnreachable) return { findings: [], row: null };
-    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}Could not open a TLS connection: ${err.message}` }], row: row({ status: "unreachable", note: err.message }) };
+    const live = { status: "unreachable", note: err.message };
+    if (target.skipUnreachable) return { findings: [], row: null, live };
+    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}Could not open a TLS connection: ${err.message}` }], row: row(live), live };
   }
   const { cert, authorized, authError } = res;
   if (!cert || !cert.valid_to) {
-    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}The server sent no certificate` }], row: row({ status: "unreachable", note: "no certificate sent" }) };
+    const live = { status: "unreachable", note: "no certificate sent" };
+    return { findings: [{ ...base, kind: "cert-unreachable", detail: `${where}The server sent no certificate` }], row: row(live), live };
   }
 
   const expires = new Date(cert.valid_to).toISOString().slice(0, 10);
   const days = daysUntil(cert.valid_to);
   const about = `${subjectOf(cert)}, issued by ${issuerOf(cert)}, valid until ${expires}`;
   const out = [];
-  // skipExpiry: the gateway's settings already gave the expiry.
+  // skipExpiry: the expiry is reported elsewhere (gateway settings, or once per gateway certificate).
   const expiryHere = !target.skipExpiry;
   if (expiryHere && days < 0) out.push({ ...base, kind: "cert-expired", expires, detail: `${where}Expired ${-days} day(s) ago (${about})` });
   else if (expiryHere && days <= warn) out.push({ ...base, kind: "cert-expiring", expires, detail: `${where}Expires in ${days} day(s) (${about})` });
 
+  // An address with no name (a basic gateway listener reached by IP) has no name to judge.
   const nameError = net.isIP(name) ? null : tls.checkServerIdentity(name, cert);
-  if (nameError) out.push({ ...base, kind: "cert-name-mismatch", expires, detail: `${where}The certificate is not for ${name}: ${cert.subjectaltname || subjectOf(cert)}` });
+  const nameShown = target.nameShown && target.nameShown !== name ? `${target.nameShown} (tried as ${name})` : name;
+  if (nameError) out.push({ ...base, kind: "cert-name-mismatch", expires, detail: `${where}The certificate is not for ${nameShown}: ${cert.subjectaltname || subjectOf(cert)}` });
 
   // An expired or wrong-name certificate already has its own finding.
   const chainOnly = authError && !["CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(authError);
   const untrusted = !authorized && chainOnly;
   if (untrusted) out.push({ ...base, kind: "cert-untrusted", expires, detail: `${where}Browsers will not trust it: ${authError} (${about})` });
-  const status = days < 0 ? "expired" : nameError ? "name" : untrusted ? "untrusted" : expiryState(days, warn);
+
+  // A gateway listener whose settings name a certificate: is that the one it serves?
+  const thumbprint = thumbOf(cert.fingerprint);
+  let differs = Boolean(target.expectThumb && thumbprint && target.expectThumb !== thumbprint);
+  // Renewal grace for a Key Vault secret without a version: the gateway already serves a newer certificate than
+  // the settings show, or the one in the settings became valid less than 24 hours ago (Microsoft: the gateway
+  // picks a renewal up within 4 hours). Said in the note, not reported.
+  let grace = null;
+  if (differs && target.expectKvLatest) {
+    const servedFrom = Date.parse(cert.valid_from);
+    const setFrom = Date.parse(target.expectFrom);
+    if (servedFrom > setFrom) grace = "serves a newer certificate than the settings show (a Key Vault renewal)";
+    else if (now - setFrom < DAY) grace = "the certificate in the settings is less than a day old; the gateway picks up a Key Vault renewal within 4 hours";
+    if (grace) differs = false;
+  }
+  if (differs) {
+    const named = target.certRef ? ` (${lastPart(target.certRef)})` : "";
+    out.push({ ...base, kind: "agw-cert-served-differs", expires, detail: `${where}It answered with another certificate than the one its settings name${named}: ${about}, thumbprint ${thumbprint}; the settings have ${target.expectThumb}. A renewal in Key Vault can take up to 4 hours to reach the gateway; if this stays, check which listener answers on this address and port.` });
+  }
+  const status = days < 0 ? "expired" : nameError ? "name" : untrusted ? "untrusted" : differs ? "differs" : expiryState(days, warn);
+  const note = untrusted ? authError : differs ? "not the certificate the settings name" : grace || undefined;
+  const live = { status, subject: subjectOf(cert), issuer: issuerOf(cert), expires, days, thumbprint, nameChecked: !net.isIP(name), ...(note && { note }) };
   return {
     findings: out,
-    row: row({ subject: subjectOf(cert), issuer: issuerOf(cert), expires, days, thumbprint: thumbOf(cert.fingerprint), status, ...(untrusted && { note: authError }) }),
+    row: row({ subject: live.subject, issuer: live.issuer, expires, days, thumbprint, status, ...(note && { note }) }),
+    live,
   };
 }
 
@@ -409,14 +604,15 @@ async function run() {
   const gatewaysOn = String(settings.get("CERT_AZURE_GATEWAYS") || "on").toLowerCase() !== "off";
   const listed = listedTargets();
   const checks = {};
-  const gwFindings = [];
   const inv = [];
+  // Filled by the gateway check: its findings, list rows, listener listings and live targets.
+  const gw = { findings: [], certs: [], listings: [], targets: [], on: false };
   let sites = null; // the web apps' bindings, once read
   if (azureOn) checks["Azure web apps"] = async () => (sites = await azureTargets());
-  if (gatewaysOn) checks["Application gateways"] = () => gateways(warn, gwFindings, inv);
+  if (gatewaysOn) checks["Application gateways"] = () => gateways(warn, gw);
   if (listed.length) checks["Listed addresses"] = async () => listed;
   if (!Object.keys(checks).length) {
-    await saveInventory([]);
+    await saveInventory([], []);
     return [];
   }
 
@@ -434,13 +630,24 @@ async function run() {
     })
     .slice(0, MAX_HOSTS);
 
-  const findings = [...errors, ...gwFindings];
+  const findings = [...errors, ...gw.findings];
+  // A gateway listener problem is reported once per finding id and kind (a guard: a listener has one frontend).
+  const reported = new Set();
   const failures = await mapLimit(targets, 8, async (t) => {
-    const { findings: found, row } = await check(t, warn);
-    findings.push(...found);
+    const { findings: found, row, live } = await check(t, warn);
+    if (t.type === "gatewaylive") {
+      t.live = live;
+      for (const f of found) {
+        const k = `${f.id}|${f.kind}`;
+        if (!reported.has(k)) findings.push(f);
+        reported.add(k);
+      }
+    } else findings.push(...found);
     if (row) inv.push(row);
   });
   findings.push(...itemErrors(TOOL_ID, "hosts", "hosts", failures, targets.length));
+  if (gw.on) findings.push(...finishGateways(gw.listings, gw.targets, gw.certs, warn));
+  inv.push(...gw.certs.map(({ ref, kvLatest, validFrom, ...c }) => c));
 
   // After the web apps were read: their bindings say which App Service certificates are used.
   // Skipped when the web apps could not be read: every certificate would look unbound.
@@ -451,17 +658,18 @@ async function run() {
       findings.push(scanError(TOOL_ID, "app-service-certificates", "App Service certificates not listed", err.message));
     }
   }
-  await saveInventory(inv);
+  await saveInventory(inv, gw.listings);
   return findings;
 }
 
-const saveInventory = (certs) => store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), certs });
+// gateways: every application gateway with its frontends and listeners (Application gateways on the page).
+const saveInventory = (certs, gateways) => store.putDoc(INVENTORY_KEY, { updatedAt: new Date().toISOString(), certs, gateways });
 
 /* ---------- read routes ---------- */
 
 // Each tenant's certificate list from its last scan.
 async function inventory(keys) {
-  const out = { updatedAt: null, certs: [], failures: [] };
+  const out = { updatedAt: null, certs: [], gateways: [], failures: [] };
   for (const k of keys) {
     let doc;
     try {
@@ -472,7 +680,9 @@ async function inventory(keys) {
     }
     if (!doc) continue;
     if (doc.updatedAt && (!out.updatedAt || doc.updatedAt > out.updatedAt)) out.updatedAt = doc.updatedAt;
-    out.certs.push(...(doc.certs || []).map((c) => ({ ...c, ...(k !== tenants.HOME && { tenant: k }) })));
+    const tag = (x) => ({ ...x, ...(k !== tenants.HOME && { tenant: k }) });
+    out.certs.push(...(doc.certs || []).map(tag));
+    out.gateways.push(...(doc.gateways || []).map(tag));
   }
   return out;
 }
@@ -482,6 +692,7 @@ function registerRoutes(app, { readKeys, decorate }) {
     try {
       const inv = await inventory(readKeys(req));
       await decorate(TOOL_ID, inv.certs);
+      await decorate(TOOL_ID, inv.gateways);
       res.json(inv);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -496,5 +707,5 @@ module.exports = {
   run,
   registerRoutes,
   parseTarget,
-  _test: { certsFromBase64, leafOf, judgeGateway, gatewayTargets, appServiceRows, check, PINNED_SECRET },
+  _test: { certsFromBase64, leafOf, judgeGateway, gatewayFrontends, gatewayAddresses, gatewayTargets, finishGateways, wildcardProbeName, appServiceRows, check, PINNED_SECRET },
 };

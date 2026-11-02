@@ -1,7 +1,7 @@
 // Key Vault posture, in four areas:
 // - settings: soft delete or purge protection off, open to every network,
 //   still on the access-policy model instead of Azure RBAC.
-// - expiry (only with KEYVAULT_ITEM_CHECK on): secrets, keys and certificates
+// - expiry (unless KEYVAULT_ITEM_CHECK is off): secrets, keys and certificates
 //   that expired, expire soon or have no expiry date (metadata only; secret
 //   values are never read).
 // - access: who can read secrets: secret roles granted at subscription or
@@ -42,8 +42,8 @@ function numberSetting(key, fallback) {
 const warnDays = () => numberSetting("KEYVAULT_EXPIRY_WARN_DAYS", 30);
 const maxReaders = () => numberSetting("KEYVAULT_MAX_READERS", 10);
 const unusedDays = () => Math.min(numberSetting("KEYVAULT_UNUSED_DAYS", 30), 90); // metrics are kept 93 days
-// The item check lists every vault's secrets, keys and certificates; blank = off.
-const itemCheck = () => /^(on|yes|true|1)$/i.test(String(settings.get("KEYVAULT_ITEM_CHECK") || "").trim());
+// The item check lists every vault's secrets, keys and certificates; blank = on.
+const itemCheck = () => !/^(off|no|false|0)$/i.test(String(settings.get("KEYVAULT_ITEM_CHECK") || "").trim());
 function ownerTag() {
   const v = String(settings.get("KEYVAULT_OWNER_TAG") || "").trim();
   if (v.toLowerCase() === "none") return null;

@@ -33,7 +33,7 @@ marked with that input.
 | Admin consent for `openid` and `profile` | (none) | `create_sso_app` and `grant_sso_consent` | Nobody sees "Need admin approval" at sign-in |
 | App roles | `Admin`, `User`, `Admin-<key>`, `User-<key>`, `<Area>.Read[-<key>]` | `create_sso_app` | What each person may see ([sign-in and roles](guides/sign-in-and-roles.md)) |
 | Security group per role | `Cirrus Watch (contoso-ops) <role>` | `create_role_groups` | Access is given by group membership |
-| Graph application permissions on the shared SPN | (none) | `grant_graph_permissions` | The Entra scans (`graph_permissions` lists them), plus the permissions of the opt-in checks in `extra_graph_checks` (also sets `EXTRA_GRAPH_CHECKS`) |
+| Graph application permissions on the shared SPN | (none) | `grant_graph_permissions` | The Entra scans (`graph_permissions` lists them), plus the permissions of the extra checks in `extra_graph_checks` (all four by default; also sets `EXTRA_GRAPH_CHECKS`) |
 | Azure role assignments for the shared SPN | (none) | one per entry in `shared_spn_access` | Reader and Cost Management Reader on what is scanned |
 | Role assignments for the web app's own data | (none) | `create_history_storage`, `create_secret_vault` | Storage Blob Data Contributor on the storage account and Key Vault Secrets Officer on the vault, for the system-assigned identity |
 | Key Vault Secrets Officer for named people | (none) | `create_secret_vault` and `secret_vault_admin_ids` | Break-glass: those users or groups may see and change the stored secrets in the portal; nobody else can |
@@ -108,6 +108,8 @@ The web app's app settings become environment variables in the container. The ap
 | `STORAGE_ACCOUNT_URL`, `STORAGE_CONTAINER`, `HISTORY_RETENTION_DAYS` | blob endpoint, `dashboard`, `history_retention_days` (730) | `src/findingsStore.js` |
 | `DASHBOARD_TENANTS` | JSON list of `customers` (key, name, tenant ID, client ID, subscriptions, enabled); not set without customers | `src/tenants.js` |
 | `AZURE_SUBSCRIPTION_IDS` | `scan_subscription_ids`, when set | the scans (blank = every subscription the identity can see) |
+| `EXCLUDED_SUBSCRIPTIONS` | (none; Settings, Scans, per tenant) | `src/armClient.js`: subscriptions no scan reads, taken out of the per-subscription list and the Resource Graph scope; `src/toolRegistry.js` also drops findings from them |
+| `EXTRA_GRAPH_CHECKS` | `extra_graph_checks` joined with commas (all four by default); `none` when the list is empty | `src/tools/extraChecks.js`: blank or `all` = every extra Graph check, `none` = off |
 | `DASHBOARD_ADMIN_PASSWORD` | `admin_password`, when set | the local admin account |
 | anything in `extra_app_settings` | as given | whatever reads it (`.env.example` lists every setting) |
 
@@ -302,6 +304,10 @@ only drops its Settings changes.
   roadmap, which sends only dates and fixed filters. A blocked host means that scan uses its last kept copy; without
   one, End of support uses its built-in dates, the CVE scan ranks by Defender's severity only and the two Upcoming
   pages stay empty. `CVE_FEEDS = off` makes neither CVE call; `RELEASE_FEEDS = off` makes neither Microsoft call.
+- The Certificates scan opens TLS connections to the websites it checks and to application gateway frontends,
+  public and private IPs. A private frontend answers only when the app is VNet-integrated in a network that reaches
+  it (peering, the same VNet); otherwise its listeners show "Not reachable from the dashboard", which is not a
+  finding.
 - `allowed_ip_ranges` and `allowed_subnet_ids` limit who can reach the site; the Kudu (scm) site follows the same
   rules, always (module v1.10.0; before it, `continuous_deployment` kept it open for a deploy webhook).
   `allowed_subnet_ids` keeps the public address and lets in subnets with the `Microsoft.Web` service endpoint;

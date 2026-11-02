@@ -11,7 +11,7 @@ const NEEDS = {
   "secret-expiry": { graph: ["Application.Read.All"] },
   // Key Vault Reader only with the item check on (Settings, Key Vault).
   get "key-vault"() {
-    const on = /^(on|yes|true|1)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
+    const on = !/^(off|no|false|0)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
     // Graph: who the readers are (directoryObjects/getByIds) for the deleted and guest checks.
     return { azure: on ? ["Reader", "Key Vault Reader (vaults on access policies: list on secrets, keys and certificates)"] : READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] };
   },
@@ -49,7 +49,7 @@ const NEEDS = {
   "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
   "legacy-sign-ins": { graph: ["AuditLog.Read.All"], licence: "Entra ID P1 (sign-in logs)" },
   "guest-owners": { graph: ["GroupMember.Read.All", "User.Read.All"] },
-  // Opt-in checks (Settings, Extra Graph checks): extra permissions, see src/tools/extraChecks.js.
+  // Extra Graph checks (on by default; Settings can turn them off): extra permissions, see src/tools/extraChecks.js.
   "risky-users": { graph: ["IdentityRiskyUser.Read.All"], licence: "Entra ID P2" },
   "admin-units": { graph: ["AdministrativeUnit.Read.All", "RoleManagement.Read.Directory", "User.Read.All"] },
   "directory-sync": { graph: ["Organization.Read.All"] },

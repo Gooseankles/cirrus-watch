@@ -64,6 +64,16 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.70.4.0] - 2026-11-04
+
+### Fixed
+
+- Access lookup said "Eligible (PIM) roles could not be read; that needs Entra ID P2" in tenants that have P2: any
+  failure of that read was put down to the licence. When Graph refuses the batched call with a 400 (several principals in one
+  filter, the role expanded), it now reads each principal on its own and looks the role names up. The note for
+  eligible Entra roles and for PIM for Groups now gives the real reason: P2 only when Graph says the tenant lacks
+  it, the missing permission on a 403, otherwise Graph's error.
+
 ## [0.70.3.0] - 2026-11-04
 
 ### Fixed

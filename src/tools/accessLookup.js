@@ -6,6 +6,7 @@ const { mapLimit } = require("./util");
 const tenants = require("../tenants");
 const tenantContext = require("../tenantContext");
 const access = require("../access");
+const log = require("../log");
 
 const TOOL_ID = "access-lookup";
 const ID_BATCH = 200; // principal ids per Resource Graph query
@@ -141,10 +142,53 @@ async function entraRoles(principalIds) {
     out.notes.push(/\(403\)/.test(err.message) ? "Entra roles could not be read: the access lookup needs RoleManagement.Read.Directory" : `Entra roles could not be read: ${err.message.slice(0, 200)}`);
     return out;
   }
-  const eligible = await entraPages("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds, ENTRA_ELIGIBLE_SELECT).catch(() => null);
-  if (eligible) out.eligible = eligible;
-  else out.notes.push("Eligible (PIM) roles could not be read; that needs Entra ID P2");
+  try {
+    out.eligible = await entraEligible(principalIds);
+  } catch (err) {
+    out.notes.push(pimReadNote("Eligible (PIM) Entra roles", err, "RoleManagement.Read.Directory"));
+  }
   return out;
+}
+
+const noPremium = (err) => /RequestFromNonPremiumTenant|NonPremium|premium license|AadPremiumLicenseRequired|not (?:properly )?licensed|license is required|licen[cs]e.*P2/i.test(String(err && err.message));
+
+// Why a PIM read failed, said as it is: no Entra ID P2 only when Graph says so,
+// a missing permission on a 403, otherwise Graph's own error.
+function pimReadNote(what, err, permission) {
+  const msg = String((err && err.message) || err);
+  if (noPremium(err)) return `${what} could not be read: that needs Microsoft Entra ID P2`;
+  if (/\(403\)/.test(msg)) return `${what} could not be read: that needs ${permission}`;
+  return `${what} could not be read: ${msg.slice(0, 200)}`;
+}
+
+// Eligible Entra roles of these principals. The batched call ("in" filter and
+// the role expanded) first; where Graph refuses that shape (anything but no P2
+// or a 403), one plain call per principal and the role names looked up.
+let batchRefusalLogged = false;
+async function entraEligible(principalIds) {
+  const path = "/roleManagement/directory/roleEligibilityScheduleInstances";
+  try {
+    return await entraPages(path, principalIds, ENTRA_ELIGIBLE_SELECT);
+  } catch (err) {
+    // Only a 400 is Graph refusing the shape; throttling, outages and refusals would fail each call too.
+    if (noPremium(err) || !(err.status === 400 || /\(400\)/.test(String(err.message)))) throw err;
+    if (!batchRefusalLogged) {
+      batchRefusalLogged = true; // once per process: every lookup would hit it
+      log.record({ tool: TOOL_ID, level: "info", message: `Batched Entra eligibility read refused, reading each principal instead: ${String(err.message).slice(0, 300)}` });
+    }
+  }
+  const rows = [];
+  const failed = await mapLimit(principalIds, 4, async (id) => {
+    const filter = encodeURIComponent(`principalId eq '${id}'`);
+    rows.push(...(await graphGetAll(`${path}?$filter=${filter}&$select=principalId,directoryScopeId,roleDefinitionId,endDateTime`, TOOL_ID)));
+  });
+  // A partial list would read as "no eligible roles" for the principals left out.
+  if (failed.length) throw new Error(failed[0].message);
+  const defs = new Map();
+  await mapLimit([...new Set(rows.map((r) => r.roleDefinitionId))], 6, async (id) => {
+    defs.set(id, await graphGet(`/roleManagement/directory/roleDefinitions/${id}?$select=displayName,isBuiltIn,templateId`, TOOL_ID).catch(() => null));
+  });
+  return rows.map((r) => ({ ...r, roleDefinition: defs.get(r.roleDefinitionId) || null }));
 }
 
 // Eligible Azure roles come from the PIM scan's last access list (pim/inventory.json),
@@ -190,11 +234,7 @@ async function groupPim(principalId) {
   try {
     eligible = await graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?${filter}`, TOOL_ID);
   } catch (err) {
-    out.notes.push(
-      /\(403\)/.test(err.message)
-        ? "Eligible group memberships (PIM for Groups) could not be read: that needs PrivilegedEligibilitySchedule.Read.AzureADGroup"
-        : "Eligible group memberships (PIM for Groups) could not be read; that needs Entra ID P2"
-    );
+    out.notes.push(pimReadNote("Eligible group memberships (PIM for Groups)", err, "PrivilegedEligibilitySchedule.Read.AzureADGroup"));
     return out;
   }
   const names = new Map();
@@ -474,4 +514,4 @@ function registerRoutes(app) {
   });
 }
 
-module.exports = { id: "access-lookup", label: "Access lookup", registerRoutes };
+module.exports = { id: "access-lookup", label: "Access lookup", registerRoutes, _test: { entraRoles, groupPim, pimReadNote } };

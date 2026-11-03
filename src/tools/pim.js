@@ -390,7 +390,15 @@ async function lookUp(ids, ctx) {
 // Graph refuses it, the group is still checked, but the refusal is said once
 // per run (log and page note) instead of every member looking never activated.
 // Any other error goes on like the sibling calls' (no P2, unsupported group).
-function groupHistoryRefused(err, ctx) {
+// Still throttled (429) after graphClient's retries: the group is checked
+// without its history (null: no history pushed) and kept in
+// ctx.historyThrottled; access through it is not judged unused that run
+// (peopleFindings), and the run says so once, after the groups are read.
+function groupHistoryRefused(err, ctx, groupId) {
+  if (err && (err.status === 429 || /\(429\)/.test(String(err.message)))) {
+    (ctx.historyThrottled ||= new Set()).add(groupId);
+    return null;
+  }
   if (noPremium(err) || !/\(403\)|Authorization_RequestDenied|Forbidden/i.test(String(err && err.message))) throw err;
   if (!ctx.historyRefused) {
     ctx.historyRefused = true;
@@ -411,16 +419,18 @@ async function readGroup(id, ctx) {
   for (const u of members) ctx.people.set(u.id, { ...(ctx.people.get(u.id) || {}), ...u });
   g.owners = owners.map((o) => o.userPrincipalName || o.displayName || o.id);
   try {
-    const [eligible, active, requests] = await Promise.all([
-      graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,startDateTime,endDateTime`, TOOL_ID),
-      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,assignmentType,endDateTime`, TOOL_ID),
-      graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleRequests?$filter=groupId eq '${id}'&$select=principalId,accessId,action,createdDateTime`, TOOL_ID).catch((err) => groupHistoryRefused(err, ctx)),
-    ]);
+    // One after another, not in parallel: the PIM for Groups API throttles hard,
+    // and with four groups at a time (mapLimit) twelve requests in flight drew 429s.
+    const eligible = await graphGetAll(`/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,startDateTime,endDateTime`, TOOL_ID);
+    const active = await graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleInstances?$filter=groupId eq '${id}'&$select=principalId,accessId,assignmentType,endDateTime`, TOOL_ID);
+    const requests = await graphGetAll(`/identityGovernance/privilegedAccess/group/assignmentScheduleRequests?$filter=groupId eq '${id}'&$select=principalId,accessId,action,createdDateTime`, TOOL_ID).catch((err) => groupHistoryRefused(err, ctx, id));
     g.eligible = eligible.map((e) => ({ principalId: e.principalId, access: e.accessId, start: e.startDateTime || null, end: e.endDateTime || null }));
     g.activated = active.filter((a) => a.assignmentType === "Activated").map((a) => ({ principalId: a.principalId, access: a.accessId, end: a.endDateTime || null }));
-    const h = history("group");
-    for (const r of requests) h.add(r.createdDateTime, r.action === "selfActivate" && `${r.principalId}|group|${id}|${r.accessId}`);
-    ctx.histories.push(h);
+    if (requests) {
+      const h = history("group");
+      for (const r of requests) h.add(r.createdDateTime, r.action === "selfActivate" && `${r.principalId}|group|${id}|${r.accessId}`);
+      ctx.histories.push(h);
+    }
   } catch (err) {
     const msg = String(err && err.message);
     if (/ResourceTypeNotSupported/.test(msg) || noPremium(err)) g.pim = false; // a group PIM cannot manage, or no P2
@@ -442,7 +452,8 @@ function lastUse(ctx, keys) {
   }
   return best;
 }
-// Whether the plane's history goes back to t: every history of that plane read, and the oldest event at or before t.
+// Whether the plane's history goes back to t: the oldest event of any history of that plane at or before t.
+// A group whose history was throttled pushes none; its rows are skipped in peopleFindings instead.
 // Per plane, since the Entra audit log may keep only 30 days while Azure's request list goes back further.
 const historyReaches = (ctx, t, plane) => {
   const list = ctx.histories.filter((h) => h.plane === plane);
@@ -531,7 +542,8 @@ function peopleFindings(rows, ctx) {
     // Unused: access older than the window and no activation in a history that reaches back that far.
     // Not judged for role eligibility through a group: members' activations are not tied to the group in the history.
     const since = Date.parse(r.start);
-    if (r.via !== "group" && Number.isFinite(since) && since < windowStart && historyReaches(ctx, windowStart, r.via === "direct" ? r.plane : "group")) {
+    const throttled = Boolean(r.groupId && ctx.historyThrottled && ctx.historyThrottled.has(r.groupId));
+    if (r.via !== "group" && !throttled && Number.isFinite(since) && since < windowStart && historyReaches(ctx, windowStart, r.via === "direct" ? r.plane : "group")) {
       const last = r.lastActivated ? Date.parse(r.lastActivated) : null;
       if (!last || last < windowStart) {
         out.push({ ...base, kind: "pim-eligible-unused", id: `${TOOL_ID}/${r.id}#unused`, detail: `Can activate ${what} but has not done so in ${unusedDays} days${last ? ` (last ${r.lastActivated.slice(0, 10)})` : ""}. Remove the access if it is not needed` });
@@ -602,6 +614,11 @@ async function run() {
     });
     if (refused) ctx.findings.push(scanError(TOOL_ID, "pim-groups", "PIM for Groups not checked", refused.message));
     else ctx.findings.push(...itemErrors(TOOL_ID, "groups", "groups with roles checked for members", failures, checked.length));
+    if (ctx.historyThrottled) {
+      const n = ctx.historyThrottled.size;
+      log.record({ tool: TOOL_ID, level: "warn", message: `PIM for Groups activation history throttled (429) for ${n} of ${checked.length} groups` });
+      ctx.notes.push(`Graph throttled the PIM for Groups activation history for ${n} of ${checked.length} groups, so access through ${n === 1 ? "that group" : "those groups"} was not judged unused this run. The next scan usually reads it.`);
+    }
     if (groupIds.length > MAX_GROUPS) ctx.notes.push(`Only the first ${MAX_GROUPS} of ${groupIds.length} groups holding roles were checked for members.`);
     await lookUp([...groups.values()].flatMap((g) => [...g.eligible, ...g.activated].map((e) => e.principalId)), ctx);
   } catch (err) {

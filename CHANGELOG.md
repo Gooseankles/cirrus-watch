@@ -64,6 +64,16 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.70.1.0] - 2026-11-03
+
+### Fixed
+
+- PIM: fewer "groups with roles checked for members not checked … (429) Too Many Requests" errors in large tenants.
+  Each group's PIM for Groups requests go one after another instead of three at once. When Graph still throttles a
+  group's activation history after the retries, the group is checked without it and the page says so: access
+  through that group is not judged unused that run. A 429 on the group's eligible or active list still counts the
+  group as not checked.
+
 ## [0.70.0.0] - 2026-11-02
 
 ### Added

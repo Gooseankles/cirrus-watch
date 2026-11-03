@@ -438,7 +438,8 @@ async function subnetFindings() {
     | union (Resources | where type =~ 'microsoft.compute/virtualmachinescalesets'
         | mv-expand n = properties.virtualMachineProfile.networkProfile.networkInterfaceConfigurations
         | where isnotempty(tostring(n.properties.networkSecurityGroup.id))
-        | distinct id = tolower(id))`),
+        | project id = tolower(id))
+    | distinct id`),
   ]);
   const rows = subnets.map((s) => ({
     ...s,

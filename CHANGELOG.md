@@ -64,6 +64,14 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.70.3.0] - 2026-11-04
+
+### Fixed
+
+- The Network hygiene scan failed with "InvalidQuery; ParserFailure at \"=\" (line 7, char 22)": the query for
+  network interfaces and scale sets with an NSG of their own (used by the subnets without NSG check) named a column
+  inside `distinct`, which Resource Graph refuses. A test now looks for that shape in every scan's queries.
+
 ## [0.70.2.0] - 2026-11-03
 
 ### Fixed

@@ -631,7 +631,8 @@ function rebuildNav() {
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.route === state.route));
   for (const t of shownTools()) {
     const ts = toolState(t.id);
-    if (ts.loaded && ts.data && Array.isArray(ts.data.findings)) setNavCount(t.id, ts.data.findings.length);
+    if (t.feed) { if (Number.isFinite(ts.feedCount)) setNavCount(t.id, ts.feedCount); }
+    else if (ts.loaded && ts.data && Array.isArray(ts.data.findings)) setNavCount(t.id, ts.data.findings.length);
   }
 }
 function initTenant() {
@@ -716,6 +717,26 @@ async function apiJson(path, opts) {
 }
 const postJson = (path, body) => apiJson(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 
+// Azure news and the Microsoft 365 roadmap make no findings: the menu and the overview card show how many
+// items the list has instead (?count=1 answers only the number), fetched again after each run.
+function loadFeedCount(id, t) {
+  const ranAt = t.data.ranAt;
+  apiJson(`/api/${id}?count=1`)
+    .then((d) => {
+      if (t.data.ranAt !== ranAt || !Number.isFinite(d.count)) return;
+      t.feedCount = d.count;
+      setNavCount(id, d.count);
+      if (state.route === "overview") renderOverview();
+    })
+    // No count (a network blip, an error): the card shows "–" rather than looking as if it were still loading.
+    .catch(() => {
+      if (t.data.ranAt !== ranAt) return;
+      t.feedCount = null;
+      if (state.route === "overview") renderOverview();
+    });
+}
+const feedCountOf = (tool, t) => (tool.feed ? t.feedCount : t.data.findings.length);
+
 function loadTool(id) {
   const t = toolState(id);
   if (t.loading) return t.loading;
@@ -734,7 +755,8 @@ function loadTool(id) {
     }
     t.loaded = true;
     t.loading = null;
-    setNavCount(id, t.data.findings.length);
+    if (TOOL_BY_ID[id] && TOOL_BY_ID[id].feed) loadFeedCount(id, t);
+    else setNavCount(id, t.data.findings.length);
     return t;
   })();
   return t.loading;
@@ -960,14 +982,14 @@ function buildNav() {
       items: [
         ...(g.id === "access" && mayRead("access-lookup") ? [{ route: "lookup", label: "Access lookup", icon: "search" }] : []),
         ...(g.id === "resources" && !toolOff("ipam") ? [{ route: "ipam", label: "IPAM", icon: "grid" }] : []),
-        ...shownTools().filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true })),
+        ...shownTools().filter((t) => t.group === g.id).map((t) => ({ route: `scan/${t.id}`, label: t.label, icon: t.icon, count: true, feed: Boolean(t.feed) })),
         ...(g.id === "cost" && mayRead("cost-history") ? [{ route: "cost", label: "Cost history", icon: "cost" }] : []),
       ],
     })).filter((g) => g.items.length),
   ];
   if (me.isAdmin) groups.push({ label: "Admin", items: [{ route: "audit", label: "Audit log", icon: "eye" }, { route: "load", label: "Server load", icon: "cpu" },{ route: "settings", label: "Settings", icon: "settings" }] });
   const shut = navClosed();
-  const item = (it) => `<a class="nav-item" href="#/${esc(it.route)}" data-route="${esc(it.route)}">${icon(it.icon)}<span>${esc(it.label)}</span>${it.count ? '<span class="nav-count"></span>' : ""}</a>`;
+  const item = (it) => `<a class="nav-item" href="#/${esc(it.route)}" data-route="${esc(it.route)}">${icon(it.icon)}<span>${esc(it.label)}</span>${it.count ? `<span class="nav-count"${it.feed ? " data-feed" : ""}></span>` : ""}</a>`;
   $("#nav").innerHTML = groups
     .map((g) =>
       g.label
@@ -1002,10 +1024,10 @@ function toggleNavSection(sec, open) {
 function setNavCount(id, n) {
   const el = $(`.nav-item[data-route="scan/${id}"] .nav-count`);
   if (el) el.textContent = fmt.int(n);
-  // A folded section shows the open findings of its scans together.
+  // A folded section shows the open findings of its scans together (a news feed's item count is not one).
   const sec = el && el.closest(".nav-section");
   if (sec) {
-    const total = [...sec.querySelectorAll(".nav-count")].reduce((sum, c) => sum + (Number(c.textContent.replace(/\D/g, "")) || 0), 0);
+    const total = [...sec.querySelectorAll(".nav-count:not([data-feed])")].reduce((sum, c) => sum + (Number(c.textContent.replace(/\D/g, "")) || 0), 0);
     sec.querySelector(".nav-group-count").textContent = total ? fmt.int(total) : "";
   }
 }
@@ -1110,10 +1132,14 @@ function overviewSavingsList() {
 }
 function toolCard(tool) {
   const t = toolState(tool.id);
-  const n = t.data.findings.length;
+  const n = feedCountOf(tool, t) || 0;
+  const shownN = tool.feed ? Number.isFinite(t.feedCount) : t.loaded;
+  const countText = shownN ? fmt.int(n) : tool.feed && t.feedCount === null ? "–" : "…";
   const last = t.history[t.history.length - 1];
   const kinds = Object.entries(countKinds(t.data.findings)).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  const delta = last
+  const delta = tool.feed
+    ? `<span>From Microsoft's public feed</span>`
+    : last
     ? `<span class="${last.added ? "bad" : ""}">+${fmt.int(last.added)} new</span><span class="${last.resolved ? "good" : ""}">−${fmt.int(last.resolved)} resolved</span>`
     : `<span>No runs yet</span>`;
   const foot = t.error
@@ -1121,9 +1147,9 @@ function toolCard(tool) {
     : `<span>${t.data.ranAt ? "Ran " + esc(fmt.rel(t.data.ranAt)) : "Never run"}</span><span>${t.accepted.length ? fmt.int(t.accepted.length) + " accepted · " : ""}${t.history.length ? fmt.int(t.history.length) + " runs" : ""}</span>`;
   return `<a class="tool-card" href="#/scan/${esc(tool.id)}">
     <div class="tc-head">${icon(tool.icon)}<span>${esc(tool.label)}</span></div>
-    <div class="tc-count"><span class="${n ? "" : "zero"}">${t.loaded ? fmt.int(n) : "…"}</span><small>${tool.id === "architecture" ? "drawing" : tool.feed ? "news feed" : tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
+    <div class="tc-count"><span class="${n ? "" : "zero"}">${countText}</span><small>${tool.id === "architecture" ? "drawing" : tool.feed ? `item${n === 1 ? "" : "s"}` : tool.info ? `change${n === 1 ? "" : "s"}` : `open finding${n === 1 ? "" : "s"}`}</small></div>
     <div class="tc-delta">${delta}</div>
-    <div class="tc-spark" data-spark="${esc(tool.id)}"></div>
+    <div class="tc-spark"${tool.feed ? "" : ` data-spark="${esc(tool.id)}"`}></div>
     <div class="tc-kinds">${kinds.map(([k, c]) => `${kindBadge(k).replace("</span>", ` ${fmt.int(c)}</span>`)}`).join("")}</div>
     <div class="tc-foot">${foot}</div>
   </a>`;

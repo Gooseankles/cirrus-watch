@@ -215,6 +215,8 @@ function registerRoutes(app, { readKeys }) {
     try {
       const keys = readKeys(req);
       if (!keys.length) return res.status(403).json({ error: "needs a role that can see this scan" });
+      // ?count=1: only how many items the list has, for the menu and the overview card (no in-use lookups).
+      if (req.query.count) return res.json({ count: feeds.kept("azure").items.length });
       res.json(await view(keys));
     } catch (err) {
       res.status(500).json({ error: err.message });

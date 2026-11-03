@@ -64,6 +64,15 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.70.2.0] - 2026-11-03
+
+### Fixed
+
+- Azure news and Microsoft 365 roadmap showed 0 in the menu and on the overview card, since they make no findings.
+  Both now show how many items the list has (`GET /api/azure-updates?count=1` and `/api/m365-roadmap?count=1`),
+  the card says where the list comes from instead of "+0 new −0 resolved", and the Upcoming section's folded total
+  still counts only open findings.
+
 ## [0.70.1.0] - 2026-11-03
 
 ### Fixed

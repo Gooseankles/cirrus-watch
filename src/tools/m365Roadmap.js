@@ -17,6 +17,8 @@ function registerRoutes(app, { readKeys }) {
     try {
       if (!readKeys(req).length) return res.status(403).json({ error: "needs a role that can see this scan" });
       const feed = feeds.kept("m365");
+      // ?count=1: only how many items the list has, for the menu and the overview card.
+      if (req.query.count) return res.json({ count: feed.items.length });
       res.json({ fetchedAt: feed.fetchedAt, note: feed.note, days: feeds.M365_LAUNCHED_DAYS, items: feed.items });
     } catch (err) {
       res.status(500).json({ error: err.message });

@@ -245,8 +245,8 @@ Adding a tool touches: `src/tools/<tool>.js`, `server.js` (register), `src/toolP
 | `GET /api/report?month=` | signed in | Monthly report |
 | `GET /api/cost/history[/<sub>]` | signed in | Cost history |
 | `GET /api/certificates` | Anyone who may see the Certificates scan | Every certificate the last scan saw (In use) and every application gateway with its addresses, listeners and live checks (Application gateways), for the tenants the person sees |
-| `GET /api/azure-updates` | Anyone who may see the Azure news scan | The kept Azure news, with In use marks from the tenants the person sees |
-| `GET /api/m365-roadmap` | Anyone who may see the Microsoft 365 roadmap scan | The kept Microsoft 365 roadmap (the same list for every tenant) |
+| `GET /api/azure-updates` | Anyone who may see the Azure news scan | The kept Azure news, with In use marks from the tenants the person sees; `?count=1` answers only `{ count }` (the menu and the overview card) |
+| `GET /api/m365-roadmap` | Anyone who may see the Microsoft 365 roadmap scan | The kept Microsoft 365 roadmap (the same list for every tenant); `?count=1` answers only `{ count }` |
 | `GET/POST /api/settings`, `/api/tenants` | Admin | Settings and customer tenants (secrets go to the vault) |
 | `POST /api/tenants/<key>/remove` | Admin | Delete a customer tenant and everything held for it (the body repeats the key); the reply lists what was deleted and what failed |
 | `POST /api/tenants/<key>/restore`, `DELETE /api/tenants/<key>` | Admin | Undo a removed Terraform tenant (its data stays deleted); drop a Terraform tenant's Settings changes |

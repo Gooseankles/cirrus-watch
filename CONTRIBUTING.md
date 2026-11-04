@@ -98,10 +98,14 @@ pages (the content security policy blocks them).
   or its triggers change.
 - **CodeQL** (`.github/workflows/codeql.yml`) scans the JavaScript and the workflows on every push and weekly;
   findings go to the Security tab.
-- **Required checks on `main`**: `build-and-push`, `analyze (javascript-typescript)` and `analyze (actions)`. A pull
-  request cannot merge until they pass. Admins are not held to them (the release pushes go straight to `main`); turn
-  on "Do not allow bypassing" in branch protection if that changes. Rename a job and the branch protection list must
-  follow, or every pull request waits for a check that never comes.
+- **Every change is a pull request**: `main` takes no direct pushes, admins included. Work on a branch
+  (`feature/...`, `fix/...`, `docs/...`), open a pull request and merge it with squash or rebase (merge commits are
+  off, so the history stays linear); the branch is deleted on merge. Required checks: `build-and-push`,
+  `analyze (javascript-typescript)`, `analyze (actions)`, `Generated docs match the code` and `Markdown style`. The
+  branch must be up to date with `main` and every conversation resolved before the merge button works; no approval
+  is required (one maintainer cannot approve their own work). Rename a job and the branch protection list must
+  follow, or every pull request waits for a check that never comes. The settings are classic branch protection on
+  `main`, read with `gh api repos/Gooseankles/cirrus-watch/branches/main/protection`.
 - **Stack report** (`.github/workflows/stack-report.yml`, Mondays, or Run workflow by hand) checks every part the
   dashboard is built on, the version in use against the newest, with the release notes in between (breaking changes,
   deprecations and security fixes marked at the top of each). It keeps one open issue labelled `stack-report` up to

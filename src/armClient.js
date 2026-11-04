@@ -82,7 +82,18 @@ function requestIds(clientRequestId, response) {
 
 // One request to ARM or the Logs Query API, with a fresh GUID per request
 // (the same on every try) in x-ms-client-request-id.
+// The only hosts a token from here is sent to: Resource Manager and Log Analytics. A nextLink or a
+// subscription id from settings cannot point the request (and its bearer token) anywhere else.
+const ALLOWED_HOSTS = new Set(["management.azure.com", "api.loganalytics.azure.com"]);
+
 async function azureRequest(method, url, data, toolId, { scope = ARM_SCOPE, label = "ARM request" } = {}) {
+  let host;
+  try {
+    host = new URL(url).host;
+  } catch {
+    throw new Error(`${label}: not a URL: ${String(url).slice(0, 200)}`);
+  }
+  if (!ALLOWED_HOSTS.has(host)) throw new Error(`${label}: refused, ${host} is not an Azure Resource Manager or Log Analytics host`);
   const clientRequestId = crypto.randomUUID();
   const startedAt = Date.now();
   let response;
@@ -304,4 +315,5 @@ module.exports = {
   configuredSubscriptionIds,
   subscriptionIdsToScan,
   excludedSubscriptionIds,
+  _test: { allowedHosts: ALLOWED_HOSTS },
 };

@@ -37,6 +37,11 @@ const alertWorkspacesSetting = () => String(settings.get("AZURE_MONITOR_ALERT_WO
 const low = (s) => String(s || "").toLowerCase();
 const subOf = (id) => (low(id).match(/^\/subscriptions\/([^/]+)/) || [])[1] || "";
 const arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+// A loop, not /\/+$/: that regex takes quadratic time on a long run of slashes.
+const trimSlash = (s) => {
+  while (s.endsWith("/")) s = s.slice(0, -1);
+  return s;
+};
 
 /* ---------- machines ---------- */
 
@@ -164,13 +169,13 @@ const WORKSPACE_RE = /\/providers\/microsoft\.operationalinsights\/workspaces\/[
 // from the rules. source: "setting", "rules", or null when no enabled log alert rule exists.
 function alertReach(rules, override = "") {
   const log = rules.filter((r) => r.kind === "Log" && r.enabled && low(r.ruleKind) !== "logtometric");
-  const named = String(override || "").split(",").map((x) => low(x.trim()).replace(/\/+$/, "")).filter(Boolean);
+  const named = String(override || "").split(",").map((x) => trimSlash(low(x.trim()))).filter(Boolean);
   const ids = new Set();
   const names = new Set();
   const scopes = [];
   for (const r of log) {
     for (const raw of r.scopes) {
-      const s = low(raw).replace(/\/+$/, "");
+      const s = trimSlash(low(raw));
       if (WORKSPACE_RE.test(s)) {
         if (!named.length) ids.add(s);
       } else if (s) scopes.push({ scope: s, types: arr(r.targetTypes).map(low) });

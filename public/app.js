@@ -1060,7 +1060,7 @@ function showOverview() {
         <div class="page-actions"><div class="last-run" id="ov-updated"></div></div>
       </div>
       <div class="stat-row" id="ov-stats"></div>
-      <div class="section-title"><h2>Scans</h2><span class="muted small">Click a card to open the scan</span></div>
+      <div class="section-title"><h2>Scans</h2><span class="muted small">Worst first · click a card to open the scan</span></div>
       <div class="tool-grid" id="ov-tools"></div>
       <div class="overview-grid">
         <div class="card" id="ov-cost"></div>
@@ -1097,13 +1097,33 @@ function renderOverview() {
     statTile({ label: "Resolved in latest runs", value: fmt.int(resolved), deltaCls: resolved ? "good" : "", delta: resolved ? "gone since the run before" : "no change" }) +
     statTile({ label: "Scan health", value: `${tools.length - errors - neverRan} / ${tools.length}`, deltaCls: errors ? "bad" : "", delta: errors ? `${errors} failed to load` : neverRan ? `${neverRan} never run` : "all scans have results" }) +
     overviewSavedTile();
-  $("#ov-tools").innerHTML = tools.map(toolCard).join("");
+  $("#ov-tools").innerHTML = bySeverity(tools).map(toolCard).join("");
   for (const el of $$("#ov-tools [data-spark]")) {
     const t = toolState(el.dataset.spark);
     Charts.sparkline(el, t.history.slice(-12).map((h) => h.count));
   }
   renderOverviewCost();
   renderActivity();
+}
+// Worst scans first: most critical findings, then most warnings, then most open
+// findings; ties keep the menu order. News feeds and the change log hold no
+// problems, so they count as empty.
+function bySeverity(tools) {
+  const rank = (tool) => {
+    const t = toolState(tool.id);
+    const r = { crit: 0, warn: 0, open: 0 };
+    if (tool.feed || tool.info || !t.loaded) return r;
+    for (const f of t.data.findings) {
+      const sev = kindSev(f.kind);
+      if (sev === "crit") r.crit++;
+      else if (sev === "warn") r.warn++;
+    }
+    r.open = t.data.findings.length;
+    return r;
+  };
+  const ranked = tools.map((tool, i) => ({ tool, i, r: rank(tool) }));
+  ranked.sort((a, b) => b.r.crit - a.r.crit || b.r.warn - a.r.warn || b.r.open - a.r.open || a.i - b.i);
+  return ranked.map((x) => x.tool);
 }
 // Savings done by cleaning up orphaned resources (the "Cleaned up" list of that scan).
 function overviewSavings() {
@@ -1136,7 +1156,7 @@ function toolCard(tool) {
   const shownN = tool.feed ? Number.isFinite(t.feedCount) : t.loaded;
   const countText = shownN ? fmt.int(n) : tool.feed && t.feedCount === null ? "–" : "…";
   const last = t.history[t.history.length - 1];
-  const kinds = Object.entries(countKinds(t.data.findings)).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const kinds = Object.entries(countKinds(t.data.findings)).sort((a, b) => (SEV_ORDER[kindSev(a[0])] ?? 3) - (SEV_ORDER[kindSev(b[0])] ?? 3) || b[1] - a[1]).slice(0, 3);
   const delta = tool.feed
     ? `<span>From Microsoft's public feed</span>`
     : last

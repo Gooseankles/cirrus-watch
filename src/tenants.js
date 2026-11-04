@@ -275,7 +275,7 @@ function forget(key, by) {
 function restore(key) {
   const k = String(key || "").toLowerCase();
   const removed = readRemoved();
-  if (!removed[k]) throw new Error("no such removed tenant");
+  if (!Object.hasOwn(removed, k)) throw new Error("no such removed tenant");
   delete removed[k];
   writeRemoved(removed);
   return listForSettings();

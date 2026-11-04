@@ -64,6 +64,25 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.70.5.0] - 2026-11-04
+
+### Changed
+
+- The overview shows the scans with the most critical findings first, then the most warnings, then the most open
+  findings; ties keep the menu order. The kind badges on each card are listed worst first too.
+
+### Security
+
+- Hardening from the CodeQL code scanning alerts (none could be used from outside):
+  - Requests with the Resource Manager or Log Analytics token go only to `management.azure.com` and
+    `api.loganalytics.azure.com`; any other host is refused before the request.
+  - Subscriptions to scan (`AZURE_SUBSCRIPTION_IDS`) must be subscription IDs (GUIDs) when saved in Settings.
+  - A failed sign-in logs the request ID header with only ID characters, and never as the format string.
+  - The secret expiry check for GitHub federated credentials matches the issuer exactly.
+  - Azure Monitor trims trailing slashes without a regular expression that slows down on long input.
+  - Restoring a removed tenant only accepts a key that was really removed.
+  - Removing a tenant's log lines no longer checks that the log exists before reading it.
+
 ## [0.70.4.0] - 2026-11-04
 
 ### Fixed

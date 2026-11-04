@@ -80,7 +80,7 @@ function judgeHygiene(app, { maxSecretDays = 365, now = Date.now() } = {}) {
 function judgeFederated(app, fics) {
   const broad = (fics || []).filter((f) => {
     const subject = String(f.subject || "");
-    return subject.includes("*") || (/token\.actions\.githubusercontent\.com/i.test(f.issuer || "") && /:pull_request$/i.test(subject));
+    return subject.includes("*") || (/^https:\/\/token\.actions\.githubusercontent\.com\/?$/i.test(f.issuer || "") && /:pull_request$/i.test(subject));
   });
   if (!broad.length) return [];
   const list = broad.slice(0, MAX_NAMED).map((f) => `${f.name || "unnamed"} (${f.subject})`).join(", ") + (broad.length > MAX_NAMED ? ` and ${broad.length - MAX_NAMED} more` : "");

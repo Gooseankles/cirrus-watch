@@ -26,6 +26,7 @@ before(async () => {
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${server.address().port}`;
+  require("../src/armClient")._test.allowedHosts.add(new URL(base).host); // only Azure hosts are allowed outside tests
 });
 after(() => {
   server.closeAllConnections();

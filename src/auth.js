@@ -110,8 +110,9 @@ async function startLogin(req, res) {
 // under a short reference, and the browser gets a plain sentence with that reference.
 function signInError(req, res, what, err) {
   const ref = crypto.randomBytes(4).toString("hex");
-  const upstream = req.get && (req.get("x-arr-log-id") || req.get("x-ms-request-id"));
-  console.error(`SSO: ${what.toLowerCase()} (ref ${ref}${upstream ? `, request ${String(upstream).slice(0, 64)}` : ""}${err && err.correlationId ? `, correlation ${err.correlationId}` : ""}):`, err);
+  // The header comes from the request, so only id characters go into the log, and never as the format string.
+  const upstream = String((req.get && (req.get("x-arr-log-id") || req.get("x-ms-request-id"))) || "").replace(/[^\w.-]/g, "").slice(0, 64);
+  console.error("%s", `SSO: ${what.toLowerCase()} (ref ${ref}${upstream ? `, request ${upstream}` : ""}${err && err.correlationId ? `, correlation ${err.correlationId}` : ""}):`, err);
   res.status(500).type("text/plain").send(`${what}. Try again; if it keeps failing, ask an admin to look for reference ${ref} in the server log.`);
 }
 

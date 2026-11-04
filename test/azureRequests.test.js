@@ -38,6 +38,7 @@ before(async () => {
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${server.address().port}`;
+  arm._test.allowedHosts.add(new URL(base).host); // only Azure hosts are allowed outside tests
 });
 after(() => {
   server.closeAllConnections();
@@ -159,5 +160,14 @@ test("Resource Graph: resultFormat objectArray in the body, kept beside $skipTok
     assert.deepEqual(calls[0].data.options, { resultFormat: "objectArray", $top: 1000 });
     assert.deepEqual(calls[1].data.options, { resultFormat: "objectArray", $top: 1000, $skipToken: "next" });
     assert.deepEqual(calls[0].data.subscriptions, ["s1"]);
+  });
+});
+
+test("a token goes only to Resource Manager or Log Analytics: any other host is refused before a request", async () => {
+  await withAxios(() => ({ status: 200, headers: {}, data: {} }), async (calls) => {
+    await assert.rejects(arm.armGet("https://evil.example.com/subscriptions?api-version=2022-12-01"), /refused, evil\.example\.com/);
+    await assert.rejects(arm.armGet("https://management.azure.com.evil.example/x"), /refused/);
+    await assert.rejects(arm.armGet("not a url"), /not a URL/);
+    assert.equal(calls.length, 0);
   });
 });

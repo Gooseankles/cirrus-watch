@@ -38,7 +38,7 @@ const FIELDS = [
   { key: "AZURE_CLIENT_SECRET", label: "Client secret", group: "Azure service principal (shared)", secret: true, authOnly: SECRET_ONLY },
   { key: "AZURE_TENANT_ID", label: "Tenant ID", group: "Azure service principal (shared)", authOnly: NEEDS_TENANT },
   { key: "AZURE_FEDERATED_MI_CLIENT_ID", label: "Managed identity it trusts", group: "Azure service principal (shared)", authOnly: FEDERATED_ONLY, hint: "Client ID of the user-assigned identity in the app registration's federated credential; blank = DASHBOARD_FEDERATED_MI_CLIENT_ID" },
-  { key: "AZURE_SUBSCRIPTION_IDS", label: "Subscriptions to scan", group: "Azure service principal (shared)", hint: "Comma-separated subscription IDs; blank = every subscription the SPN can see" },
+  { key: "AZURE_SUBSCRIPTION_IDS", label: "Subscriptions to scan", group: "Azure service principal (shared)", pattern: /^[0-9a-fA-F-]{36}(\s*,\s*[0-9a-fA-F-]{36})*$/, patternError: "must be subscription IDs (GUIDs), comma-separated", hint: "Comma-separated subscription IDs; blank = every subscription the SPN can see" },
 
   { key: "HOME_TENANT_NAME", label: "Name of this tenant", group: "Home tenant", hint: "Shown next to its findings when customer tenants are added (Customer tenants below); blank = Home. Its role values are Admin-home and User-home" },
   { key: "HOME_TENANT_SCAN", label: "Scan this tenant", group: "Home tenant", options: [{ value: "on", label: "Yes" }, { value: "off", label: "No, only the customer tenants" }], defaultValue: "on" },

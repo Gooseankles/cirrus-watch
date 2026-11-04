@@ -57,8 +57,15 @@ function readAll({ limit = 200, tool, tenants, exclude, filter } = {}) {
 // A removed customer's lines go too (its key in `tenant`). Lines without a
 // tenant, or that name another one, stay. Returns how many went.
 function dropTenant(key) {
-  if (!key || !fs.existsSync(LOG_FILE)) return 0;
-  const lines = fs.readFileSync(LOG_FILE, "utf8").split("\n").filter(Boolean);
+  if (!key) return 0;
+  let text;
+  try {
+    text = fs.readFileSync(LOG_FILE, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return 0;
+    throw err;
+  }
+  const lines = text.split("\n").filter(Boolean);
   const keep = lines.filter((l) => {
     try {
       return JSON.parse(l).tenant !== key;

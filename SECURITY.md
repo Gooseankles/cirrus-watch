@@ -36,7 +36,9 @@ to the tenant.
   option is `app_private_endpoint`: the site's access restrictions deny every network, so it is reached only through
   the VNet (VPN, ExpressRoute or peering) and any addresses you allow.
 - **The app's own identity:** grant only what the scans need (Reader, Cost Management Reader and the Graph
-  read permissions in [docs/permissions.md](docs/permissions.md)). It needs no write rights anywhere.
+  read permissions in [docs/permissions.md](docs/permissions.md)). It needs no write rights anywhere. Its Azure
+  Resource Manager token is only ever sent to `management.azure.com` and its Log Analytics token to
+  `api.loganalytics.azure.com`; a request to any other host is refused before it is made.
 - **Updates:** run the `stable` image and update it regularly. Every image is scanned by Trivy before it is pushed,
   the image is rebuilt every week for new Alpine and Node fixes, and CodeQL checks the code on every push. Each
   pushed image carries an SBOM and build provenance (`docker buildx imagetools inspect`), and the workflows pin

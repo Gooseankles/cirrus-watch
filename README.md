@@ -36,7 +36,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Diagnostic settings](docs/tools.md#diagnostic-settings) | Daily | Resources and subscriptions whose logs go nowhere, and missing flow logs. |
 | [Quotas](docs/tools.md#quotas) | Daily | Compute, network and storage quotas close to their limit. |
 | [IP addresses](docs/tools.md#ip-addresses) | Daily | Address space use, overlaps and free ranges (the IPAM page), and firewall IP groups. |
-| [Architecture](docs/tools.md#architecture) | Daily | A drawing of VNets, subnets and resources, with the traffic each VM can send (for information). |
+| [Architecture](docs/tools.md#architecture) | Daily | A drawing of VNets, subnets and resources, with the traffic each VM can send and the firewall openings to on-premises and the Internet (for information). |
 | [Firewall policies](docs/tools.md#firewall-policies) | Daily | Every firewall rule in the order it is checked, the rules that are wrong or redundant, and a reach map per VM or IP. |
 | [Change log](docs/tools.md#change-log) | Daily | What was created, changed or deleted in the last 24 hours (for information). |
 | [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected. |

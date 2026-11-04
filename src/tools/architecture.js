@@ -12,6 +12,7 @@
 // Microsoft Graph adds the sign-in tiles.
 const store = require("../findingsStore");
 const flows = require("./trafficFlow");
+const openings = require("./firewallOpenings");
 const tenants = require("../tenants");
 const { resourceGraphQuery } = require("../armClient");
 const { graphGetAll } = require("../graphClient");
@@ -391,6 +392,18 @@ async function trafficLines(keys, body) {
   };
 }
 
+// The firewall openings of one tenant: what the Azure Firewall rules let through to on-premises sites and the
+// Internet, for the tiles and lines on the drawing. Works from the saved network, firewall rules and inventory.
+async function firewallOpenings(keys, body) {
+  const tenant = String(body.tenant || "");
+  if (!keys.includes(tenant)) return { status: 404, error: "Unknown tenant" };
+  const saved = await savedNetwork(tenant);
+  if (!saved.net) return { firewalls: [], targets: [], notes: [], missing: "Run the Architecture scan again: the saved drawing is older than the firewall openings" };
+  if (!saved.fw) return { firewalls: [], targets: [], notes: [], note: "Firewall rules are not saved: run the Firewall policies scan to draw the firewall openings" };
+  const inv = (await store.getDoc(INVENTORY_KEY, tenant)) || {};
+  return openings.compute({ net: saved.net, fw: saved.fw, inv });
+}
+
 async function inventory(keys) {
   const out = { updatedAt: null, tenants: [], resources: [], vnets: [], groups: [], subscriptions: [], sites: [], connections: [], access: [], signIns: [], unread: [], truncated: false, failures: [] };
   for (const k of keys) {
@@ -430,6 +443,15 @@ function registerRoutes(app, { readKeys }) {
       res.status(500).json({ error: err.message });
     }
   });
+  app.post("/api/architecture/openings", async (req, res) => {
+    try {
+      const out = await firewallOpenings(readKeys(req), req.body || {});
+      if (out.error) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
 
 module.exports = {
@@ -439,5 +461,5 @@ module.exports = {
   info: true,
   run,
   registerRoutes,
-  _test: { build, buildNetwork, trafficLines, parentOf, identityLinks },
+  _test: { build, buildNetwork, trafficLines, firewallOpenings, parentOf, identityLinks },
 };

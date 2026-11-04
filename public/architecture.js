@@ -223,6 +223,7 @@
       flowColor: saved.flowColor === "state" ? "state" : "vm",
       flowSame: !!saved.flowSame,
       fwVms: saved.fwVms !== false,
+      openings: saved.openings !== false,
       pick: new Set(Array.isArray(store.get("pick")) ? store.get("pick") : []),
       hide: new Set(Array.isArray(store.get("hide")) ? store.get("hide") : []),
       openRg: new Set(),
@@ -238,7 +239,7 @@
     store.set("scope", [...o.scope]);
     store.set("pick", [...o.pick]);
     store.set("hide", [...o.hide]);
-    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, idLinks: o.idLinks, signIn: o.signIn, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor, flowSame: o.flowSame, fwVms: o.fwVms });
+    store.set("opts", { layout: o.layout, cats: [...o.cats], subs: o.subs, peerings: o.peerings, onprem: o.onprem, publicIps: o.publicIps, peLinks: o.peLinks, idLinks: o.idLinks, signIn: o.signIn, wholeVnets: o.wholeVnets, grouped: o.grouped, traffic: o.traffic, ports: o.ports, dir: o.dir, flowBlocked: o.flowBlocked, flowColor: o.flowColor, flowSame: o.flowSame, fwVms: o.fwVms, openings: o.openings });
   }
 
   /* --- traffic lines: can the picked tile talk to the others on these ports? --- */
@@ -401,6 +402,40 @@
   // Coloured by VM the result shows in the line: solid gets through, dashed some ports, dotted blocked or unknown.
   const FLOW_DASH = { allow: "", part: "9 4", deny: "2 4", unknown: "1 5" };
 
+  /* --- firewall openings: what the Azure Firewall rules let through to on-premises sites and the Internet --- */
+  // One answer per tenant, asked once per scan run (the page draws again when it comes). Each target becomes a tile:
+  // an on-premises address under its site, with a line from the gateway that carries it; an Internet address, name,
+  // service tag or web category in an Internet box, with a line from the firewall.
+  function openingsFor(t, inv) {
+    const key = `${t.data.ranAt}|${inv.tenants.map((x) => x.key).join(",")}`;
+    const c = t.archOpen;
+    if (c && c.key === key) return c;
+    if (t.archOpenAsk !== key) {
+      t.archOpenAsk = key;
+      t.archOpen = { key, loading: true };
+      Promise.all(inv.tenants.map((x) => postJson("/api/architecture/openings", { tenant: x.key }).then((r) => [x.key, r]).catch((err) => [x.key, { error: err.message }])))
+        .then((rs) => {
+          const notes = [];
+          for (const [k, r] of rs) {
+            const who = inv.tenants.length > 1 ? `${inv.tenantName.get(k) || k}: ` : "";
+            for (const x of [r.error, r.missing, r.note, ...(r.notes || [])]) if (x) notes.push(who + x);
+          }
+          return { key, byTenant: new Map(rs), notes, count: rs.reduce((n, [, r]) => n + (r.targets || []).length, 0) };
+        })
+        .then((r) => {
+          if (t.archOpenAsk !== key) return;
+          t.archOpen = r;
+          t.archOpenAsk = null;
+          rerender();
+        });
+    }
+    return t.archOpen;
+  }
+  const OPEN_KIND = { ip: ["IP", "Address"], group: ["GRP", "IP group"], fqdn: ["FQDN", "Name"], url: ["URL", "Web address"], tag: ["TAG", "Service tag"], category: ["CAT", "Web category"], any: ["ANY", "Any address"], anyfqdn: ["ANY", "Any name"] };
+  const OPEN_DIR = { out: "out of Azure", in: "into Azure", both: "both ways" };
+  const isAnyOpen = (tg) => tg.kind === "any" || tg.kind === "anyfqdn";
+  const MAX_OPEN_TILES = 48; // per site box and per Internet box; the rest become one "N more" tile
+
   /* --- the model: a tree of boxes and resources, plus the lines between them --- */
   const LW = 196, LH = 46, GAP = 14, PAD = 12;
   const box = (key, kind, label, sub, extra = {}) => ({ key, kind, label, sub, tags: [], children: [], ...extra });
@@ -479,9 +514,9 @@
       const inSubnet = (r) => r.subnet && inv.subnetById.get(r.subnet);
       // A VNet picked through its own resource group comes whole, with what sits in it from elsewhere.
       const extra = inv.resources.filter((r) => show(r) && !picked(r) && !hidden(r) && inSubnet(r) && whole.has(inv.subnetById.get(r.subnet).v.id));
-      for (const r of [...resources, ...extra]) {
-        if (r.type === "microsoft.network/virtualnetworks") continue; // drawn as its box
-        if (o.onprem && isSite(r)) continue; // drawn in the on-premises box
+      const put = (r) => {
+        if (r.type === "microsoft.network/virtualnetworks") return; // drawn as its box
+        if (o.onprem && isSite(r)) return; // drawn in the on-premises box
         const at = inSubnet(r);
         if (at) {
           const l = leaf(r);
@@ -498,6 +533,23 @@
         }
         placed.push(r);
         leaves++;
+      };
+      for (const r of [...resources, ...extra]) put(r);
+      // Firewall openings: the gateway that carries an opening is drawn (as context) even when its group is not
+      // picked, so the line has somewhere to start. The firewall whose rule it is must be on the drawing already.
+      const open = o.openings && o.openData && o.openData.byTenant ? o.openData : null;
+      const fwDrawn = (tg, drawnIds) => (tg.firewalls || [tg.firewall]).find((id) => drawnIds.has(id));
+      if (open) {
+        const drawnIds = new Set(placed.map((r) => r.id));
+        for (const res of open.byTenant.values()) {
+          for (const tg of res.targets || []) {
+            if (tg.side !== "onprem" || !tg.gateway || drawnIds.has(tg.gateway) || !fwDrawn(tg, drawnIds)) continue;
+            const gw = inv.byId.get(tg.gateway);
+            if (!gw || hidden(gw) || !inSubnet(gw)) continue;
+            put(gw);
+            drawnIds.add(gw.id);
+          }
+        }
       }
       // Whole VNets: every subnet, empty ones too, and the network itself even with nothing in it.
       for (const v of inv.vnets) {
@@ -525,6 +577,8 @@
       }
       if (o.layout === "hubs") for (const t of roots.values()) findHubs(t);
       // On-premises: sites connected to a gateway that is on the drawing.
+      const onpremBoxes = new Map(); // tenant -> box
+      const siteDrawn = new Set(); // sites with a tile (a hop on the way to an on-premises opening)
       if (o.onprem) {
         const drawnIds = new Set(placed.map((r) => r.id));
         const sites = new Map();
@@ -537,7 +591,7 @@
         }
         // Picked sites with no drawn gateway still show.
         for (const r of resources) if (isSite(r)) sites.set(r.id, r);
-        const byTenant = new Map();
+        const byTenant = onpremBoxes;
         for (const s of sites.values()) {
           if (!byTenant.has(s.tenant)) {
             byTenant.set(s.tenant, box(`onprem:${s.tenant}`, "onprem", "On-premises and other networks", "", { prio: -10000 }));
@@ -547,7 +601,138 @@
           const l = leaf(s);
           if (site) l.sub = site.type === "microsoft.network/expressroutecircuits" ? `ExpressRoute${site.provider ? " · " + site.provider : ""}` : site.prefixes.join(", ") || s.t.label;
           byTenant.get(s.tenant).children.push(l);
+          siteDrawn.add(s.id);
           leaves++;
+        }
+      }
+      // Firewall openings: a tile per address, name or group the rules let through, under its site or in an Internet
+      // box, and the traffic's path hop by hop: the VM, subnet or VNet the rule names → the firewall → the gateway →
+      // the site → the address (Internet: the VM → the firewall → the name). Hops that several openings share are one
+      // line with a count. "*" rules get a red "Any address" tile.
+      if (open) {
+        const drawnIds = new Set(placed.map((r) => r.id));
+        const nodeKey = (id) => (drawnIds.has(id) || subnetBoxes.has(id) || vnetBoxes.has(id) ? id : null);
+        const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+        const vpnLinks = new Map(links.filter((l) => l.kind === "vpn").map((l) => [pairKey(l.a, l.b), l]));
+        const segs = new Map(), tileTitle = new Map();
+        // One hop of one opening's path. The same two ends from several openings merge into one line; a hop shared by
+        // openings to both sides turns grey; the gateway–site hop is the connection line that is drawn already.
+        const seg = (a, b, kind, tg, keys, rev, both) => {
+          const [x, y] = rev ? [b, a] : [a, b];
+          const k = pairKey(x, y);
+          const v = vpnLinks.get(k);
+          if (v) {
+            v.on = [...new Set([...(v.on || []), ...keys])];
+            return;
+          }
+          let s = segs.get(k);
+          if (!s) {
+            s = { a: x, b: y, kind, both, on: new Set(), tgs: new Map() };
+            segs.set(k, s);
+          } else {
+            if (s.a !== x || both) s.both = true;
+            if (s.kind !== kind) s.kind = "open-path";
+          }
+          for (const key of keys) s.on.add(key);
+          s.tgs.set(tg.key, tg);
+        };
+        for (const [tenant, res] of open.byTenant) {
+          if (!res || !res.targets || !res.targets.length) continue;
+          const siteBoxes = new Map(), more = new Map();
+          let inet = null;
+          const internetBox = () => {
+            if (!inet) {
+              inet = box(`internet:${tenant}`, "internet", "Internet", "", { prio: -9000 });
+              tenantBox(tenant).children.push(inet);
+            }
+            return inet;
+          };
+          const siteOf = (id) => inv.sites.find((s) => s.id === id) || inv.byId.get(id);
+          const siteBox = (tg) => {
+            const op = onpremBoxes.get(tenant);
+            if (!op) return null;
+            const key = `site:${tg.site || `gw:${tg.gateway}`}`;
+            if (!siteBoxes.has(key)) {
+              const site = tg.site && siteOf(tg.site);
+              const b = box(key, "site", site ? site.name : "Site not known", site ? (site.prefixes || []).join(", ") : "no site's address space holds these addresses");
+              // The site's own tile moves in, at the top of its box.
+              const i = op.children.findIndex((c) => c.key === tg.site);
+              if (i >= 0) b.children.push(op.children.splice(i, 1)[0]);
+              op.children.push(b);
+              siteBoxes.set(key, b);
+            }
+            return siteBoxes.get(key);
+          };
+          const sorted = [...res.targets].sort((a, b) => (isAnyOpen(a) ? 0 : 1) - (isAnyOpen(b) ? 0 : 1) || String(a.label).localeCompare(String(b.label)));
+          for (const tg of sorted) {
+            const fwId = fwDrawn(tg, drawnIds);
+            if (!fwId) continue;
+            let parent, from;
+            if (tg.side === "onprem") {
+              if (!o.onprem || !tg.gateway || !drawnIds.has(tg.gateway)) continue;
+              parent = siteBox(tg);
+              from = tg.gateway;
+            } else {
+              parent = internetBox();
+              from = fwId;
+            }
+            if (!parent) continue;
+            const n = parent.children.filter((c) => c.open).length;
+            if (n >= MAX_OPEN_TILES) {
+              const m = more.get(parent.key) || { key: `${parent.key}|more`, leaf: true, more: 0, r: { id: `${parent.key}|more`, name: "", type: "open/more", tenant, resourceGroup: "", t: { abbr: "+", label: "More openings", cat: "network" } }, col: "--muted", sub: "openings not drawn" };
+              m.more++;
+              m.label = `${m.more} more`;
+              if (!more.has(parent.key)) (more.set(parent.key, m), parent.children.push(m));
+              continue;
+            }
+            const [abbr, word] = OPEN_KIND[tg.kind] || ["?", tg.kind];
+            const any = isAnyOpen(tg);
+            const fromName = nameOf(inv, from);
+            const site = tg.site && siteOf(tg.site);
+            const ports = (tg.ports || []).join("; ");
+            const r = { id: tg.key, name: tg.label, type: `open/${tg.kind}`, tenant, resourceGroup: "", t: { abbr, label: word, cat: "network" } };
+            const sub = tg.kind === "group" ? `${tg.addressCount} address${tg.addressCount === 1 ? "" : "es"} · ${ports}` : any && ports === "any protocol all ports" ? "everything, all ports" : ports;
+            // The path: Azure side → firewall → gateway → site → the address (reversed for traffic into Azure).
+            const siteKey = tg.side === "onprem" && tg.site && siteDrawn.has(tg.site) ? tg.site : null;
+            const hops = tg.side === "onprem" ? [fwId, tg.gateway, siteKey, tg.key].filter(Boolean) : [fwId, tg.key];
+            const inside = [...new Set((tg.from || []).map((f) => nodeKey(f.id)).filter(Boolean))];
+            // The firewall's own subnet and VNet are on the Azure side too, but a line from their edge to the
+            // firewall inside them says nothing: the path text still names them, the drawing leaves that hop out.
+            const fwSubnet = String((inv.byId.get(fwId) || {}).subnet || "").toLowerCase(), fwVnet = fwSubnet.split("/subnets/")[0];
+            const insideDrawn = inside.filter((k) => k !== fwSubnet && k !== fwVnet);
+            const fromText = [inside.length ? inside.map((k) => nameOf(inv, k)).join(", ") : "", tg.fromAny || (!inside.length && !(tg.from || []).length) ? "any Azure address" : "", tg.fromCount > (tg.from || []).length ? `${tg.fromCount - tg.from.length} more` : ""].filter(Boolean).join("; ");
+            const path = [fromText, ...hops.slice(0, -1).map((k) => nameOf(inv, k)), tg.label];
+            if (tg.dir === "in") path.reverse();
+            const way = path.join(tg.dir === "both" ? " ↔ " : " → ");
+            const rules = `${tg.ruleCount} firewall rule${tg.ruleCount === 1 ? "" : "s"}: ${tg.rules.slice(0, 5).map((x) => x.name).join(", ")}${tg.ruleCount > 5 ? "…" : ""}`;
+            const title = [
+              tg.label,
+              `${word}${tg.sub ? ` (${tg.sub})` : ""} · firewall opening ${OPEN_DIR[tg.dir] || tg.dir}`,
+              `path: ${way}`,
+              `ports: ${ports}`,
+              rules,
+              tg.addresses ? `addresses: ${tg.addresses.slice(0, 8).join(", ")}${tg.addressCount > 8 ? "…" : ""}` : "",
+              tg.owner ? `belongs to ${tg.owner} in Azure` : "",
+              tg.wide ? "also covers an Azure VNet" : "",
+              tg.siteGuess ? "no site's address space holds it: drawn under the only connected site" : "",
+              any ? '"*": every address' : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+            parent.children.push({ key: tg.key, leaf: true, r, label: tg.label, sub, title, open: tg, from, path, col: any ? "--critical-text" : tg.side === "onprem" ? "--warning" : "web", find: (tg.addresses || []).join(" ") });
+            leaves++;
+            tileTitle.set(tg.key, `${way}: ${ports}\n${rules}`);
+            const sideKind = tg.side === "onprem" ? "open-onprem" : "open-internet";
+            const rev = tg.dir === "in", both = tg.dir === "both";
+            const keys = [...inside, ...hops];
+            for (let i = 0; i + 1 < hops.length; i++) seg(hops[i], hops[i + 1], any && i + 2 === hops.length ? "open-any" : sideKind, tg, keys, rev, both);
+            for (const src of insideDrawn) seg(src, fwId, sideKind, tg, keys, rev, both);
+          }
+        }
+        for (const s of segs.values()) {
+          const tgs = [...s.tgs.values()];
+          const title = tgs.length === 1 ? tileTitle.get(tgs[0].key) : `${tgs.length} firewall openings on this hop: ${tgs.slice(0, 8).map((t) => t.label).join(", ")}${tgs.length > 8 ? "…" : ""}`;
+          links.push({ a: s.a, b: s.b, kind: s.kind, arrow: true, both: s.both, on: [...s.on], trunk: tgs.length, title });
         }
       }
       if (o.peLinks) {
@@ -632,6 +817,11 @@
         keep.push(c);
         continue;
       }
+      // Firewall opening tiles stay one by one: each has its own line.
+      if (c.open || c.more) {
+        keep.push(c);
+        continue;
+      }
       if (!byType.has(c.r.type)) byType.set(c.r.type, []);
       byType.get(c.r.type).push(c);
     }
@@ -671,13 +861,15 @@
     const BAND = GAP * 4;
     const used = new Set();
     const side = n.children.find((c) => c.kind === "onprem");
+    const inet = n.children.find((c) => c.kind === "internet");
     const clusters = n.hubs.map(({ hub, spokes }, i) => {
       const items = [];
       const left = i === 0 && side;
+      const right = i === 0 && inet;
       used.add(hub);
       // Rows of spokes about as wide as the hub row, but roughly square overall when there are many.
       const area = spokes.reduce((s, b) => s + (b.w + BAND) * (b.h + BAND), 0);
-      const T = Math.max(hub.w + (left ? left.w + BAND : 0), Math.sqrt(area) * 1.6);
+      const T = Math.max(hub.w + (left ? left.w + BAND : 0) + (right ? right.w + BAND : 0), Math.sqrt(area) * 1.6);
       const rows = [];
       for (const b of spokes) {
         used.add(b);
@@ -702,6 +894,11 @@
       if (left) {
         used.add(left);
         items.push([left, -hub.w / 2 - BAND - left.w, (hub.h - left.h) / 2]);
+      }
+      // The Internet box on the hub's right: the firewall's lines to it leave the hub on the other side from on-premises.
+      if (right) {
+        used.add(right);
+        items.push([right, hub.w / 2 + BAND, (hub.h - right.h) / 2]);
       }
       const x0 = Math.min(...items.map(([, x]) => x)), y0 = Math.min(...items.map(([, , y]) => y));
       const w = Math.max(...items.map(([b, x]) => x + b.w)) - x0, h = Math.max(...items.map(([b, , y]) => y + b.h)) - y0;
@@ -846,13 +1043,15 @@
     subnet: (p) => ({ fill: p["--surface"], stroke: p["--accent"], dash: "4 3", title: p["--text"] }),
     onprem: (p) => ({ fill: "rgba(250,178,25,0.06)", stroke: p["--warning"], dash: "6 4", title: p["--warning"] }),
     entra: (p) => ({ fill: "rgba(57,135,229,0.05)", stroke: p["--accent-text"], dash: "6 4", title: p["--accent-text"] }),
+    site: (p) => ({ fill: p["--surface"], stroke: p["--warning"], dash: "4 3", title: p["--text"] }),
+    internet: (p) => ({ fill: "rgba(144,133,233,0.06)", stroke: p.web, dash: "6 4", title: p.web }),
   };
   const trunc = (s, n) => (String(s || "").length > n ? String(s).slice(0, n - 1) + "…" : String(s || ""));
-  function drawBox(n, p, out) {
+  function drawBox(n, p, out, leafOut = out) {
     if (n.kind !== "root") {
       const st = BOX_STYLE[n.kind](p);
       out.push(`<g data-arch-box="${esc(n.key)}"><rect x="${n.ax}" y="${n.ay}" width="${n.w}" height="${n.h}" rx="8" fill="${st.fill}" stroke="${st.stroke}" stroke-width="1.2"${st.dash ? ` stroke-dasharray="${st.dash}"` : ""}/>`);
-      const kindWord = { tenant: "TENANT", sub: "SUBSCRIPTION", rg: "RESOURCE GROUP", vnet: "VNET", subnet: "SUBNET", onprem: "", entra: "" }[n.kind];
+      const kindWord = { tenant: "TENANT", sub: "SUBSCRIPTION", rg: "RESOURCE GROUP", vnet: "VNET", subnet: "SUBNET", onprem: "", entra: "", site: "SITE", internet: "" }[n.kind];
       let tx = n.ax + PAD;
       out.push(`<text x="${tx}" y="${n.ay + 19}" font-size="13" font-weight="600" fill="${st.title}"><title>${esc(kindWord ? kindWord.toLowerCase() + " " : "")}${esc(n.label)}</title>${esc(trunc(n.label, 60))}</text>`);
       tx += textW(trunc(n.label, 60), 7.4) + 10;
@@ -866,13 +1065,14 @@
       else if (kindWord) out.push(`<text x="${n.ax + n.w - PAD}" y="${n.ay + 19}" text-anchor="end" font-size="9" letter-spacing="0.06em" fill="${p["--muted"]}">${kindWord}</text>`);
       out.push("</g>");
     }
-    for (const c of n.children) (c.leaf ? drawLeaf : drawBox)(c, p, out);
+    for (const c of n.children) c.leaf ? drawLeaf(c, p, leafOut) : drawBox(c, p, out, leafOut);
   }
   function drawLeaf(n, p, out, o) {
     const r = n.r;
-    const col = p[r.t.cat] || p["--muted"];
+    // A firewall opening tile has its own colour (on-premises amber, Internet purple, "*" red) and tooltip.
+    const col = (n.col && p[n.col]) || p[r.t.cat] || p["--muted"];
     const pub = (n.many || [r]).some((x) => x.publicIps && x.publicIps.length);
-    const title = n.many ? `${n.label}: ${n.many.map((x) => x.name).join(", ")}` : `${r.name}\n${r.t.label}${r.resourceGroup ? `\nrg ${r.resourceGroup}` : ""}${pub ? `\npublic IP ${r.publicIps.join(", ")}` : ""}`;
+    const title = n.title || (n.many ? `${n.label}: ${n.many.map((x) => x.name).join(", ")}` : `${r.name}\n${r.t.label}${r.resourceGroup ? `\nrg ${r.resourceGroup}` : ""}${pub ? `\npublic IP ${r.publicIps.join(", ")}` : ""}`);
     out.push(`<g data-arch-node="${esc(n.key)}" class="arch-leaf"${n.context ? ' opacity="0.7"' : ""}><title>${esc(title)}</title>`);
     out.push(`<rect class="arch-leaf-bg" x="${n.ax}" y="${n.ay}" width="${LW}" height="${LH}" rx="6" fill="${p["--surface-2"]}" stroke="${p["--border-strong"]}"${n.context ? ' stroke-dasharray="3 3"' : ""}/>`);
     const ic = iconOf(r.t.abbr);
@@ -913,8 +1113,15 @@
     "flow-part": (p) => [p["--warning"], "", 2.2],
     "flow-deny": (p) => [p["--critical-text"], "", 2.2],
     "flow-unknown": (p) => [p["--muted"], "", 2],
+    "open-onprem": (p) => [p["--warning"], "", 1.8],
+    "open-internet": (p) => [p.web, "", 1.8],
+    "open-any": (p) => [p["--critical-text"], "", 2.4],
+    "open-path": (p) => [p["--text-2"], "", 1.8],
   };
-  function drawLinks(m, at, p, out) {
+  // Traffic lines (flow-*) go on top of everything; the rest (peerings, connections, endpoints, firewall openings) is
+  // drawn over the boxes but under the tiles, so a line that passes a tile runs beneath it instead of over its text.
+  const onTop = (l) => l.kind.startsWith("flow");
+  function drawLinks(m, at, p, top, under = top) {
     // Lines that meet one side of a tile are spread along it, in the order of where they go, so they do not all
     // start from one point and cross less. Lines between the same two tiles keep the same order at both ends.
     const segs = [], sides = new Map();
@@ -957,6 +1164,7 @@
     const busy = [...at.values()].filter((n) => n.kind !== "root").map((n) => (n.leaf ? [n.ax, n.ay, n.w, n.h] : [n.ax, n.ay, n.w, headH(n)]));
     const free = (x, y) => !busy.some(([bx, by, bw, bh]) => x > bx - 10 && x < bx + bw + 10 && y > by - 10 && y < by + bh + 10);
     for (const { l, s, e, over } of segs) {
+      const out = onTop(l) ? top : under;
       // Ends that face each other across a narrow gap (two VNets side by side) would make the curve loop back: keep it inside the gap.
       const gap = over ? Infinity : s.h && e.h ? Math.abs(e.x - s.x) : !s.h && !e.h ? Math.abs(e.y - s.y) : Infinity;
       const bend = over ? 30 : Math.min(Math.max(40, Math.hypot(e.x - s.x, e.y - s.y) / 3), Math.max(12, gap / 2));
@@ -1008,11 +1216,11 @@
     const at = new Map();
     place(m.root, 0, 0, at);
     const p = palette();
-    const out = [];
+    const boxes = [], leaves = [], under = [], top = [];
     iconsUsed = new Set();
-    drawBox(m.root, p, out);
-    drawLinks(m, at, p, out);
-    return { svg: iconDefs() + out.join(""), w: m.root.w, h: m.root.h, at, p };
+    drawBox(m.root, p, boxes, leaves);
+    drawLinks(m, at, p, top, under);
+    return { svg: iconDefs() + boxes.join("") + under.join("") + leaves.join("") + top.join(""), w: m.root.w, h: m.root.h, at, p };
   }
 
   /* --- the page --- */
@@ -1093,7 +1301,7 @@
     return `<div class="arch-bar">
       <div class="seg">${lay("hubs", "Hub and spoke", "Each hub VNet in the middle, its peered spokes around it, on-premises on the left")}${lay("network", "Network", "VNets with their subnets, packed in rows")}${lay("groups", "Resource groups", "Subscription, resource group, resource")}</div>
       <div class="arch-opts">
-        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
+        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") + chk("openings", "Firewall openings", "What the Azure Firewall rules let through, hop by hop: from the VM (or subnet) the rule names, through the firewall and the gateway to the site and the on-premises address; or through the firewall to the Internet name or address. A \"*\" rule shows as a red Any address tile") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
         ${chk("idLinks", "Identity access", "A line from each managed identity to what its roles or Key Vault access policies reach (solid: data, like reading blobs or secrets; dashed: managing the resource)")}
         ${chk("signIn", "Sign-in", "An Entra ID box with the app registrations that sign people in to the drawn web apps")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}
@@ -1126,6 +1334,8 @@
     const last = o.traffic && t.archFlow && t.archFlow.results;
     o.through = new Set(last ? last.map((r) => r.fw || r.hop).filter((id) => id && !o.hide.has(id) && (o.fwVms || !(inv.byId.get(id) || {}).appliance)) : []);
     o.hasFwVms = inv.resources.some((r) => r.appliance);
+    const open = o.layout !== "groups" && o.openings ? openingsFor(t, inv) : null;
+    o.openData = open;
     loadIcons();
     const m = model(inv, o);
     o.drawn = new Set(drawnLeaves(m.root).flatMap((l) => (l.many || [l.r]).map((r) => r.id)));
@@ -1164,6 +1374,13 @@
         ${o.traffic && o.flowColor === "vm" && m.links.some((l) => l.col === "grey") ? `<span><i class="ln grey"></i>into a tile that sends nothing itself</span>` : ""}
         ${o.hasFwVms && o.fwVms ? `<span><b class="arch-fwvm">Firewall VM</b>: forwards traffic for others, no lines of its own</span>` : ""}
         ${o.traffic && flow && flow.loading ? "<span>Checking traffic…</span>" : ""}
+        ${m.links.some((l) => l.kind === "open-onprem") ? `<span><i class="ln opn"></i>firewall opening to on-premises: VM → firewall → gateway → site → address</span>` : ""}
+        ${m.links.some((l) => l.kind === "open-internet") ? `<span><i class="ln oin"></i>firewall opening to the Internet: VM → firewall → name or address</span>` : ""}
+        ${m.links.some((l) => l.kind === "open-path") ? `<span><i class="ln opath"></i>a hop shared by openings to both sides</span>` : ""}
+        ${m.links.some((l) => l.kind === "open-any") ? `<span><i class="ln oany"></i>"*" rule: open to every address</span>` : ""}
+        ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path)</span>` : ""}
+        ${open && open.loading ? "<span>Reading the firewall openings…</span>" : ""}
+        ${open && open.notes ? open.notes.map((x) => `<span>Firewall openings: ${esc(x)}</span>`).join("") : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
         <span>Drag to move, wheel to zoom, click a tile for details</span>
       </div>
@@ -1210,7 +1427,7 @@
     svg.classList.toggle("finding", !!q);
     for (const g of svg.querySelectorAll("[data-arch-node]")) {
       const n = t.archDrawn.at.get(g.dataset.archNode);
-      const hit = q && n && (n.many || [n.r]).some((r) => `${r.name} ${r.t.label} ${r.resourceGroup} ${(r.publicIps || []).join(" ")}`.toLowerCase().includes(q));
+      const hit = q && n && (n.many || [n.r]).some((r) => `${r.name} ${r.t.label} ${r.resourceGroup} ${(r.publicIps || []).join(" ")} ${n.find || ""}`.toLowerCase().includes(q));
       g.classList.toggle("hit", !!hit);
     }
   }
@@ -1220,7 +1437,8 @@
   function detail(inv, o) {
     const t = toolState(ID);
     const n = o.sel && t.archDrawn && t.archDrawn.at.get(o.sel);
-    if (!n) return "";
+    if (!n || n.more) return "";
+    if (n.open) return openDetail(inv, n);
     const portal = (id) => `https://portal.azure.com/#resource${id}`;
     if (n.many) {
       return `<div class="arch-detail"><b>${esc(n.label)}</b><ul>${n.many.slice(0, 100).map((r) => `<li><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted">rg ${esc(r.resourceGroup)}</span></li>`).join("")}</ul></div>`;
@@ -1259,6 +1477,39 @@
       signIns.length ? ["Sign-in", signIns.map((x) => `${esc(x.name)} <span class="muted">app registration</span>`).join(", ")] : null,
     ].filter(Boolean);
     return `<div class="arch-detail"><div class="arch-detail-head"><b>${esc(r.name)}</b><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">Open in the Azure portal</a></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>`;
+  }
+
+  // A firewall opening tile: where it goes, through what, the ports and the rules behind it.
+  function openDetail(inv, n) {
+    const tg = n.open;
+    const [, word] = OPEN_KIND[tg.kind] || ["?", tg.kind];
+    const any = isAnyOpen(tg);
+    const fromName = nameOf(inv, n.from);
+    const site = tg.site && (inv.sites.find((s) => s.id === tg.site) || inv.byId.get(tg.site));
+    const sideWord = tg.side === "onprem" ? "on-premises" : "on the Internet";
+    const mono = (x) => `<span class="mono">${esc(x)}</span>`;
+    const kindWord = { resource: "", subnet: "subnet", vnet: "VNet" };
+    const fromList = (tg.from || []).map((f) => `${esc(nameOf(inv, f.id))}${kindWord[f.kind] ? ` <span class="muted">${kindWord[f.kind]}</span>` : ""}`);
+    if (tg.fromAny || !fromList.length) fromList.unshift(`any Azure address <span class="muted">(the rule's source is "*" or spans most of the network)</span>`);
+    if (tg.fromCount > (tg.from || []).length) fromList.push(`<span class="muted">and ${tg.fromCount - tg.from.length} more</span>`);
+    const rows = [
+      ["Opening", `${esc(word)}${tg.sub ? ` <span class="muted">(${esc(tg.sub)})</span>` : ""}`],
+      ["Where", tg.side === "onprem" ? `On-premises${site ? `, site ${esc(site.name)}` : " (site not known)"}, through the gateway ${esc(fromName)}` : `Internet, through the firewall ${esc(fromName)}`],
+      ["Path", `<span class="muted">${OPEN_DIR[tg.dir] || tg.dir}:</span> ${(n.path || []).map(esc).join(tg.dir === "both" ? " ↔ " : " → ")}`],
+      ["Azure side", fromList.join(", ")],
+      ["Ports", (tg.ports || []).map(mono).join("; ")],
+      tg.addresses ? ["Addresses", `${tg.addressCount} of the group's ${tg.groupCount} ${sideWord}: ${tg.addresses.map(mono).join(", ")}${tg.addressCount > tg.addresses.length ? ` <span class="muted">and ${tg.addressCount - tg.addresses.length} more</span>` : ""}`] : null,
+      tg.owner ? ["In Azure", `This public address belongs to ${esc(tg.owner)}`] : null,
+      tg.wide ? ["Note", "This range also covers an Azure VNet; the part inside Azure is not an opening"] : null,
+      tg.siteGuess ? ["Note", "No site's address space holds this address; it is drawn under the only connected site"] : null,
+      any ? ["Note", `"*" means every address: these rules open the firewall to everything ${sideWord}`] : null,
+    ].filter(Boolean);
+    const body = tg.rules
+      .map((x) => `<tr><td><span class="primary">${esc(x.name)}</span></td><td>${esc(x.policy)} › ${esc(x.group)} › ${esc(x.collection)}</td><td>${esc(x.type)} <span class="muted">${esc(x.action)}</span></td><td class="mono">${esc(x.src)} → ${esc(x.dst)}</td><td class="mono">${esc(x.ports)}</td><td>${esc(x.firewall)}</td></tr>`)
+      .join("");
+    const left = tg.ruleCount - tg.rules.length;
+    return `<div class="arch-detail arch-open"><div class="arch-detail-head"><b>${esc(tg.label)}</b><span class="muted">firewall opening</span></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Rule</th><th>Policy › group › collection</th><th>Type</th><th>Source → destination</th><th>Ports</th><th>Firewall</th></tr></thead><tbody>${body}</tbody></table></div>${left > 0 ? `<p class="arch-hint">and ${left} more rule${left === 1 ? "" : "s"}: see the Firewall policies scan</p>` : ""}</div>`;
   }
 
   function trafficTable(inv, o, f) {
@@ -1348,14 +1599,15 @@
     const ids = new Map();
     let next = 2;
     const catCol = { compute: "#3987e5", web: "#9085e9", data: "#199e70", network: "#c98500", security: "#d55181", monitor: "#d95926", other: "#6b7380", support: "#6b7380" };
-    const boxCol = { tenant: ["#ffffff", "#666666"], sub: ["#ffffff", "#888888"], rg: ["#f7f7f7", "#999999"], vnet: ["#eef5fd", "#3987e5"], subnet: ["#ffffff", "#3987e5"], onprem: ["#fff8e6", "#c98500"], entra: ["#f2f7fd", "#2f6fbf"] };
+    const boxCol = { tenant: ["#ffffff", "#666666"], sub: ["#ffffff", "#888888"], rg: ["#f7f7f7", "#999999"], vnet: ["#eef5fd", "#3987e5"], subnet: ["#ffffff", "#3987e5"], onprem: ["#fff8e6", "#c98500"], entra: ["#f2f7fd", "#2f6fbf"], site: ["#ffffff", "#c98500"], internet: ["#f3f1fd", "#7b6fe0"] };
+    const openCol = { "--critical-text": "#d03b3b", "--warning": "#c98500", web: "#7b6fe0", "--muted": "#888888" };
     const walk = (n, parent) => {
       for (const c of n.children) {
         const id = `n${next++}`;
         ids.set(c.key, id);
         const geo = `<mxGeometry x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" as="geometry"/>`;
         if (c.leaf) {
-          const col = catCol[c.r.t.cat] || "#6b7380";
+          const col = (c.col && openCol[c.col]) || catCol[c.r.t.cat] || "#6b7380";
           const label = `<b>${esc(c.label)}</b><br><font color="#666666" style="font-size:10px">${esc(c.sub)}</font>`;
           const ic = iconOf(c.r.t.abbr);
           cells.push(`<mxCell id="${id}" value="${esc(label)}" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=${col};strokeWidth=1.5;align=left;spacingLeft=${ic ? 44 : 10};fontSize=11;${c.context ? "dashed=1;" : ""}" vertex="1" parent="${parent}">${geo}</mxCell>`);
@@ -1364,14 +1616,14 @@
           const [fill, stroke] = boxCol[c.kind] || ["#ffffff", "#999999"];
           const tags = c.tags.map(([t]) => t).join(" · ");
           const label = `<b>${esc(c.label)}</b>${tags ? ` <font color="#888888" style="font-size:9px">${esc(tags)}</font>` : ""}${c.sub ? `<br><font color="#777777" style="font-size:10px">${esc(c.sub)}</font>` : ""}`;
-          const dashed = c.kind === "sub" || c.kind === "subnet" || c.kind === "onprem" || c.kind === "entra" ? "dashed=1;" : "";
+          const dashed = c.kind === "sub" || c.kind === "subnet" || c.kind === "onprem" || c.kind === "entra" || c.kind === "site" || c.kind === "internet" ? "dashed=1;" : "";
           cells.push(`<mxCell id="${id}" value="${esc(label)}" style="rounded=1;arcSize=2;absoluteArcSize=1;whiteSpace=wrap;html=1;container=1;collapsible=0;verticalAlign=top;align=left;spacingLeft=10;spacingTop=2;fontSize=12;fillColor=${fill};strokeColor=${stroke};${dashed}" vertex="1" parent="${parent}">${geo}</mxCell>`);
           walk(c, id);
         }
       }
     };
     walk(m.root, "1");
-    const edgeCol = { peer: "#3987e5", "peer-bad": "#d03b3b", vpn: "#c98500", pe: "#888888", "flow-allow": "#0ca30c", "flow-part": "#c98500", "flow-deny": "#d03b3b", "flow-unknown": "#888888", "id-data": "#d55181", "id-ctl": "#d55181", uses: "#d55181", signin: "#2f6fbf" };
+    const edgeCol = { peer: "#3987e5", "peer-bad": "#d03b3b", vpn: "#c98500", pe: "#888888", "flow-allow": "#0ca30c", "flow-part": "#c98500", "flow-deny": "#d03b3b", "flow-unknown": "#888888", "id-data": "#d55181", "id-ctl": "#d55181", uses: "#d55181", signin: "#2f6fbf", "open-onprem": "#c98500", "open-internet": "#7b6fe0", "open-any": "#d03b3b", "open-path": "#888888" };
     const dashedKind = new Set(["id-ctl", "uses", "signin"]);
     for (const l of m.links) {
       if (!ids.has(l.a) || !ids.has(l.b)) continue;

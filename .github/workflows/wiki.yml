@@ -1,0 +1,55 @@
+name: Wiki
+
+# Mirrors docs/ to the repository wiki after every change on main, so the wiki
+# is a second front door to the same pages and cannot drift from them.
+# scripts/wiki-sync.mjs writes the pages; hand edits in the wiki are overwritten
+# by the next run. GitHub creates the wiki repository when its first page is
+# saved in the browser; until then this job only leaves a warning.
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "scripts/wiki-sync.mjs", ".github/workflows/wiki.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # the wiki is pushed with the workflow token
+
+jobs:
+  sync:
+    name: Mirror docs to the wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: Is there a wiki repository yet?
+        id: wiki
+        run: |
+          if git ls-remote --exit-code -q "https://github.com/$GITHUB_REPOSITORY.wiki.git" HEAD >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No wiki repository yet: save the first wiki page in the browser once, then run this workflow again."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.wiki.outputs.exists == 'true'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.wiki.outputs.exists == 'true'
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: .wiki
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.wiki.outputs.exists == 'true'
+        with:
+          node-version: 26
+      - name: Write the pages
+        if: steps.wiki.outputs.exists == 'true'
+        run: node scripts/wiki-sync.mjs .wiki --repo "$GITHUB_REPOSITORY"
+      - name: Push what changed
+        if: steps.wiki.outputs.exists == 'true'
+        working-directory: .wiki
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki already matches docs/"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Mirror docs from ${GITHUB_SHA::7}"
+          git push

@@ -45,7 +45,9 @@ runs, update the [setup low-level design](docs/lld-setup.md). The pull request t
 - **Changelog:** a line under the new version in [CHANGELOG.md](CHANGELOG.md) (Added, Changed, Fixed or Security),
   written for the person running the dashboard. If they must do something when upgrading, add it under
   **Upgrading** too.
-- **Docs:** update the page for the reader it concerns ([docs/README.md](docs/README.md) lists them). A new setting
+- **Docs:** update the page for the reader it concerns ([docs/README.md](docs/README.md) lists them). The GitHub wiki
+  is written from `docs/` by `scripts/wiki-sync.mjs` after every change on main, so edit the pages here, never in
+  the wiki. A new setting
   goes in `.env.example` and the Settings hint; a new role, page or API route in
   [sign-in and roles](docs/guides/sign-in-and-roles.md) and [architecture.md](docs/architecture.md). A new big
   decision gets a decision record.

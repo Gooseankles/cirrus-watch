@@ -201,6 +201,9 @@ blocked, the pages show the last kept copy. `RELEASE_FEEDS = off` makes neither 
 - Every action in the workflows is pinned to a full commit SHA with its version as a comment (`# v7.0.1`);
   Dependabot moves the SHA and the comment together.
 - Pull requests build the image but do not push it.
+- `wiki.yml` mirrors `docs/` to the GitHub wiki after every change on main: `scripts/wiki-sync.mjs` makes one page per
+  Markdown file (Home and the sidebar from `docs/README.md`) and turns the links between them into wiki links. Hand
+  edits in the wiki are overwritten by the next run.
 
 ## 9. Inside the app (low-level design)
 

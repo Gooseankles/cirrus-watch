@@ -232,6 +232,7 @@
       view: null,
       refit: true,
       sel: null,
+      focus: null, // the VM (or other resource in a subnet) whose firewall openings alone are drawn
     };
     return t.archOpts;
   }
@@ -463,6 +464,7 @@
     const through = o.through || new Set();
     const resources = inv.resources.filter((r) => (show(r) && picked(r)) || (through.has(r.id) && !hidden(r)));
     let leaves = 0;
+    let openFocus = null; // with a VM picked: that VM and how many firewall openings stayed or went
 
     if (o.layout === "groups") {
       // Subscription > resource group > resource.
@@ -539,11 +541,16 @@
       // picked, so the line has somewhere to start. The firewall whose rule it is must be on the drawing already.
       const open = o.openings && o.openData && o.openData.byTenant ? o.openData : null;
       const fwDrawn = (tg, drawnIds) => (tg.firewalls || [tg.firewall]).find((id) => drawnIds.has(id));
+      // With a VM picked, only the openings it can use are drawn: those whose rules name it (by address, a range over
+      // it, its subnet or its VNet) and those open to every Azure address. The rest, tiles and lines, go.
+      const focus = open && o.focus ? openingsPlace(inv, inv.byId.get(o.focus)) : null;
+      const reach = (tg) => !focus || Openings.reaches(tg, focus.places);
+      if (focus) openFocus = { r: focus.r, kept: 0, hidden: 0 };
       if (open) {
         const drawnIds = new Set(placed.map((r) => r.id));
         for (const res of open.byTenant.values()) {
           for (const tg of res.targets || []) {
-            if (tg.side !== "onprem" || !tg.gateway || drawnIds.has(tg.gateway) || !fwDrawn(tg, drawnIds)) continue;
+            if (tg.side !== "onprem" || !tg.gateway || drawnIds.has(tg.gateway) || !fwDrawn(tg, drawnIds) || !reach(tg)) continue;
             const gw = inv.byId.get(tg.gateway);
             if (!gw || hidden(gw) || !inSubnet(gw)) continue;
             put(gw);
@@ -667,9 +674,13 @@
           for (const tg of sorted) {
             const fwId = fwDrawn(tg, drawnIds);
             if (!fwId) continue;
+            if (tg.side === "onprem" && (!o.onprem || !tg.gateway || !drawnIds.has(tg.gateway))) continue;
+            if (!reach(tg)) {
+              openFocus.hidden++;
+              continue;
+            }
             let parent, from;
             if (tg.side === "onprem") {
-              if (!o.onprem || !tg.gateway || !drawnIds.has(tg.gateway)) continue;
               parent = siteBox(tg);
               from = tg.gateway;
             } else {
@@ -677,6 +688,7 @@
               from = fwId;
             }
             if (!parent) continue;
+            if (openFocus) openFocus.kept++;
             const n = parent.children.filter((c) => c.open).length;
             if (n >= MAX_OPEN_TILES) {
               const m = more.get(parent.key) || { key: `${parent.key}|more`, leaf: true, more: 0, r: { id: `${parent.key}|more`, name: "", type: "open/more", tenant, resourceGroup: "", t: { abbr: "+", label: "More openings", cat: "network" } }, col: "--muted", sub: "openings not drawn" };
@@ -752,7 +764,7 @@
     root.kind = "root"; // the outer box draws no frame of its own
     const grouped = o.grouped === "type" || (o.grouped === "auto" && leaves > 400);
     if (grouped) groupByType(root);
-    return { root, links, leaves, grouped, multi };
+    return { root, links, leaves, grouped, multi, openFocus };
   }
   // Sign-in: per tenant a Microsoft Entra ID box with the app registrations whose redirect URIs point at a drawn web
   // app, and a line to each. Identity access: a line from each drawn holder of a managed identity to what its roles
@@ -1380,7 +1392,8 @@
         ${m.links.some((l) => l.kind === "open-internet") ? `<span><i class="ln oin"></i>firewall opening to the Internet: VM → firewall → name or address</span>` : ""}
         ${m.links.some((l) => l.kind === "open-path") ? `<span><i class="ln opath"></i>a hop shared by openings to both sides</span>` : ""}
         ${m.links.some((l) => l.kind === "open-any") ? `<span><i class="ln oany"></i>"*" rule: open to every address</span>` : ""}
-        ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path, click a VM for the openings that name it)</span>` : ""}
+        ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path, click a VM to keep only the openings that name it)</span>` : ""}
+        ${m.openFocus ? `<span>Firewall openings: ${m.openFocus.kept ? `only the ${m.openFocus.kept} that name` : "none name"} <b>${esc(m.openFocus.r.name)}</b> or every Azure address${m.openFocus.hidden ? ` (${m.openFocus.hidden} hidden)` : ""}; click empty space for all</span>` : ""}
         ${open && open.loading ? "<span>Reading the firewall openings…</span>" : ""}
         ${open && open.notes ? open.notes.map((x) => `<span>Firewall openings: ${esc(x)}</span>`).join("") : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
@@ -1417,6 +1430,7 @@
     }
     markFind(t);
     markSel(o);
+    if (o.sel) light(o.sel); // a redraw (a VM picked, a traffic change) keeps the picked tile's lines lit
   }
   function applyView(o) {
     const vp = $("#arch-vp");
@@ -1494,15 +1508,22 @@
     if (x.fromCount > x.from.length) names.push(`<span class="muted">and ${x.fromCount - x.from.length} more</span>`);
     return names.join(", ") || `<span class="muted">–</span>`;
   };
+  // The place a resource stands for on the Azure side of the firewall openings: itself, its subnet and its VNet. Nothing
+  // for the firewall, the gateways and the sites (every opening passes them), or for a resource outside a subnet.
+  function openingsPlace(inv, r) {
+    if (!r || !r.subnet || /\/(azurefirewalls|virtualnetworkgateways|localnetworkgateways|expressroutecircuits)$/.test(r.type)) return null;
+    const at = inv.subnetById.get(r.subnet);
+    return { r, places: new Set([r.id, r.subnet, at && at.v.id].filter(Boolean)) };
+  }
   // The firewall openings on the drawing whose rules name a resource: by its address, a range over it, its subnet or
   // its VNet, each with the rule and the entry that does so. Rules open to every Azure address ("*", or a range over
-  // most of the network) reach it as well; those are counted, not listed. Nothing for the firewall, gateways and sites.
+  // most of the network with its VNet among them) reach it as well; those are counted, not listed.
   function openingsText(inv, t, o, r) {
     const d = t.archDrawn;
     if (!d || o.layout === "groups" || !o.openings || !o.openData || !o.openData.byTenant) return null;
-    if (!r.subnet || /\/(azurefirewalls|virtualnetworkgateways|localnetworkgateways|expressroutecircuits)$/.test(r.type)) return null;
-    const at = inv.subnetById.get(r.subnet);
-    const mine = new Set([r.id, r.subnet, at && at.v.id].filter(Boolean));
+    const place = openingsPlace(inv, r);
+    if (!place) return null;
+    const mine = place.places;
     const mono = (x) => `<span class="mono">${esc(x)}</span>`;
     const how = (f) => {
       const by = (f.by || []).join(", ");
@@ -1514,9 +1535,9 @@
     for (const n of d.at.values()) {
       if (!n.open) continue;
       const tg = n.open;
-      const hits = (tg.rules || []).map((x) => [x, (x.from || []).find((f) => mine.has(f.id))]).filter(([, f]) => f);
+      const hits = Openings.rulesNaming(tg, mine);
       if (hits.length) named.push({ tg, hits });
-      else if ((tg.rules || []).some((x) => x.fromAny || x.fromWide)) star.push(tg);
+      else if ((tg.rules || []).some((x) => Openings.openToAll(x, mine))) star.push(tg);
       if (tg.ruleCount > (tg.rules || []).length) partial = true;
     }
     const order = (a, b) => (isAnyOpen(a) ? 0 : 1) - (isAnyOpen(b) ? 0 : 1) || String(a.label).localeCompare(String(b.label));
@@ -1738,7 +1759,7 @@
       o.ports = el.value;
       return changed(t, false);
     } else return;
-    o.sel = null;
+    o.sel = o.focus = null;
     changed(t);
   });
   document.addEventListener("input", (e) => {
@@ -1798,7 +1819,7 @@
     }
     if (el.dataset.archLayout) {
       o.layout = el.dataset.archLayout;
-      o.sel = null;
+      o.sel = o.focus = null;
       return changed(t);
     }
     if (el.dataset.archCat) {
@@ -1815,7 +1836,7 @@
         if (act === "all") o.scope.add(g.key);
         else o.scope.delete(g.key);
       }
-      o.sel = null;
+      o.sel = o.focus = null;
       return changed(t);
     }
     const d = t.archDrawn;
@@ -1902,7 +1923,13 @@
     const o = t.archOpts;
     const node = d.target.closest && d.target.closest("[data-arch-node]");
     o.sel = node ? node.dataset.archNode : null;
-    if (o.traffic) return rerender(); // the lines change with the pick
+    // A VM (or anything else in a subnet) picked keeps only the firewall openings it can use; an opening tile picked
+    // keeps that filter; empty space, or a tile of another kind, brings every opening back.
+    const n = o.sel && t.archDrawn && t.archDrawn.at.get(o.sel);
+    const inv = t.arch && t.arch.data;
+    const was = o.focus;
+    if (!n || !(n.open || n.more)) o.focus = n && inv && o.openings && openingsPlace(inv, n.r) ? o.sel : null;
+    if (o.traffic || o.focus !== was) return rerender(); // the lines change with the pick
     markSel(o);
     light(o.sel);
     const box = $("#arch-detail");

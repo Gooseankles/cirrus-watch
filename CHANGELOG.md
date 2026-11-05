@@ -64,6 +64,17 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.71.3.0] - 2026-11-05
+
+### Changed
+
+- Architecture drawing, firewall openings: the tiles follow what is picked. A tile is drawn when a rule names a
+  picked resource (its address or its subnet) or a subnet of a VNet picked through its resource group, or, with a
+  picked VM on the drawing, when the rule covers the VM's whole VNet or is open to every Azure address. The hub alone
+  (its firewall, gateways and bastion) no longer fills the drawing with every `*` rule or every rule written for the
+  whole network; nothing picked draws no openings, All draws every opening, and the legend says how many are hidden.
+  A bastion or private endpoint clicked keeps only the rules that name it or its subnet.
+
 ## [0.71.2.1] - 2026-11-05
 
 ### Added

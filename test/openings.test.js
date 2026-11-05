@@ -66,3 +66,67 @@ test("a tile with more rules than it lists falls back to its union of places, an
   assert.equal(Openings.reaches(tile([], { ruleCount: 0 }), places), false, "a tile without rules names nothing");
   assert.equal(Openings.reaches(tile([], { ruleCount: 0, fromAny: true }), places), true);
 });
+
+test('with "any" off, only a rule naming a place or its subnet keeps the tile; a "*", wide or whole-VNet rule does not', () => {
+  const named = tile([rule("vm-to-dc", [{ id: VM, kind: "resource", by: ["10.20.1.4"] }])]);
+  const subnet = tile([rule("web-to-dc", [{ id: SUBNET, kind: "subnet", by: ["10.20.1.0/24"] }])]);
+  const vnet = tile([rule("all-azure", [{ id: VNET, kind: "vnet", by: ["10.0.0.0/8"] }])]);
+  const unionVnet = tile([rule("all-azure", [{ id: VNET, kind: "vnet" }])], { ruleCount: 20, from: [{ id: VNET, kind: "vnet" }], fromCount: 1 });
+  const any = tile([rule("legacy-any", [], { fromAny: true })]);
+  const wide = tile([rule("wide", [], { fromWide: true, wideVnets: [VNET] })]);
+  const bare = tile([], { ruleCount: 0, fromAny: true });
+  const unionAny = tile([rule("dc-to-sql", [{ id: OTHER_SUBNET, kind: "subnet" }])], { ruleCount: 20, from: [{ id: OTHER_SUBNET, kind: "subnet" }], fromCount: 1, fromAny: true });
+  const unionCut = tile([rule("dc-to-sql", [{ id: OTHER_SUBNET, kind: "subnet" }])], { ruleCount: 20, from: [{ id: OTHER_SUBNET, kind: "subnet" }], fromCount: 30 });
+  assert.equal(Openings.reaches(named, places, false), true);
+  assert.equal(Openings.reaches(subnet, places, false), true);
+  assert.equal(Openings.reaches(vnet, places, false), false, "a range over the whole VNet is open to every address in it");
+  assert.equal(Openings.reaches(vnet, places), true);
+  assert.equal(Openings.reaches(unionVnet, places, false), false, "also in a tile's union of places");
+  assert.equal(Openings.reaches(unionVnet, places), true);
+  assert.equal(Openings.reaches(any, places, false), false);
+  assert.equal(Openings.reaches(wide, places, false), false);
+  assert.equal(Openings.reaches(bare, places, false), false);
+  assert.equal(Openings.reaches(unionAny, places, false), false);
+  assert.equal(Openings.reaches(unionCut, places, false), true, "places the tile did not list might still be named");
+  assert.equal(Openings.reaches(any, places), true, "on by default, as the picked-VM filter uses it");
+});
+
+test("a sender is a resource in a subnet that is not a network part or a firewall VM", () => {
+  const vm = { subnet: SUBNET, t: { cat: "compute" } };
+  assert.equal(Openings.sender(vm), true);
+  assert.equal(Openings.sender({ subnet: SUBNET, t: { cat: "web" } }), true, "a web app with VNet integration");
+  assert.equal(Openings.sender({ subnet: SUBNET, t: { cat: "network" } }), false, "a bastion, private endpoint or load balancer");
+  assert.equal(Openings.sender({ ...vm, appliance: true }), false, "a firewall VM forwards for others");
+  assert.equal(Openings.sender({ t: { cat: "compute" } }), false, "outside a subnet");
+  assert.equal(Openings.sender(null), false);
+});
+
+test("drawn: nothing picked draws nothing; a bastion alone brings the rules naming it or its subnet; a VM brings its VNet's and the open-to-all ones too", () => {
+  const HUB_VNET = "/subscriptions/s1/resourcegroups/rg-hub/providers/microsoft.network/virtualnetworks/vnet-hub";
+  const BAS_SUBNET = `${HUB_VNET}/subnets/azurebastionsubnet`;
+  const BAS = "/subscriptions/s1/resourcegroups/rg-hub/providers/microsoft.network/bastionhosts/bas-hub";
+  const JUMP_SUBNET = `${HUB_VNET}/subnets/snet-jump`;
+  const JUMP = "/subscriptions/s1/resourcegroups/rg-hub/providers/microsoft.compute/virtualmachines/vm-jump";
+  const any = tile([rule("legacy-any", [], { fromAny: true })]);
+  const namesVm = tile([rule("vm-to-dc", [{ id: VM, kind: "resource", by: ["10.20.1.4"] }])]);
+  const namesBastion = tile([rule("bastion-to-dc", [{ id: BAS_SUBNET, kind: "subnet", by: ["10.0.3.0/26"] }])]);
+  const overHub = tile([rule("hub-to-dc", [{ id: HUB_VNET, kind: "vnet", by: ["10.0.0.0/16"] }])]);
+  const overAzure = tile([rule("azure-to-dns", [{ id: HUB_VNET, kind: "vnet", by: ["10.0.0.0/8"] }, { id: VNET, kind: "vnet", by: ["10.0.0.0/8"] }])]);
+  const wideOverWeb = tile([rule("wide", [], { fromWide: true, wideVnets: [VNET] })]);
+  const none = new Set();
+  for (const t of [any, namesVm, namesBastion, overHub, overAzure, wideOverWeb]) assert.equal(Openings.drawn(t, none, none), false, "nothing picked");
+  const hubOnly = new Set([BAS, BAS_SUBNET, HUB_VNET]); // the hub's group picked: its bastion, no sender
+  assert.equal(Openings.drawn(any, hubOnly, none), false, 'a "*" rule is not drawn for a bastion');
+  assert.equal(Openings.drawn(namesBastion, hubOnly, none), true, "a rule naming the bastion subnet is");
+  assert.equal(Openings.drawn(overHub, hubOnly, none), false, "a range over the whole hub VNet is not: it is for the VMs in it");
+  assert.equal(Openings.drawn(overAzure, hubOnly, none), false, "nor one over every VNet");
+  assert.equal(Openings.drawn(namesVm, hubOnly, none), false);
+  const hubVm = new Set([JUMP, JUMP_SUBNET, HUB_VNET]); // a jump VM in the hub picked
+  assert.equal(Openings.drawn(overHub, new Set([...hubOnly, ...hubVm]), hubVm), true, "a VM in the hub brings the whole-VNet rules");
+  assert.equal(Openings.drawn(overAzure, new Set([...hubOnly, ...hubVm]), hubVm), true);
+  const withVm = new Set([...hubOnly, VM, SUBNET, VNET]); // a web VM picked as well
+  assert.equal(Openings.drawn(any, withVm, places), true);
+  assert.equal(Openings.drawn(namesVm, withVm, places), true);
+  assert.equal(Openings.drawn(wideOverWeb, withVm, places), true);
+  assert.equal(Openings.drawn(wideOverWeb, new Set([...hubOnly, VM, SUBNET, VNET]), new Set([BAS, BAS_SUBNET, HUB_VNET])), false, "a wide rule counts only against the senders' VNets");
+});

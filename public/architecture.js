@@ -464,7 +464,7 @@
     const through = o.through || new Set();
     const resources = inv.resources.filter((r) => (show(r) && picked(r)) || (through.has(r.id) && !hidden(r)));
     let leaves = 0;
-    let openFocus = null; // with a VM picked: that VM and how many firewall openings stayed or went
+    let openings = null; // the firewall openings: how many stayed or went, for which clicked VM, and whether a sender is picked
 
     if (o.layout === "groups") {
       // Subscription > resource group > resource.
@@ -541,11 +541,27 @@
       // picked, so the line has somewhere to start. The firewall whose rule it is must be on the drawing already.
       const open = o.openings && o.openData && o.openData.byTenant ? o.openData : null;
       const fwDrawn = (tg, drawnIds) => (tg.firewalls || [tg.firewall]).find((id) => drawnIds.has(id));
-      // With a VM picked, only the openings it can use are drawn: those whose rules name it (by address, a range over
-      // it, its subnet or its VNet) and those open to every Azure address. The rest, tiles and lines, go.
+      // The openings follow what is picked: a tile stays when one of its rules names a picked resource (its address or
+      // its subnet) or a subnet of a VNet picked through its group, or, when a picked VM (anything that sends its own
+      // traffic through the firewall) is on the drawing, when the rule covers the VM's whole VNet or is open to every
+      // Azure address. Nothing picked, no openings; every group picked (All), every opening. With a VM clicked, only
+      // that VM counts. The rest, tiles and lines, go.
       const focus = open && o.focus ? openingsPlace(inv, inv.byId.get(o.focus)) : null;
-      const reach = (tg) => !focus || Openings.reaches(tg, focus.places);
-      if (focus) openFocus = { r: focus.r, kept: 0, hidden: 0 };
+      const every = !focus && [...inv.groups.values()].every((g) => o.scope.has(g.key));
+      const named = new Set(), senders = new Set(); // the places everything picked stands for; those of the senders among them
+      const place = (p, r) => {
+        for (const k of p.places) (named.add(k), Openings.sender(r) && senders.add(k));
+      };
+      if (focus) place(focus, focus.r);
+      else if (open) {
+        for (const v of inv.vnets) if (whole.has(v.id)) v.subnets.forEach((s) => named.add(s.id));
+        for (const r of placed) {
+          const p = picked(r) && show(r) ? openingsPlace(inv, r) : null;
+          if (p) place(p, r);
+        }
+      }
+      const reach = (tg) => every || Openings.drawn(tg, named, senders);
+      if (open) openings = { r: focus ? focus.r : null, sender: senders.size > 0, kept: 0, hidden: 0 };
       if (open) {
         const drawnIds = new Set(placed.map((r) => r.id));
         for (const res of open.byTenant.values()) {
@@ -676,7 +692,7 @@
             if (!fwId) continue;
             if (tg.side === "onprem" && (!o.onprem || !tg.gateway || !drawnIds.has(tg.gateway))) continue;
             if (!reach(tg)) {
-              openFocus.hidden++;
+              openings.hidden++;
               continue;
             }
             let parent, from;
@@ -688,7 +704,7 @@
               from = fwId;
             }
             if (!parent) continue;
-            if (openFocus) openFocus.kept++;
+            openings.kept++;
             const n = parent.children.filter((c) => c.open).length;
             if (n >= MAX_OPEN_TILES) {
               const m = more.get(parent.key) || { key: `${parent.key}|more`, leaf: true, more: 0, r: { id: `${parent.key}|more`, name: "", type: "open/more", tenant, resourceGroup: "", t: { abbr: "+", label: "More openings", cat: "network" } }, col: "--muted", sub: "openings not drawn" };
@@ -764,7 +780,7 @@
     root.kind = "root"; // the outer box draws no frame of its own
     const grouped = o.grouped === "type" || (o.grouped === "auto" && leaves > 400);
     if (grouped) groupByType(root);
-    return { root, links, leaves, grouped, multi, openFocus };
+    return { root, links, leaves, grouped, multi, openings };
   }
   // Sign-in: per tenant a Microsoft Entra ID box with the app registrations whose redirect URIs point at a drawn web
   // app, and a line to each. Identity access: a line from each drawn holder of a managed identity to what its roles
@@ -1315,7 +1331,7 @@
     return `<div class="arch-bar">
       <div class="seg">${lay("hubs", "Hub and spoke", "Each hub VNet in the middle, its peered spokes around it, on-premises on the left")}${lay("network", "Network", "VNets with their subnets, packed in rows")}${lay("groups", "Resource groups", "Subscription, resource group, resource")}</div>
       <div class="arch-opts">
-        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") + chk("openings", "Firewall openings", "What the Azure Firewall rules let through, hop by hop: from the VM (or subnet) the rule names, through the firewall and the gateway to the site and the on-premises address; or through the firewall to the Internet name or address. A \"*\" rule shows as a red Any address tile") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
+        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") + chk("openings", "Firewall openings", "What the Azure Firewall rules let through, hop by hop: from the VM (or subnet) the rule names, through the firewall and the gateway to the site and the on-premises address; or through the firewall to the Internet name or address. A \"*\" rule shows as a red Any address tile. Drawn for what you pick: a tile stays when a rule names a picked resource or its subnet, or when a picked VM is on the drawing and the rule covers its VNet or is open to every address; All draws every opening") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
         ${chk("idLinks", "Identity access", "A line from each managed identity to what its roles or Key Vault access policies reach (solid: data, like reading blobs or secrets; dashed: managing the resource)")}
         ${chk("signIn", "Sign-in", "An Entra ID box with the app registrations that sign people in to the drawn web apps")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}
@@ -1393,7 +1409,8 @@
         ${m.links.some((l) => l.kind === "open-path") ? `<span><i class="ln opath"></i>a hop shared by openings to both sides</span>` : ""}
         ${m.links.some((l) => l.kind === "open-any") ? `<span><i class="ln oany"></i>"*" rule: open to every address</span>` : ""}
         ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path, click a VM to keep only the openings that name it)</span>` : ""}
-        ${m.openFocus ? `<span>Firewall openings: ${m.openFocus.kept ? `only the ${m.openFocus.kept} that name` : "none name"} <b>${esc(m.openFocus.r.name)}</b> or every Azure address${m.openFocus.hidden ? ` (${m.openFocus.hidden} hidden)` : ""}; click empty space for all</span>` : ""}
+        ${m.openings && m.openings.r ? `<span>Firewall openings: ${m.openings.kept ? `only the ${m.openings.kept} that name` : "none name"} <b>${esc(m.openings.r.name)}</b>${m.openings.sender ? " or every Azure address" : ""}${m.openings.hidden ? ` (${m.openings.hidden} hidden)` : ""}; click empty space for the rest</span>` : ""}
+        ${m.openings && !m.openings.r && m.openings.hidden ? `<span>Firewall openings: ${m.openings.kept ? `the ${m.openings.kept} the picked resources can use, ${m.openings.hidden} hidden` : `none for what is picked (${m.openings.hidden} hidden); pick the VMs that use them, All picks everything`}</span>` : ""}
         ${open && open.loading ? "<span>Reading the firewall openings…</span>" : ""}
         ${open && open.notes ? open.notes.map((x) => `<span>Firewall openings: ${esc(x)}</span>`).join("") : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>

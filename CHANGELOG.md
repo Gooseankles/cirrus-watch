@@ -64,6 +64,13 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.71.2.1] - 2026-11-05
+
+### Added
+
+- The docs are mirrored to the repository wiki after every change on main (`wiki.yml`, `scripts/wiki-sync.mjs`): one
+  wiki page per docs page, Home and a sidebar from `docs/README.md`, links rewritten. Edit `docs/`, not the wiki.
+
 ## [0.71.2.0] - 2026-11-05
 
 ### Added

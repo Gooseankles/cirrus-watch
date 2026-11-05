@@ -127,7 +127,8 @@ To let only some public IPs reach the site, set `allowed_ip_ranges` (see "Access
 
 ## Documentation
 
-Everything is listed by reader in **[docs/](docs/README.md)**. The most used pages:
+Everything is listed by reader in **[docs/](docs/README.md)**, also readable as the
+[wiki](https://github.com/Gooseankles/cirrus-watch/wiki), which follows that folder. The most used pages:
 
 | You want to | Read |
 | --- | --- |

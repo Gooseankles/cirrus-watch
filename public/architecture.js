@@ -542,26 +542,29 @@
       const open = o.openings && o.openData && o.openData.byTenant ? o.openData : null;
       const fwDrawn = (tg, drawnIds) => (tg.firewalls || [tg.firewall]).find((id) => drawnIds.has(id));
       // The openings follow what is picked: a tile stays when one of its rules names a picked resource (its address or
-      // its subnet) or a subnet of a VNet picked through its group, or, when a picked VM (anything that sends its own
-      // traffic through the firewall) is on the drawing, when the rule covers the VM's whole VNet or is open to every
-      // Azure address. Nothing picked, no openings; every group picked (All), every opening. With a VM clicked, only
-      // that VM counts. The rest, tiles and lines, go.
+      // its subnet) or a VNet picked through its group (its own range or one of its subnets), or, when a picked VM
+      // (anything that sends its own traffic through the firewall) is on the drawing, when the rule is open to every
+      // Azure address (a "*" source). A rule over the VM's whole VNet or a wider range names the VNet, not the VM, and
+      // is drawn when that VNet is picked. Nothing picked, no openings; every group picked (All), every opening. With a
+      // VM clicked, only that VM counts. The rest, tiles and lines, go.
       const focus = open && o.focus ? openingsPlace(inv, inv.byId.get(o.focus)) : null;
       const every = !focus && [...inv.groups.values()].every((g) => o.scope.has(g.key));
-      const named = new Set(), senders = new Set(); // the places everything picked stands for; those of the senders among them
+      const named = new Set(); // the places everything picked stands for
+      let sender = false; // does something picked send its own traffic (a VM): the "*" rules are drawn then
       const place = (p, r) => {
-        for (const k of p.places) (named.add(k), Openings.sender(r) && senders.add(k));
+        for (const k of p.places) named.add(k);
+        if (Openings.sender(r)) sender = true;
       };
       if (focus) place(focus, focus.r);
       else if (open) {
-        for (const v of inv.vnets) if (whole.has(v.id)) v.subnets.forEach((s) => named.add(s.id));
+        for (const v of inv.vnets) if (whole.has(v.id)) (named.add(v.id), v.subnets.forEach((s) => named.add(s.id)));
         for (const r of placed) {
           const p = picked(r) && show(r) ? openingsPlace(inv, r) : null;
           if (p) place(p, r);
         }
       }
-      const reach = (tg) => every || Openings.drawn(tg, named, senders);
-      if (open) openings = { r: focus ? focus.r : null, sender: senders.size > 0, kept: 0, hidden: 0 };
+      const reach = (tg) => every || Openings.drawn(tg, named, sender);
+      if (open) openings = { r: focus ? focus.r : null, sender, kept: 0, hidden: 0 };
       if (open) {
         const drawnIds = new Set(placed.map((r) => r.id));
         for (const res of open.byTenant.values()) {
@@ -728,7 +731,7 @@
             // firewall inside them says nothing: the path text still names them, the drawing leaves that hop out.
             const fwSubnet = String((inv.byId.get(fwId) || {}).subnet || "").toLowerCase(), fwVnet = fwSubnet.split("/subnets/")[0];
             const insideDrawn = inside.filter((k) => k !== fwSubnet && k !== fwVnet);
-            const fromText = [inside.length ? inside.map((k) => nameOf(inv, k)).join(", ") : "", tg.fromAny || (!inside.length && !(tg.from || []).length) ? "any Azure address" : "", tg.fromCount > (tg.from || []).length ? `${tg.fromCount - tg.from.length} more` : ""].filter(Boolean).join("; ");
+            const fromText = [inside.length ? inside.map((k) => nameOf(inv, k)).join(", ") : "", tg.fromAny || tg.fromWide || (!inside.length && !(tg.from || []).length) ? "any Azure address" : "", tg.fromCount > (tg.from || []).length ? `${tg.fromCount - tg.from.length} more` : ""].filter(Boolean).join("; ");
             const path = [fromText, ...hops.slice(0, -1).map((k) => nameOf(inv, k)), tg.label];
             if (tg.dir === "in") path.reverse();
             const way = path.join(tg.dir === "both" ? " ↔ " : " → ");
@@ -1331,7 +1334,7 @@
     return `<div class="arch-bar">
       <div class="seg">${lay("hubs", "Hub and spoke", "Each hub VNet in the middle, its peered spokes around it, on-premises on the left")}${lay("network", "Network", "VNets with their subnets, packed in rows")}${lay("groups", "Resource groups", "Subscription, resource group, resource")}</div>
       <div class="arch-opts">
-        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") + chk("openings", "Firewall openings", "What the Azure Firewall rules let through, hop by hop: from the VM (or subnet) the rule names, through the firewall and the gateway to the site and the on-premises address; or through the firewall to the Internet name or address. A \"*\" rule shows as a red Any address tile. Drawn for what you pick: a tile stays when a rule names a picked resource or its subnet, or when a picked VM is on the drawing and the rule covers its VNet or is open to every address; All draws every opening") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
+        ${net ? chk("peerings", "Peerings", "Lines between peered VNets (red: not connected or one side only)") + chk("onprem", "On-premises", "VPN and ExpressRoute sites and their connections") + chk("peLinks", "Private endpoint links", "A dotted line from each private endpoint to what it opens") + chk("wholeVnets", "Whole VNets", "Every subnet of each VNet drawn, also those with nothing picked in them") + chk("openings", "Firewall openings", "What the Azure Firewall rules let through, hop by hop: from the VM (or subnet) the rule names, through the firewall and the gateway to the site and the on-premises address; or through the firewall to the Internet name or address. A \"*\" rule shows as a red Any address tile. Drawn for what you pick: a tile stays when a rule names a picked resource (its address or its subnet) or a picked VNet (its range or a subnet), or when a picked VM is on the drawing and the rule is open to every address (a \"*\" source); a rule over the VM's whole VNet names the VNet, not the VM; All draws every opening") : chk("subs", "Subscription boxes", "Group the resource groups by subscription")}
         ${chk("idLinks", "Identity access", "A line from each managed identity to what its roles or Key Vault access policies reach (solid: data, like reading blobs or secrets; dashed: managing the resource)")}
         ${chk("signIn", "Sign-in", "An Entra ID box with the app registrations that sign people in to the drawn web apps")}
         ${chk("publicIps", "Public IPs", "Mark resources that have a public IP")}
@@ -1410,7 +1413,7 @@
         ${m.links.some((l) => l.kind === "open-any") ? `<span><i class="ln oany"></i>"*" rule: open to every address</span>` : ""}
         ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path, click a VM to keep only the openings that name it)</span>` : ""}
         ${m.openings && m.openings.r ? `<span>Firewall openings: ${m.openings.kept ? `only the ${m.openings.kept} that name` : "none name"} <b>${esc(m.openings.r.name)}</b>${m.openings.sender ? " or every Azure address" : ""}${m.openings.hidden ? ` (${m.openings.hidden} hidden)` : ""}; click empty space for the rest</span>` : ""}
-        ${m.openings && !m.openings.r && m.openings.hidden ? `<span>Firewall openings: ${m.openings.kept ? `the ${m.openings.kept} the picked resources can use, ${m.openings.hidden} hidden` : `none for what is picked (${m.openings.hidden} hidden); pick the VMs that use them, All picks everything`}</span>` : ""}
+        ${m.openings && !m.openings.r && m.openings.hidden ? `<span>Firewall openings: ${m.openings.kept ? `the ${m.openings.kept} that name what is picked${m.openings.sender ? ' or every Azure address' : ""}, ${m.openings.hidden} hidden` : `none name what is picked (${m.openings.hidden} hidden); pick a VM for the rules that name it, All draws every opening`}</span>` : ""}
         ${open && open.loading ? "<span>Reading the firewall openings…</span>" : ""}
         ${open && open.notes ? open.notes.map((x) => `<span>Firewall openings: ${esc(x)}</span>`).join("") : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
@@ -1525,16 +1528,18 @@
     if (x.fromCount > x.from.length) names.push(`<span class="muted">and ${x.fromCount - x.from.length} more</span>`);
     return names.join(", ") || `<span class="muted">–</span>`;
   };
-  // The place a resource stands for on the Azure side of the firewall openings: itself, its subnet and its VNet. Nothing
-  // for the firewall, the gateways and the sites (every opening passes them), or for a resource outside a subnet.
+  // The place a resource stands for on the Azure side of the firewall openings: itself and its subnet, with its VNet
+  // kept aside (a rule over the whole VNet names the VNet, not the resource). Nothing for the firewall, the gateways
+  // and the sites (every opening passes them), or for a resource outside a subnet.
   function openingsPlace(inv, r) {
     if (!r || !r.subnet || /\/(azurefirewalls|virtualnetworkgateways|localnetworkgateways|expressroutecircuits)$/.test(r.type)) return null;
     const at = inv.subnetById.get(r.subnet);
-    return { r, places: new Set([r.id, r.subnet, at && at.v.id].filter(Boolean)) };
+    return { r, places: new Set([r.id, r.subnet]), vnet: at ? at.v.id : "" };
   }
-  // The firewall openings on the drawing whose rules name a resource: by its address, a range over it, its subnet or
-  // its VNet, each with the rule and the entry that does so. Rules open to every Azure address ("*", or a range over
-  // most of the network with its VNet among them) reach it as well; those are counted, not listed.
+  // The firewall openings on the drawing whose rules name a resource: by its address, a small range over it or its
+  // subnet, each with the rule and the entry that does so. Rules open to every Azure address ("*") reach it as well,
+  // and so do rules over its whole VNet or a wider range; those two kinds are counted, not listed (the drawing leaves
+  // the second out for the resource alone: All draws them).
   function openingsText(inv, t, o, r) {
     const d = t.archDrawn;
     if (!d || o.layout === "groups" || !o.openings || !o.openData || !o.openData.byTenant) return null;
@@ -1547,19 +1552,21 @@
       if (f.kind !== "resource") return `${mono(by)} covers its ${SIDE_WORD[f.kind]}`;
       return by === f.ip ? `names its address ${mono(f.ip)}` : `${mono(by)} covers its address${f.ip ? ` ${mono(f.ip)}` : ""}`;
     };
-    const named = [], star = [];
+    const named = [], star = [], range = [];
     let partial = false;
     for (const n of d.at.values()) {
       if (!n.open) continue;
       const tg = n.open;
       const hits = Openings.rulesNaming(tg, mine);
       if (hits.length) named.push({ tg, hits });
-      else if ((tg.rules || []).some((x) => Openings.openToAll(x, mine))) star.push(tg);
+      else if ((tg.rules || []).some((x) => Openings.openToAll(x))) star.push(tg);
+      else if ((tg.rules || []).some((x) => Openings.covers(x, place.vnet))) range.push(tg);
       if (tg.ruleCount > (tg.rules || []).length) partial = true;
     }
     const order = (a, b) => (isAnyOpen(a) ? 0 : 1) - (isAnyOpen(b) ? 0 : 1) || String(a.label).localeCompare(String(b.label));
     named.sort((a, b) => order(a.tg, b.tg));
     star.sort(order);
+    range.sort(order);
     // An on-premises tile is one per site, so the site tells two tiles with the same label apart.
     const where = (tg) => `${tg.side === "onprem" ? `on-premises${tg.site ? ` via ${nameOf(inv, tg.site)}` : ""}` : "Internet"}, ${OPEN_DIR[tg.dir] || tg.dir}`;
     const items = named.slice(0, 40).map(
@@ -1569,8 +1576,9 @@
           .join("<br>")}</div></li>`
     );
     if (named.length > 40) items.push(`<li class="muted">and ${named.length - 40} more</li>`);
-    if (star.length) items.push(`<li class="muted">${named.length ? "and " : ""}${star.length} open to every Azure address (a "*" source, or a range over most of the network): ${esc(star.slice(0, 6).map((tg) => tg.label).join(", "))}${star.length > 6 ? "…" : ""}</li>`);
-    const head = named.length ? `${named.length} name${named.length === 1 ? "s" : ""} it` : `<span class="muted">none name it, its subnet or its VNet</span>`;
+    if (star.length) items.push(`<li class="muted">${named.length ? "and " : ""}${star.length} open to every Azure address (a "*" source): ${esc(star.slice(0, 6).map((tg) => tg.label).join(", "))}${star.length > 6 ? "…" : ""}</li>`);
+    if (range.length) items.push(`<li class="muted">${named.length || star.length ? "and " : ""}${range.length} over its whole VNet or a wider range, not drawn for it alone (All draws them): ${esc(range.slice(0, 6).map((tg) => tg.label).join(", "))}${range.length > 6 ? "…" : ""}</li>`);
+    const head = named.length ? `${named.length} name${named.length === 1 ? "s" : ""} it` : `<span class="muted">none name it or its subnet</span>`;
     const note = partial ? `<div class="muted">Some openings list only their first ${(named[0] || { tg: {} }).tg.rules ? named[0].tg.rules.length : 12} rules; the rest are in the Firewall policies scan.</div>` : "";
     return `${head}${items.length ? `<ul class="arch-roles">${items.join("")}</ul>` : ""}${note}`;
   }
@@ -1586,7 +1594,7 @@
     const mono = (x) => `<span class="mono">${esc(x)}</span>`;
     const kindWord = SIDE_WORD;
     const fromList = (tg.from || []).map((f) => `${esc(nameOf(inv, f.id))}${kindWord[f.kind] ? ` <span class="muted">${kindWord[f.kind]}</span>` : ""}`);
-    if (tg.fromAny || !fromList.length) fromList.unshift(`any Azure address <span class="muted">(the rule's source is "*" or spans most of the network)</span>`);
+    if (tg.fromAny || tg.fromWide || !fromList.length) fromList.unshift(`any Azure address <span class="muted">(the rule's source is "*" or spans most of the network)</span>`);
     if (tg.fromCount > (tg.from || []).length) fromList.push(`<span class="muted">and ${tg.fromCount - tg.from.length} more</span>`);
     const rows = [
       ["Opening", `${esc(word)}${tg.sub ? ` <span class="muted">(${esc(tg.sub)})</span>` : ""}`],
@@ -1940,7 +1948,7 @@
     const o = t.archOpts;
     const node = d.target.closest && d.target.closest("[data-arch-node]");
     o.sel = node ? node.dataset.archNode : null;
-    // A VM (or anything else in a subnet) picked keeps only the firewall openings it can use; an opening tile picked
+    // A VM (or anything else in a subnet) picked keeps only the firewall openings that name it; an opening tile picked
     // keeps that filter; empty space, or a tile of another kind, brings every opening back.
     const n = o.sel && t.archDrawn && t.archDrawn.at.get(o.sel);
     const inv = t.arch && t.arch.data;

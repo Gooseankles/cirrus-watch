@@ -121,10 +121,12 @@ function environment({ net, fw, inv }) {
 
 // The Azure side of a rule (its sources for an outbound opening, its destinations for an inbound one, the
 // translated address of a DNAT rule) as the places on the drawing the line starts or ends at: a resource whose
-// address the entry names, else the subnet it covers, else the VNet. "*" is every source and starts the line at the
-// firewall (any: true); a range over more than MAX_FROM_VNETS VNets does the same (wide: true). Each spot says which
-// entries of the rule put it there ("by": the address or range as written, "10.20.2.5 in group ipg-dcs" for an IP
-// group member) and, for a resource, the address of its that the entry covers ("ip"), so a reader can check the match.
+// address the entry names, else the subnet it covers, else the VNet (own: true when the entry lies inside the VNet,
+// its own range, as against a broader one such as 10.0.0.0/8 that merely covers it). "*" is every source and starts
+// the line at the firewall (any: true); a range over more than MAX_FROM_VNETS VNets does the same (wide: true). Each
+// spot says which entries of the rule put it there ("by": the address or range as written, "10.20.2.5 in group
+// ipg-dcs" for an IP group member) and, for a resource, the address of its that the entry covers ("ip"), so a reader
+// can check the match.
 function azureSide(env, list, groups) {
   const spots = new Map();
   const wideVnets = new Set(); // the VNets a wide range covers, so a reader can still tell whether one place is under it
@@ -142,6 +144,7 @@ function azureSide(env, list, groups) {
     const by = e.via ? `${s} in ${e.via}` : s;
     const spot = (id, kind, fields) => {
       const x = spots.get(id) || { id, kind, ...fields, by: [] };
+      if (fields && fields.own) x.own = true; // one entry inside the VNet names it, whatever the others cover
       if (!x.by.includes(by) && x.by.length < MAX_BY) x.by.push(by);
       spots.set(id, x);
     };
@@ -153,13 +156,14 @@ function azureSide(env, list, groups) {
       continue;
     }
     for (const v of vnets) {
+      const own = v.ranges.some((x) => ip.contains(x, r)) ? { own: true } : undefined; // inside the VNet: its own range
       if (v.ranges.some((x) => ip.contains(r, x))) {
-        spot(v.id, "vnet");
+        spot(v.id, "vnet", own);
         continue;
       }
       const subs = env.subnets.filter((sn) => sn.vnet === v.id && sn.ranges.some((x) => ip.overlaps(x, r)));
       if (!subs.length) {
-        spot(v.id, "vnet");
+        spot(v.id, "vnet", own);
         continue;
       }
       for (const sn of subs) {
@@ -219,23 +223,29 @@ function compute({ net, fw, inv }, opts = {}) {
 
   // One tile; the same key from several rules (or firewalls) merges into it. curFrom is the Azure side of the rule
   // being read (see azureSide): the tile collects the places its lines start or end at (from: the union over its
-  // rules, without the reasons), and each rule listed on it keeps its own Azure side (from, with the reasons; fromAny
-  // for "*"; fromWide for a range over many VNets), so a reader can tell which rule names which VM.
+  // rules, without the reasons; fromAny and fromWide when any rule is), and each rule listed on it keeps its own Azure
+  // side (from, with the reasons; fromAny for "*"; fromWide for a range over many VNets), so a reader can tell which
+  // rule names which VM.
   let curFw = null, curFrom = null;
   const add = (key, make, rule, dir) => {
     let t = targets.get(key);
     if (!t) {
       if (targets.size >= maxTargets) return null;
-      t = { key, ...make(), firewall: curFw, firewalls: [], dir, ports: [], rules: [], ruleCount: 0, from: [], fromCount: 0, fromAny: false };
+      t = { key, ...make(), firewall: curFw, firewalls: [], dir, ports: [], rules: [], ruleCount: 0, from: [], fromCount: 0, fromAny: false, fromWide: false };
       targets.set(key, t);
     }
     if (!t.firewalls.includes(curFw)) t.firewalls.push(curFw);
     if (t.dir !== dir) t.dir = "both";
     let row = rule;
     if (curFrom) {
-      if (curFrom.any || curFrom.wide) t.fromAny = true;
+      if (curFrom.any) t.fromAny = true;
+      if (curFrom.wide) t.fromWide = true;
       for (const { by, ...f } of curFrom.spots) {
-        if (t.from.some((x) => x.id === f.id)) continue;
+        const have = t.from.find((x) => x.id === f.id);
+        if (have) {
+          if (f.own) have.own = true;
+          continue;
+        }
         t.fromCount++;
         if (t.from.length < MAX_FROM) t.from.push(f.kind === "resource" ? { id: f.id, kind: f.kind, name: f.name } : f);
       }

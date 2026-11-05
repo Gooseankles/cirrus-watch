@@ -5,7 +5,7 @@ const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const env = require("./_env");
 after(env.cleanup);
-const { compute, _test } = require("../src/tools/firewallOpenings");
+const { compute, pack, _test } = require("../src/tools/firewallOpenings");
 const flows = require("../src/tools/trafficFlow");
 
 const SUB = "/subscriptions/00000000-0000-4000-8000-000000000001";
@@ -374,4 +374,32 @@ test("a VNet's own range names it (own); a broader range over it does not, on th
   assert.equal(spot(dns, SPOKE).own, true, "a later rule's own range reaches the union");
   assert.equal(ntp.fromAny, false);
   assert.equal(ntp.fromWide, false);
+});
+
+test("the API packs the result: each place id once, spots by index; the drawing's unpack gives the result back", () => {
+  const Openings = require("../public/openings.js");
+  const out = compute({ net, fw, inv });
+  const packed = pack(out);
+  assert.ok(packed.places.length > 0);
+  assert.equal(new Set(packed.places).size, packed.places.length, "no id twice");
+  for (const t of packed.targets) {
+    for (const f of t.from) assert.ok(!("id" in f) && Number.isInteger(f.p), "a tile spot carries an index");
+    for (const r of t.rules) {
+      for (const f of r.from || []) assert.ok(!("id" in f) && Number.isInteger(f.p), "a rule spot carries an index");
+      for (const v of r.wideVnets || []) assert.ok(Number.isInteger(v));
+    }
+  }
+  assert.ok(JSON.stringify(packed).length < JSON.stringify(out).length, "smaller on the wire");
+  assert.deepEqual(Openings.unpack(packed), out, "the round trip is exact");
+  // A wide rule's wideVnets (ids) go as indexes too.
+  const rules = [rule("all-to-dc", { src: ["10.0.0.0/8"], dst: ["192.168.10.10"], ports: ["443"], protocols: ["TCP"] })];
+  const wideFw = { ...fw, policies: [{ ...fw.policies[0], view: [{ name: "g", priority: 100, collections: [{ name: "c", priority: 100, kind: "filter", action: "Allow", rules }] }] }] };
+  const many = { ...net, vnets: [...net.vnets, ...[1, 2, 3].map((i) => ({ id: `${HUB}-${i}`, prefixes: [`10.${30 + i}.0.0/16`], peers: [] }))] };
+  const w = compute({ net: many, fw: wideFw, inv });
+  const pw = pack(w);
+  const [far] = pw.targets.filter((t) => t.label === "192.168.10.10");
+  assert.equal(far.rules[0].fromWide, true);
+  assert.ok(far.rules[0].wideVnets.length > 0 && far.rules[0].wideVnets.every(Number.isInteger), "wideVnets packed as indexes");
+  assert.ok(Openings.unpack(pw).targets.find((t) => t.label === "192.168.10.10").rules[0].wideVnets.every((v) => v.startsWith("/subscriptions/")), "unpack gives the VNet ids back");
+  assert.deepEqual(Openings.unpack(pw), w);
 });

@@ -148,3 +148,24 @@ test('drawn: nothing picked draws nothing; a hub picked whole brings the rules n
   assert.equal(Openings.drawn(overAzure, vmOnly, true), false);
   assert.equal(Openings.drawn(forWeb, new Set([...vmOnly, VNET]), true), true, "the VM and its VNet picked: the VNet's rules come along");
 });
+
+test("unpack: a packed response gets its ids back; one without places (an error) passes through", () => {
+  const packed = {
+    firewalls: ["fw"],
+    notes: [],
+    places: [VM, SUBNET, VNET],
+    targets: [
+      { label: "a", from: [{ p: 0, kind: "resource", name: "vm-web-01" }, { p: 2, kind: "vnet", own: true }], rules: [{ name: "r1", from: [{ p: 1, kind: "subnet", by: ["10.20.1.0/24"] }], fromCount: 1 }, { name: "r2", fromWide: true, wideVnets: [2] }, { name: "no-azure-side" }] },
+    ],
+  };
+  const out = Openings.unpack(packed);
+  assert.equal("places" in out, false);
+  assert.deepEqual(out.targets[0].from, [{ id: VM, kind: "resource", name: "vm-web-01" }, { id: VNET, kind: "vnet", own: true }]);
+  assert.deepEqual(out.targets[0].rules[0].from, [{ id: SUBNET, kind: "subnet", by: ["10.20.1.0/24"] }]);
+  assert.deepEqual(out.targets[0].rules[1].wideVnets, [VNET]);
+  assert.equal("from" in out.targets[0].rules[2], false, "a rule without an Azure side stays without one");
+  assert.deepEqual(out.firewalls, ["fw"]);
+  const err = { error: "Unknown tenant" };
+  assert.equal(Openings.unpack(err), err);
+  assert.equal(Openings.unpack(null), null);
+});

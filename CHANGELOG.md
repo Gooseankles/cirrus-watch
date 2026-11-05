@@ -74,6 +74,10 @@ Steps needed when moving past a version. Read this before you change the image t
   its subnets) or with All. On a real policy, where most rules are written for whole networks, one picked VM no longer
   brings nearly every opening. The VM's details panel counts those rules separately ("over its whole VNet or a wider
   range, not drawn for it alone"), and the openings data marks a VNet entry that is the VNet's own range (`own`).
+- Architecture drawing, firewall openings: the openings data names every place a rule covers (200 per rule and a
+  thousand per tile, was 24), so a rule naming many subnets or addresses through an IP group still names the picked
+  one, and a tile with more rules than it lists is checked against all of them instead of being kept unchecked. The
+  place ids go over the wire once, in a table, so the response does not grow with it.
 
 ## [0.71.3.0] - 2026-11-05
 

@@ -414,7 +414,7 @@
     if (t.archOpenAsk !== key) {
       t.archOpenAsk = key;
       t.archOpen = { key, loading: true };
-      Promise.all(inv.tenants.map((x) => postJson("/api/architecture/openings", { tenant: x.key }).then((r) => [x.key, r]).catch((err) => [x.key, { error: err.message }])))
+      Promise.all(inv.tenants.map((x) => postJson("/api/architecture/openings", { tenant: x.key }).then((r) => [x.key, Openings.unpack(r)]).catch((err) => [x.key, { error: err.message }])))
         .then((rs) => {
           const notes = [];
           for (const [k, r] of rs) {

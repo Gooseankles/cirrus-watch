@@ -36,7 +36,8 @@ const MAX_TARGETS = 2000; // tiles handed to the drawing (the browser caps each 
 const MAX_RULES = 12; // rules listed per tile
 const MAX_ADDRESSES = 50; // addresses listed for an IP group tile
 const MAX_PORTS = 6; // port summaries per tile
-const MAX_FROM = 24; // Azure-side places (resources, subnets, VNets) a tile's lines start or end at
+const MAX_FROM = 200; // Azure-side places (resources, subnets, VNets) listed per rule: where its lines start or end
+const MAX_FROM_TILE = 1000; // places in a tile's union over all its rules (checked when a tile has more rules than it lists)
 const MAX_FROM_VNETS = 4; // a range over more VNets than this starts the line at the firewall instead
 const MAX_BY = 3; // rule entries kept per Azure-side place as the reason it is there
 
@@ -247,7 +248,7 @@ function compute({ net, fw, inv }, opts = {}) {
           continue;
         }
         t.fromCount++;
-        if (t.from.length < MAX_FROM) t.from.push(f.kind === "resource" ? { id: f.id, kind: f.kind, name: f.name } : f);
+        if (t.from.length < MAX_FROM_TILE) t.from.push(f.kind === "resource" ? { id: f.id, kind: f.kind, name: f.name } : f);
       }
       row = { ...rule, from: curFrom.spots.slice(0, MAX_FROM), fromCount: curFrom.spots.length, fromAny: curFrom.any, fromWide: curFrom.wide, ...(curFrom.wide && { wideVnets: curFrom.wideVnets }) };
     }
@@ -393,4 +394,27 @@ function compute({ net, fw, inv }, opts = {}) {
   return { firewalls, targets: list, rules: rulesSeen, notes };
 }
 
-module.exports = { compute, _test: { classify, portText, environment, reachableGateways, azureSide } };
+// The result packed for the wire: an Azure-side place id is a long resource id that every tile and rule naming the
+// place repeats, so each id is sent once, in `places`, and the spots carry its index as `p` (wideVnets as indexes)
+// instead. The drawing turns it back with Openings.unpack (public/openings.js); a test checks the round trip.
+function pack(out) {
+  const places = [], at = new Map();
+  const index = (id) => {
+    let n = at.get(id);
+    if (n === undefined) {
+      n = places.length;
+      places.push(id);
+      at.set(id, n);
+    }
+    return n;
+  };
+  const spot = ({ id, ...rest }) => ({ p: index(id), ...rest });
+  const targets = out.targets.map((t) => ({
+    ...t,
+    from: t.from.map(spot),
+    rules: t.rules.map((r) => ({ ...r, ...(r.from && { from: r.from.map(spot) }), ...(r.wideVnets && { wideVnets: r.wideVnets.map(index) }) })),
+  }));
+  return { ...out, targets, places };
+}
+
+module.exports = { compute, pack, _test: { classify, portText, environment, reachableGateways, azureSide } };

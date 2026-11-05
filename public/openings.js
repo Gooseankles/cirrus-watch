@@ -7,6 +7,21 @@
 // a range over the whole VNet, `own` when it is the VNet's own range rather than a broader one), `fromAny` for a "*"
 // source and `fromWide` with `wideVnets` for a range over more VNets than the drawing starts lines at.
 const Openings = {
+  // The response as the API packs it (each place id sent once in `places`, the spots carrying its index as `p`,
+  // wideVnets as indexes) turned back into spots with ids. A response without `places` (an error, an older server)
+  // is returned as it is.
+  unpack(res) {
+    if (!res || !Array.isArray(res.places)) return res;
+    const id = (n) => res.places[n];
+    const spot = ({ p, ...rest }) => ({ id: id(p), ...rest });
+    const targets = (res.targets || []).map((t) => ({
+      ...t,
+      from: (t.from || []).map(spot),
+      rules: (t.rules || []).map((r) => ({ ...r, ...(r.from && { from: r.from.map(spot) }), ...(r.wideVnets && { wideVnets: r.wideVnets.map(id) }) })),
+    }));
+    const { places, ...rest } = res;
+    return { ...rest, targets };
+  },
   // Does a spot name its place: an address, a subnet, or a VNet by its own range. A broader range over a VNet
   // (10.0.0.0/8) covers it without naming it.
   names(f) {
@@ -30,8 +45,8 @@ const Openings = {
     return !Array.isArray(rule.wideVnets) || rule.wideVnets.includes(vnet);
   },
   // Does the tile name one of the places: a rule names it, a rule is a "*" source (only when `any` is on), or the
-  // tile lists fewer rules than it has and its own union of places names it (or holds more places than it lists).
-  // What cannot be checked keeps the tile; only a tile whose every rule is read and names something else goes.
+  // tile lists fewer rules than it has and its own union of places over all its rules names it. The union holds up to
+  // a thousand places; past that (fromCount above what is listed) the tile is kept, as it cannot be checked.
   reaches(tile, places, any = true) {
     const rules = tile.rules || [];
     if (Openings.rulesNaming(tile, places).length) return true;

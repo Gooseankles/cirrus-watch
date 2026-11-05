@@ -38,6 +38,7 @@ const MAX_ADDRESSES = 50; // addresses listed for an IP group tile
 const MAX_PORTS = 6; // port summaries per tile
 const MAX_FROM = 24; // Azure-side places (resources, subnets, VNets) a tile's lines start or end at
 const MAX_FROM_VNETS = 4; // a range over more VNets than this starts the line at the firewall instead
+const MAX_BY = 3; // rule entries kept per Azure-side place as the reason it is there
 
 const GATEWAY = "microsoft.network/virtualnetworkgateways";
 const ANY_LABEL = "Any address (*)";
@@ -91,11 +92,11 @@ function environment({ net, fw, inv }) {
   const withIp = new Map();
   for (const r of resources) {
     const a = r.ip && r.subnet && r.type !== NIC && r.type !== PIP ? one(r.ip) : null;
-    if (a) withIp.set(lc(r.id), { id: lc(r.id), name: r.name, subnet: lc(r.subnet), ip: a });
+    if (a) withIp.set(lc(r.id), { id: lc(r.id), name: r.name, subnet: lc(r.subnet), ip: a, ipText: String(r.ip) });
   }
   for (const n of net.nics instanceof Map ? [...net.nics.values()] : arr(net.nics)) {
     const id = lc(n.owner), a = n.ip && n.subnet ? one(n.ip) : null;
-    if (a && id && !withIp.has(id)) withIp.set(id, { id, name: id.split("/").pop(), subnet: lc(n.subnet), ip: a });
+    if (a && id && !withIp.has(id)) withIp.set(id, { id, name: id.split("/").pop(), subnet: lc(n.subnet), ip: a, ipText: String(n.ip) });
   }
   const sites = arr(inv.sites).map((s) => ({ ...s, id: lc(s.id), ranges: arr(s.prefixes).map(one).filter(Boolean) }));
   const siteById = new Map(sites.map((s) => [s.id, s]));
@@ -121,13 +122,15 @@ function environment({ net, fw, inv }) {
 // The Azure side of a rule (its sources for an outbound opening, its destinations for an inbound one, the
 // translated address of a DNAT rule) as the places on the drawing the line starts or ends at: a resource whose
 // address the entry names, else the subnet it covers, else the VNet. "*" is every source and starts the line at the
-// firewall (any: true); a range over more than MAX_FROM_VNETS VNets does the same (wide: true).
+// firewall (any: true); a range over more than MAX_FROM_VNETS VNets does the same (wide: true). Each spot says which
+// entries of the rule put it there ("by": the address or range as written, "10.20.2.5 in group ipg-dcs" for an IP
+// group member) and, for a resource, the address of its that the entry covers ("ip"), so a reader can check the match.
 function azureSide(env, list, groups) {
   const spots = new Map();
   let any = false, wide = false;
-  const entries = [...arr(list), ...arr(groups).flatMap((id) => (env.ipGroups[lc(id)] ? arr(env.ipGroups[lc(id)].ips) : []))];
+  const entries = [...arr(list).map((s) => ({ s, via: "" })), ...arr(groups).flatMap((id) => (env.ipGroups[lc(id)] ? arr(env.ipGroups[lc(id)].ips).map((s) => ({ s, via: groupName(id) })) : []))];
   for (const e of entries) {
-    const s = String(e || "").trim();
+    const s = String(e.s || "").trim();
     if (!s) continue;
     if (isAny(s)) {
       any = true;
@@ -135,6 +138,12 @@ function azureSide(env, list, groups) {
     }
     const r = one(s);
     if (!r) continue; // a tag or a name is not a place in Azure
+    const by = e.via ? `${s} in ${e.via}` : s;
+    const spot = (id, kind, fields) => {
+      const x = spots.get(id) || { id, kind, ...fields, by: [] };
+      if (!x.by.includes(by) && x.by.length < MAX_BY) x.by.push(by);
+      spots.set(id, x);
+    };
     const vnets = env.vnets.filter((v) => v.ranges.some((x) => ip.overlaps(x, r)));
     if (!vnets.length) continue;
     if (vnets.length > MAX_FROM_VNETS) {
@@ -143,22 +152,22 @@ function azureSide(env, list, groups) {
     }
     for (const v of vnets) {
       if (v.ranges.some((x) => ip.contains(r, x))) {
-        spots.set(v.id, { id: v.id, kind: "vnet" });
+        spot(v.id, "vnet");
         continue;
       }
       const subs = env.subnets.filter((sn) => sn.vnet === v.id && sn.ranges.some((x) => ip.overlaps(x, r)));
       if (!subs.length) {
-        spots.set(v.id, { id: v.id, kind: "vnet" });
+        spot(v.id, "vnet");
         continue;
       }
       for (const sn of subs) {
         if (sn.ranges.some((x) => ip.contains(r, x))) {
-          spots.set(sn.id, { id: sn.id, kind: "subnet" });
+          spot(sn.id, "subnet");
           continue;
         }
         const hits = env.withIp.filter((x) => x.subnet === sn.id && ip.contains(r, x.ip));
-        if (hits.length) for (const h of hits) spots.set(h.id, { id: h.id, kind: "resource", name: h.name });
-        else spots.set(sn.id, { id: sn.id, kind: "subnet" });
+        if (hits.length) for (const h of hits) spot(h.id, "resource", { name: h.name, ip: h.ipText });
+        else spot(sn.id, "subnet");
       }
     }
   }
@@ -207,7 +216,9 @@ function compute({ net, fw, inv }, opts = {}) {
   let rulesSeen = 0;
 
   // One tile; the same key from several rules (or firewalls) merges into it. curFrom is the Azure side of the rule
-  // being read (see azureSide): the tile collects the places its lines start or end at.
+  // being read (see azureSide): the tile collects the places its lines start or end at (from: the union over its
+  // rules, without the reasons), and each rule listed on it keeps its own Azure side (from, with the reasons; fromAny
+  // for "*"; fromWide for a range over many VNets), so a reader can tell which rule names which VM.
   let curFw = null, curFrom = null;
   const add = (key, make, rule, dir) => {
     let t = targets.get(key);
@@ -218,17 +229,19 @@ function compute({ net, fw, inv }, opts = {}) {
     }
     if (!t.firewalls.includes(curFw)) t.firewalls.push(curFw);
     if (t.dir !== dir) t.dir = "both";
+    let row = rule;
     if (curFrom) {
       if (curFrom.any || curFrom.wide) t.fromAny = true;
-      for (const f of curFrom.spots) {
+      for (const { by, ...f } of curFrom.spots) {
         if (t.from.some((x) => x.id === f.id)) continue;
         t.fromCount++;
-        if (t.from.length < MAX_FROM) t.from.push(f);
+        if (t.from.length < MAX_FROM) t.from.push(f.kind === "resource" ? { id: f.id, kind: f.kind, name: f.name } : f);
       }
+      row = { ...rule, from: curFrom.spots.slice(0, MAX_FROM), fromCount: curFrom.spots.length, fromAny: curFrom.any, fromWide: curFrom.wide };
     }
     if (!t.ports.includes(rule.ports) && t.ports.length < MAX_PORTS) t.ports.push(rule.ports);
     t.ruleCount++;
-    if (t.rules.length < MAX_RULES) t.rules.push(rule);
+    if (t.rules.length < MAX_RULES) t.rules.push(row);
     return t;
   };
 

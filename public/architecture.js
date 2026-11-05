@@ -724,9 +724,11 @@
             tileTitle.set(tg.key, `${way}: ${ports}\n${rules}`);
             const sideKind = tg.side === "onprem" ? "open-onprem" : "open-internet";
             const rev = tg.dir === "in", both = tg.dir === "both";
+            // The shared hops light up for every place on the Azure side; the line from one place to the firewall only
+            // for that place (pointing at a VM must not light the lines of the other VMs that reach the same opening).
             const keys = [...inside, ...hops];
             for (let i = 0; i + 1 < hops.length; i++) seg(hops[i], hops[i + 1], any && i + 2 === hops.length ? "open-any" : sideKind, tg, keys, rev, both);
-            for (const src of insideDrawn) seg(src, fwId, sideKind, tg, keys, rev, both);
+            for (const src of insideDrawn) seg(src, fwId, sideKind, tg, [src, ...hops], rev, both);
           }
         }
         for (const s of segs.values()) {
@@ -1378,7 +1380,7 @@
         ${m.links.some((l) => l.kind === "open-internet") ? `<span><i class="ln oin"></i>firewall opening to the Internet: VM → firewall → name or address</span>` : ""}
         ${m.links.some((l) => l.kind === "open-path") ? `<span><i class="ln opath"></i>a hop shared by openings to both sides</span>` : ""}
         ${m.links.some((l) => l.kind === "open-any") ? `<span><i class="ln oany"></i>"*" rule: open to every address</span>` : ""}
-        ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path)</span>` : ""}
+        ${!o.traffic && m.links.some((l) => l.kind.startsWith("open") && l.trunk > 1) ? `<span><i class="arch-count">3</i>openings on one hop (hover the line for the list, click a tile for its path, click a VM for the openings that name it)</span>` : ""}
         ${open && open.loading ? "<span>Reading the firewall openings…</span>" : ""}
         ${open && open.notes ? open.notes.map((x) => `<span>Firewall openings: ${esc(x)}</span>`).join("") : ""}
         <span>Dashed tile: in a network you picked, from a resource group you did not</span>
@@ -1460,6 +1462,7 @@
     const users = inv.usersOf.get(r.id) || [];
     const signIns = inv.signInTo.get(r.id) || [];
     const peTarget = r.type === "microsoft.network/privateendpoints" && r.link ? inv.byId.get(r.link.split("/").slice(0, 9).join("/")) : null;
+    const opens = openingsText(inv, t, o, r);
     const rows = [
       ["Type", `${esc(r.t.label)}${r.kind ? ` <span class="muted">(${esc(r.kind)})</span>` : ""}${r.sku ? ` · ${esc(r.sku)}` : ""}`],
       ["Resource group", esc(r.resourceGroup)],
@@ -1475,8 +1478,63 @@
       reach.length ? ["Its identity may reach", roleList(reach, target)] : null,
       reachedBy.length ? ["Identities with access", roleList(reachedBy, (x) => nameOf(inv, x.from))] : null,
       signIns.length ? ["Sign-in", signIns.map((x) => `${esc(x.name)} <span class="muted">app registration</span>`).join(", ")] : null,
+      opens != null ? ["Firewall openings", opens] : null,
     ].filter(Boolean);
     return `<div class="arch-detail"><div class="arch-detail-head"><b>${esc(r.name)}</b><a href="${esc(portal(r.id))}" target="_blank" rel="noopener">Open in the Azure portal</a></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>`;
+  }
+
+  const SIDE_WORD = { resource: "", subnet: "subnet", vnet: "VNet" };
+  // The Azure side of one rule on a tile: the VMs, subnets and VNets it names (the entry that names each in the title),
+  // or any Azure address for a "*" source.
+  const ruleSide = (inv, x) => {
+    if (!x.from) return "";
+    const names = x.from.map((f) => `<span title="${esc((f.by || []).join(", "))}">${esc(nameOf(inv, f.id))}${SIDE_WORD[f.kind] ? ` <span class="muted">${SIDE_WORD[f.kind]}</span>` : ""}</span>`);
+    if (x.fromAny) names.unshift("any Azure address");
+    else if (x.fromWide) names.unshift(`<span class="muted">a range over most of the network</span>`);
+    if (x.fromCount > x.from.length) names.push(`<span class="muted">and ${x.fromCount - x.from.length} more</span>`);
+    return names.join(", ") || `<span class="muted">–</span>`;
+  };
+  // The firewall openings on the drawing whose rules name a resource: by its address, a range over it, its subnet or
+  // its VNet, each with the rule and the entry that does so. Rules open to every Azure address ("*", or a range over
+  // most of the network) reach it as well; those are counted, not listed. Nothing for the firewall, gateways and sites.
+  function openingsText(inv, t, o, r) {
+    const d = t.archDrawn;
+    if (!d || o.layout === "groups" || !o.openings || !o.openData || !o.openData.byTenant) return null;
+    if (!r.subnet || /\/(azurefirewalls|virtualnetworkgateways|localnetworkgateways|expressroutecircuits)$/.test(r.type)) return null;
+    const at = inv.subnetById.get(r.subnet);
+    const mine = new Set([r.id, r.subnet, at && at.v.id].filter(Boolean));
+    const mono = (x) => `<span class="mono">${esc(x)}</span>`;
+    const how = (f) => {
+      const by = (f.by || []).join(", ");
+      if (f.kind !== "resource") return `${mono(by)} covers its ${SIDE_WORD[f.kind]}`;
+      return by === f.ip ? `names its address ${mono(f.ip)}` : `${mono(by)} covers its address${f.ip ? ` ${mono(f.ip)}` : ""}`;
+    };
+    const named = [], star = [];
+    let partial = false;
+    for (const n of d.at.values()) {
+      if (!n.open) continue;
+      const tg = n.open;
+      const hits = (tg.rules || []).map((x) => [x, (x.from || []).find((f) => mine.has(f.id))]).filter(([, f]) => f);
+      if (hits.length) named.push({ tg, hits });
+      else if ((tg.rules || []).some((x) => x.fromAny || x.fromWide)) star.push(tg);
+      if (tg.ruleCount > (tg.rules || []).length) partial = true;
+    }
+    const order = (a, b) => (isAnyOpen(a) ? 0 : 1) - (isAnyOpen(b) ? 0 : 1) || String(a.label).localeCompare(String(b.label));
+    named.sort((a, b) => order(a.tg, b.tg));
+    star.sort(order);
+    // An on-premises tile is one per site, so the site tells two tiles with the same label apart.
+    const where = (tg) => `${tg.side === "onprem" ? `on-premises${tg.site ? ` via ${nameOf(inv, tg.site)}` : ""}` : "Internet"}, ${OPEN_DIR[tg.dir] || tg.dir}`;
+    const items = named.slice(0, 40).map(
+      ({ tg, hits }) =>
+        `<li><b>${esc(tg.label)}</b> <span class="muted">${esc(where(tg))} · ${esc((tg.ports || []).join("; "))}</span><div class="secondary">${hits
+          .map(([x, f]) => `${esc(x.name)} <span class="muted">(${esc(x.policy)} › ${esc(x.collection)})</span>: ${how(f)}`)
+          .join("<br>")}</div></li>`
+    );
+    if (named.length > 40) items.push(`<li class="muted">and ${named.length - 40} more</li>`);
+    if (star.length) items.push(`<li class="muted">${named.length ? "and " : ""}${star.length} open to every Azure address (a "*" source, or a range over most of the network): ${esc(star.slice(0, 6).map((tg) => tg.label).join(", "))}${star.length > 6 ? "…" : ""}</li>`);
+    const head = named.length ? `${named.length} name${named.length === 1 ? "s" : ""} it` : `<span class="muted">none name it, its subnet or its VNet</span>`;
+    const note = partial ? `<div class="muted">Some openings list only their first ${(named[0] || { tg: {} }).tg.rules ? named[0].tg.rules.length : 12} rules; the rest are in the Firewall policies scan.</div>` : "";
+    return `${head}${items.length ? `<ul class="arch-roles">${items.join("")}</ul>` : ""}${note}`;
   }
 
   // A firewall opening tile: where it goes, through what, the ports and the rules behind it.
@@ -1488,7 +1546,7 @@
     const site = tg.site && (inv.sites.find((s) => s.id === tg.site) || inv.byId.get(tg.site));
     const sideWord = tg.side === "onprem" ? "on-premises" : "on the Internet";
     const mono = (x) => `<span class="mono">${esc(x)}</span>`;
-    const kindWord = { resource: "", subnet: "subnet", vnet: "VNet" };
+    const kindWord = SIDE_WORD;
     const fromList = (tg.from || []).map((f) => `${esc(nameOf(inv, f.id))}${kindWord[f.kind] ? ` <span class="muted">${kindWord[f.kind]}</span>` : ""}`);
     if (tg.fromAny || !fromList.length) fromList.unshift(`any Azure address <span class="muted">(the rule's source is "*" or spans most of the network)</span>`);
     if (tg.fromCount > (tg.from || []).length) fromList.push(`<span class="muted">and ${tg.fromCount - tg.from.length} more</span>`);
@@ -1505,11 +1563,11 @@
       any ? ["Note", `"*" means every address: these rules open the firewall to everything ${sideWord}`] : null,
     ].filter(Boolean);
     const body = tg.rules
-      .map((x) => `<tr><td><span class="primary">${esc(x.name)}</span></td><td>${esc(x.policy)} › ${esc(x.group)} › ${esc(x.collection)}</td><td>${esc(x.type)} <span class="muted">${esc(x.action)}</span></td><td class="mono">${esc(x.src)} → ${esc(x.dst)}</td><td class="mono">${esc(x.ports)}</td><td>${esc(x.firewall)}</td></tr>`)
+      .map((x) => `<tr><td><span class="primary">${esc(x.name)}</span></td><td>${esc(x.policy)} › ${esc(x.group)} › ${esc(x.collection)}</td><td>${esc(x.type)} <span class="muted">${esc(x.action)}</span></td><td class="mono">${esc(x.src)} → ${esc(x.dst)}</td><td>${ruleSide(inv, x)}</td><td class="mono">${esc(x.ports)}</td><td>${esc(x.firewall)}</td></tr>`)
       .join("");
     const left = tg.ruleCount - tg.rules.length;
     return `<div class="arch-detail arch-open"><div class="arch-detail-head"><b>${esc(tg.label)}</b><span class="muted">firewall opening</span></div><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
-      <div class="table-wrap"><table class="data"><thead><tr><th>Rule</th><th>Policy › group › collection</th><th>Type</th><th>Source → destination</th><th>Ports</th><th>Firewall</th></tr></thead><tbody>${body}</tbody></table></div>${left > 0 ? `<p class="arch-hint">and ${left} more rule${left === 1 ? "" : "s"}: see the Firewall policies scan</p>` : ""}</div>`;
+      <div class="table-wrap"><table class="data"><thead><tr><th>Rule</th><th>Policy › group › collection</th><th>Type</th><th>Source → destination</th><th title="The VMs, subnets or VNets this one rule names (hover a name for the address or range that names it)">Azure side</th><th>Ports</th><th>Firewall</th></tr></thead><tbody>${body}</tbody></table></div>${left > 0 ? `<p class="arch-hint">and ${left} more rule${left === 1 ? "" : "s"}: see the Firewall policies scan</p>` : ""}</div>`;
   }
 
   function trafficTable(inv, o, f) {
@@ -1795,22 +1853,27 @@
     },
     { passive: false }
   );
-  // Pointing at a tile lights up its traffic lines and fades the rest.
-  let hot = null;
+  // Pointing at a tile lights up its lines and fades the rest; with nothing under the pointer, the picked tile's stay lit.
+  let hot = null, hotSvg = null;
   const light = (key) => {
-    if (key === hot) return;
-    hot = key;
     const svg = $("#arch-svg");
+    if (key === hot && svg === hotSvg) return;
+    hot = key;
+    hotSvg = svg;
     if (!svg) return;
     const lines = [...svg.querySelectorAll(".arch-ln")];
     const mine = new Set(key ? lines.filter((g) => g.dataset.on.split(" ").includes(key)) : []);
     svg.classList.toggle("arch-hl", mine.size > 0);
     for (const g of lines) g.classList.toggle("on", mine.has(g));
   };
+  const pickedKey = () => {
+    const t = toolState(ID);
+    return (t && t.archOpts && t.archOpts.sel) || null;
+  };
   document.addEventListener("pointerover", (e) => {
     if (drag && drag.moved) return;
     const node = e.target.closest && e.target.closest("#arch-svg [data-arch-node]");
-    light(node ? node.dataset.archNode : null);
+    light(node ? node.dataset.archNode : pickedKey());
   });
   let drag = null;
   document.addEventListener("pointerdown", (e) => {
@@ -1841,6 +1904,7 @@
     o.sel = node ? node.dataset.archNode : null;
     if (o.traffic) return rerender(); // the lines change with the pick
     markSel(o);
+    light(o.sel);
     const box = $("#arch-detail");
     if (box && t.arch && t.arch.data) box.innerHTML = detail(t.arch.data, o);
   });

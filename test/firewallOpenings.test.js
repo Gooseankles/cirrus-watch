@@ -165,6 +165,8 @@ test("a source range that also covers a VNet makes no inbound tile", () => {
   const [far] = byLabel(compute({ net: many, fw: wide, inv }), "192.168.10.10");
   assert.equal(far.fromAny, true, "over more than four VNets the line starts at the firewall");
   assert.deepEqual(far.from, []);
+  assert.equal(far.rules[0].fromWide, true);
+  assert.equal(far.rules[0].fromAny, false);
   assert.deepEqual(byLabel(out, "192.168.50.0/24").map((t) => t.dir), ["in"], "the narrow source still makes its tile");
 });
 
@@ -198,6 +200,39 @@ test("the Azure side of a rule names the VM, subnet or VNet its line starts at",
   assert.deepEqual(time.from, [{ id: SN_DB.toLowerCase(), kind: "subnet" }], "an IP group source is read address by address");
 });
 
+test("each rule on a tile keeps its own Azure side, with the entry that put a place there", () => {
+  // Five rules to one on-premises address merge into one tile; the tile's Azure side is the union, but each rule
+  // says which VM, subnet or VNet it names and why, so a VM is never shown under a rule that does not name it.
+  const rules = [
+    rule("vm-to-dc", { src: ["10.20.1.10"], dst: ["192.168.10.5"] }),
+    rule("nic-to-dc", { src: ["10.20.1.16/28"], dst: ["192.168.10.5"] }),
+    rule("db-to-dc", { src: ["10.20.2.0/24"], dst: ["192.168.10.5"] }),
+    rule("all-to-dc", { src: ["*"], dst: ["192.168.10.5"] }),
+    rule("group-to-dc", { src: [], srcGroups: [GROUP], dst: ["192.168.10.5"] }),
+  ];
+  const own = { ...fw, ipGroups: { [GROUP]: { name: "ipg-onprem-dcs", ips: ["10.20.2.5", "10.20.1.10"] } }, policies: [{ ...fw.policies[0], view: [{ name: "g", priority: 100, collections: [{ name: "c", priority: 100, kind: "filter", action: "Allow", rules }] }] }] };
+  const out = compute({ net, fw: own, inv });
+  const [dc] = byLabel(out, "192.168.10.5");
+  assert.equal(dc.ruleCount, 5);
+  const by = (name) => dc.rules.find((x) => x.name === name);
+  assert.deepEqual(by("vm-to-dc").from, [{ id: VM.toLowerCase(), kind: "resource", name: "vm-app", ip: "10.20.1.10", by: ["10.20.1.10"] }], "the rule that names the VM's address is on that VM only");
+  assert.equal(by("vm-to-dc").fromCount, 1);
+  assert.equal(by("vm-to-dc").fromAny, false);
+  assert.deepEqual(by("nic-to-dc").from, [{ id: VM2.toLowerCase(), kind: "resource", name: "vm-app-2", ip: "10.20.1.20", by: ["10.20.1.16/28"] }], "a small range names the VMs in it and says which range");
+  assert.deepEqual(by("db-to-dc").from, [{ id: SN_DB.toLowerCase(), kind: "subnet", by: ["10.20.2.0/24"] }]);
+  assert.deepEqual(by("all-to-dc").from, []);
+  assert.equal(by("all-to-dc").fromAny, true, "a '*' source is on no VM in particular");
+  assert.deepEqual(
+    by("group-to-dc").from.map((f) => [f.kind, f.by]),
+    [["subnet", ["10.20.2.5 in group ipg-onprem-dcs"]], ["resource", ["10.20.1.10 in group ipg-onprem-dcs"]]],
+    "an IP group member says which group it came from"
+  );
+  assert.deepEqual(dc.from.map((f) => f.id).sort(), [VM, VM2, SN_DB].map((s) => s.toLowerCase()).sort(), "the tile's own Azure side is the union over its rules");
+  assert.ok(dc.from.every((f) => !("by" in f) && !("ip" in f)), "without the reasons");
+  assert.equal(dc.fromAny, true);
+  assert.equal(dc.rules.filter((x) => x.from.some((f) => f.id === VM2.toLowerCase())).length, 1, "vm-app-2 is named by one rule, not by the five on the tile");
+});
+
 test("an IP group is one tile per side, listing the addresses that side holds", () => {
   const out = compute({ net, fw, inv });
   const op = byLabel(out, "ipg-onprem-dcs", "onprem");
@@ -228,6 +263,7 @@ test("a DNAT rule is an inbound Internet opening with its translation", () => {
   assert.deepEqual(any.ports, ["TCP 3389 → 10.20.1.10:3389"]);
   assert.equal(any.rules[0].type, "Nat");
   assert.deepEqual(any.from, [{ id: VM.toLowerCase(), kind: "resource", name: "vm-app" }], "the line ends at the VM the rule translates to");
+  assert.deepEqual(any.rules[0].from, [{ id: VM.toLowerCase(), kind: "resource", name: "vm-app", ip: "10.20.1.10", by: ["10.20.1.10"] }], "the rule says so too");
   assert.equal(byLabel(out, "Any address (*)", "onprem").length, 0, "a '*' source never makes an on-premises tile");
 });
 

@@ -64,6 +64,22 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.71.1.0] - 2026-11-05
+
+### Fixed
+
+- Architecture drawing, firewall openings: pointing at a VM lit the lines of every VM that reaches the same opening,
+  and an opening's rule list gave no way to tell which rule names which VM, so a VM looked tied to rules whose
+  source is another machine. Each VM's line to the firewall now lights only for that VM, and every rule on a tile
+  carries its own Azure side (the VMs, subnets or VNets it names, with the address or range that names them).
+
+### Added
+
+- Architecture drawing: clicking a VM (or any resource in a subnet) lists the firewall openings whose rules name it,
+  each with the rule and how it is named (its address, a range that covers it, its subnet or its VNet), and counts
+  the openings open to every Azure address; the picked tile's lines stay lit. The tile's rule table has an
+  Azure side column per rule.
+
 ## [0.71.0.1] - 2026-11-05
 
 ### Changed

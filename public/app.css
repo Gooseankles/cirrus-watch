@@ -922,6 +922,12 @@ details.fix a svg { width: 12px; height: 12px; }
 #arch-svg.arch-hl .arch-ln.on path { stroke-width: 3; stroke-opacity: 1; }
 .arch-legend .ln.fwl { border-top: 2px dashed var(--text-2); }
 .arch-legend .ln.grey { border-top: 2px solid var(--text-2); }
+.arch-legend .ln.opn { border-top: 2px solid var(--warning); }
+.arch-legend .ln.oin { border-top: 2px solid var(--s7); }
+.arch-legend .ln.oany { border-top: 3px solid var(--critical-text); }
+.arch-legend .ln.opath { border-top: 2px solid var(--text-2); }
+.arch-open table.data td { font-size: 0.8rem; }
+.arch-open .table-wrap { margin-top: 8px; }
 .arch-legend .arch-count { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--text-2); font-size: 9px; font-style: normal; font-weight: 700; margin-right: 5px; vertical-align: -3px; }
 .arch-legend .arch-fwvm { color: var(--warning); }
 .arch-traffic { gap: 8px; }

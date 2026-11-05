@@ -64,12 +64,27 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
-## [0.70.5.1] - 2026-11-04
+## [0.71.0.1] - 2026-11-05
 
 ### Changed
 
 - Documentation: `main` now takes only pull requests, admins included, with the docs checks required too;
   CONTRIBUTING.md describes the branch-and-pull-request flow and the merge settings (squash or rebase, linear history).
+
+## [0.71.0.0] - 2026-11-05
+
+### Added
+
+- The Architecture drawing shows the firewall openings: what the Azure Firewall rules let through to on-premises
+  and to the Internet, drawn hop by hop along the traffic's path. Each allowed on-premises address, range or IP
+  group gets a tile under its ExpressRoute or VPN site, and a line runs from the VM, subnet or VNet the rule names
+  through the firewall and the gateway to the site and on to the tile. Each Internet address, name, URL, FQDN tag
+  or web category gets a tile in an Internet box on the hub's right, with the line running from the VM through the
+  firewall. Hops that several openings share are one line with a count; a hop shared by openings to both sides is
+  grey. A `*` rule shows as a red "Any address" tile on both sides; a rule whose source is `*` or spans most of
+  the network starts its line at the firewall. Click a tile for the path, the Azure side and the rules behind it
+  (policy, collection, ports, direction). Reads the saved Firewall policies scan; on by default, switch "Firewall
+  openings" in the drawing's toolbar. Lines are now drawn under the tiles, so they no longer cross tile text.
 
 ## [0.70.5.0] - 2026-11-04
 

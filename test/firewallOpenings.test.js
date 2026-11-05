@@ -167,6 +167,9 @@ test("a source range that also covers a VNet makes no inbound tile", () => {
   assert.deepEqual(far.from, []);
   assert.equal(far.rules[0].fromWide, true);
   assert.equal(far.rules[0].fromAny, false);
+  assert.equal(far.rules[0].wideVnets.length, 5, "a wide rule still names the VNets its range covers, so a reader can tell whether one place is under it");
+  assert.ok(far.rules[0].wideVnets.includes(SPOKE.toLowerCase()));
+  assert.equal("wideVnets" in dc.rules[0], false, "a narrow rule carries no wideVnets");
   assert.deepEqual(byLabel(out, "192.168.50.0/24").map((t) => t.dir), ["in"], "the narrow source still makes its tile");
 });
 

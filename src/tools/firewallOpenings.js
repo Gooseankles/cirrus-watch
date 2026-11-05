@@ -127,6 +127,7 @@ function environment({ net, fw, inv }) {
 // group member) and, for a resource, the address of its that the entry covers ("ip"), so a reader can check the match.
 function azureSide(env, list, groups) {
   const spots = new Map();
+  const wideVnets = new Set(); // the VNets a wide range covers, so a reader can still tell whether one place is under it
   let any = false, wide = false;
   const entries = [...arr(list).map((s) => ({ s, via: "" })), ...arr(groups).flatMap((id) => (env.ipGroups[lc(id)] ? arr(env.ipGroups[lc(id)].ips).map((s) => ({ s, via: groupName(id) })) : []))];
   for (const e of entries) {
@@ -148,6 +149,7 @@ function azureSide(env, list, groups) {
     if (!vnets.length) continue;
     if (vnets.length > MAX_FROM_VNETS) {
       wide = true;
+      for (const v of vnets) wideVnets.add(v.id);
       continue;
     }
     for (const v of vnets) {
@@ -171,7 +173,7 @@ function azureSide(env, list, groups) {
       }
     }
   }
-  return { any, wide, spots: [...spots.values()] };
+  return { any, wide, spots: [...spots.values()], wideVnets: [...wideVnets] };
 }
 
 // The gateways a firewall's traffic can leave through: those in its VNet, else in a VNet peered with it, else
@@ -237,7 +239,7 @@ function compute({ net, fw, inv }, opts = {}) {
         t.fromCount++;
         if (t.from.length < MAX_FROM) t.from.push(f.kind === "resource" ? { id: f.id, kind: f.kind, name: f.name } : f);
       }
-      row = { ...rule, from: curFrom.spots.slice(0, MAX_FROM), fromCount: curFrom.spots.length, fromAny: curFrom.any, fromWide: curFrom.wide };
+      row = { ...rule, from: curFrom.spots.slice(0, MAX_FROM), fromCount: curFrom.spots.length, fromAny: curFrom.any, fromWide: curFrom.wide, ...(curFrom.wide && { wideVnets: curFrom.wideVnets }) };
     }
     if (!t.ports.includes(rule.ports) && t.ports.length < MAX_PORTS) t.ports.push(rule.ports);
     t.ruleCount++;

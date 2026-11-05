@@ -64,6 +64,18 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.71.2.0] - 2026-11-05
+
+### Added
+
+- Architecture drawing, firewall openings: with a VM picked (or any resource in a subnet), only the openings it can
+  use stay on the drawing: those whose rules name it (its address, a range that covers it, its subnet or its VNet)
+  and those open to every Azure address (a `*` source, or a range over most of the network with its VNet among
+  them). Tiles and lines for everything else go, a legend line says how many stayed and how many are hidden, and the
+  picked VM's lines stay lit. A tile picked after that keeps the filter; empty space brings every opening back.
+- Firewall openings: a rule whose source spans more than four VNets now names those VNets, so the drawing can tell
+  whether a picked VM is under it.
+
 ## [0.71.1.0] - 2026-11-05
 
 ### Fixed

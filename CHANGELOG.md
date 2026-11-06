@@ -64,6 +64,17 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.71.5.0] - 2026-11-06
+
+### Fixed
+
+- Access lookup showed "Entra roles could not be read: Graph GET https://graph.microsoft.com/…" and no Entra roles,
+  held or eligible: the note began with the Graph request address (a filter with fifteen ids) and was cut before
+  the reason, and when Graph refused the batched read of the held roles the lookup gave up on the eligible ones too.
+  Both reads now fall back to one call per principal when Graph refuses the batched shape with a 400, as the
+  eligible read has since 0.70.4.0; the notes give Graph's status and message without the address, and the whole
+  error (address and request ids) goes to Recent activity.
+
 ## [0.71.4.0] - 2026-11-05
 
 ### Changed

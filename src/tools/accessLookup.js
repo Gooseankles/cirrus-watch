@@ -9,6 +9,8 @@ const access = require("../access");
 const log = require("../log");
 
 const TOOL_ID = "access-lookup";
+// The tenant of the lookup under way, for its log entries (the page shows a tenant's entries).
+const logTenant = () => (tenantContext.current() || { key: tenantContext.HOME }).key;
 const ID_BATCH = 200; // principal ids per Resource Graph query
 const guid = (rid) => String(rid || "").toLowerCase().split("/").pop();
 
@@ -117,34 +119,46 @@ function viaOf(principalId, selfId, groupNameById, chains) {
 
 const ENTRA_BATCH = 15; // principal ids per "in" filter
 const ENTRA_EXPAND = "$expand=roleDefinition($select=displayName,isBuiltIn,templateId)";
-const ENTRA_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId&${ENTRA_EXPAND}`;
-const ENTRA_ELIGIBLE_SELECT = `$select=principalId,directoryScopeId,roleDefinitionId,endDateTime&${ENTRA_EXPAND}`;
+const ENTRA_FIELDS = "principalId,directoryScopeId,roleDefinitionId";
+const ENTRA_ELIGIBLE_FIELDS = `${ENTRA_FIELDS},endDateTime`;
+const ROLE_DEFINITION_FIELDS = "$select=displayName,isBuiltIn,templateId";
 
-async function entraPages(path, principalIds, select = ENTRA_SELECT) {
+// The batched read: several principals in one "in" filter, the role expanded.
+async function entraPages(path, principalIds, fields) {
   const out = [];
   for (let i = 0; i < principalIds.length; i += ENTRA_BATCH) {
     const ids = principalIds.slice(i, i + ENTRA_BATCH).map((id) => `'${id}'`).join(",");
-    out.push(...(await graphGetAll(`${path}?$filter=${encodeURIComponent(`principalId in (${ids})`)}&${select}`, TOOL_ID)));
+    out.push(...(await graphGetAll(`${path}?$filter=${encodeURIComponent(`principalId in (${ids})`)}&$select=${fields}&${ENTRA_EXPAND}`, TOOL_ID)));
   }
   return out;
 }
 
 const entraKey = (r) => `${r.principalId}|${r.roleDefinitionId}|${r.directoryScopeId}`;
 
+// A Graph error without the request address. The address of a batched read
+// (fifteen ids in the filter) is longer than any note, and the status and
+// Graph's own message come after it: a note cut at the address said nothing.
+const graphReason = (err) => String((err && err.message) || err).replace(/\s*https?:\/\/\S+/, "");
+
 // Entra ID (directory) roles held by these principals, and the ones PIM lets
 // them activate (eligible; needs Entra ID P2, without it a note). Only
-// role-assignable groups can hold Entra roles.
+// role-assignable groups can hold Entra roles. Role definitions looked up for
+// one list serve the other too.
 async function entraRoles(principalIds) {
   const out = { active: [], eligible: [], notes: [] };
+  const defs = new Map();
   try {
-    out.active = await entraPages("/roleManagement/directory/roleAssignments", principalIds);
+    out.active = await entraRead("/roleManagement/directory/roleAssignments", principalIds, ENTRA_FIELDS, defs);
   } catch (err) {
-    out.notes.push(/\(403\)/.test(err.message) ? "Entra roles could not be read: the access lookup needs RoleManagement.Read.Directory" : `Entra roles could not be read: ${err.message.slice(0, 200)}`);
+    // The whole error (address and request ids) goes to the log; the note says why.
+    log.record({ tool: TOOL_ID, tenant: logTenant(), level: "error", message: `Entra roles could not be read: ${String(err.message).slice(0, 2000)}` });
+    out.notes.push(/\(403\)/.test(err.message) ? "Entra roles could not be read: the access lookup needs RoleManagement.Read.Directory" : `Entra roles could not be read: ${graphReason(err).slice(0, 240)}`);
     return out;
   }
   try {
-    out.eligible = await entraEligible(principalIds);
+    out.eligible = await entraRead("/roleManagement/directory/roleEligibilityScheduleInstances", principalIds, ENTRA_ELIGIBLE_FIELDS, defs);
   } catch (err) {
+    if (!noPremium(err)) log.record({ tool: TOOL_ID, tenant: logTenant(), level: "error", message: `Eligible (PIM) Entra roles could not be read: ${String(err.message).slice(0, 2000)}` });
     out.notes.push(pimReadNote("Eligible (PIM) Entra roles", err, "RoleManagement.Read.Directory"));
   }
   return out;
@@ -158,35 +172,39 @@ function pimReadNote(what, err, permission) {
   const msg = String((err && err.message) || err);
   if (noPremium(err)) return `${what} could not be read: that needs Microsoft Entra ID P2`;
   if (/\(403\)/.test(msg)) return `${what} could not be read: that needs ${permission}`;
-  return `${what} could not be read: ${msg.slice(0, 200)}`;
+  return `${what} could not be read: ${graphReason(err).slice(0, 240)}`;
 }
 
-// Eligible Entra roles of these principals. The batched call ("in" filter and
-// the role expanded) first; where Graph refuses that shape (anything but no P2
-// or a 403), one plain call per principal and the role names looked up.
-let batchRefusalLogged = false;
-async function entraEligible(principalIds) {
-  const path = "/roleManagement/directory/roleEligibilityScheduleInstances";
+// Entra role rows (assignments, or eligibility instances) of these principals.
+// The batched read first; where Graph refuses that shape (a 400 that is not
+// "no P2"), one plain call per principal and the role names looked up. defs:
+// role definitions already looked up (by id), filled with the new ones.
+const batchRefused = new Set(); // paths, logged once per process: every lookup would hit it
+async function entraRead(path, principalIds, fields, defs) {
   try {
-    return await entraPages(path, principalIds, ENTRA_ELIGIBLE_SELECT);
+    return await entraPages(path, principalIds, fields);
   } catch (err) {
     // Only a 400 is Graph refusing the shape; throttling, outages and refusals would fail each call too.
     if (noPremium(err) || !(err.status === 400 || /\(400\)/.test(String(err.message)))) throw err;
-    if (!batchRefusalLogged) {
-      batchRefusalLogged = true; // once per process: every lookup would hit it
-      log.record({ tool: TOOL_ID, level: "info", message: `Batched Entra eligibility read refused, reading each principal instead: ${String(err.message).slice(0, 300)}` });
+    if (!batchRefused.has(path)) {
+      batchRefused.add(path);
+      log.record({ tool: TOOL_ID, tenant: logTenant(), level: "info", message: `Batched read of ${path.split("/").pop()} refused, reading each principal instead: ${graphReason(err).slice(0, 300)}` });
     }
   }
   const rows = [];
-  const failed = await mapLimit(principalIds, 4, async (id) => {
-    const filter = encodeURIComponent(`principalId eq '${id}'`);
-    rows.push(...(await graphGetAll(`${path}?$filter=${filter}&$select=principalId,directoryScopeId,roleDefinitionId,endDateTime`, TOOL_ID)));
+  let failure = null;
+  await mapLimit(principalIds, 4, async (id) => {
+    try {
+      rows.push(...(await graphGetAll(`${path}?$filter=${encodeURIComponent(`principalId eq '${id}'`)}&$select=${fields}`, TOOL_ID)));
+    } catch (err) {
+      failure ||= err;
+    }
   });
-  // A partial list would read as "no eligible roles" for the principals left out.
-  if (failed.length) throw new Error(failed[0].message);
-  const defs = new Map();
-  await mapLimit([...new Set(rows.map((r) => r.roleDefinitionId))], 6, async (id) => {
-    defs.set(id, await graphGet(`/roleManagement/directory/roleDefinitions/${id}?$select=displayName,isBuiltIn,templateId`, TOOL_ID).catch(() => null));
+  // A partial list would read as "no roles" for the principals left out.
+  if (failure) throw failure;
+  const wanted = [...new Set(rows.map((r) => r.roleDefinitionId))].filter((id) => !defs.has(id));
+  await mapLimit(wanted, 6, async (id) => {
+    defs.set(id, await graphGet(`/roleManagement/directory/roleDefinitions/${id}?${ROLE_DEFINITION_FIELDS}`, TOOL_ID).catch(() => null));
   });
   return rows.map((r) => ({ ...r, roleDefinition: defs.get(r.roleDefinitionId) || null }));
 }
@@ -376,7 +394,7 @@ async function lookupAll(upn, keys) {
       out.tenants.push({ key: t.key, name: t.name, status: "found" });
     } catch (err) {
       const notFound = /\(404\)/.test(err.message);
-      out.tenants.push({ key: t.key, name: t.name, status: notFound ? "not found" : "error", ...(!notFound && { error: err.message.slice(0, 300) }) });
+      out.tenants.push({ key: t.key, name: t.name, status: notFound ? "not found" : "error", ...(!notFound && { error: graphReason(err).slice(0, 300) }) });
     }
   }
   return out;
@@ -514,4 +532,4 @@ function registerRoutes(app) {
   });
 }
 
-module.exports = { id: "access-lookup", label: "Access lookup", registerRoutes, _test: { entraRoles, groupPim, pimReadNote } };
+module.exports = { id: "access-lookup", label: "Access lookup", registerRoutes, _test: { entraRoles, groupPim, pimReadNote, graphReason } };

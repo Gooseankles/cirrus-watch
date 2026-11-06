@@ -401,7 +401,7 @@ async function firewallOpenings(keys, body) {
   if (!saved.net) return { firewalls: [], targets: [], notes: [], missing: "Run the Architecture scan again: the saved drawing is older than the firewall openings" };
   if (!saved.fw) return { firewalls: [], targets: [], notes: [], note: "Firewall rules are not saved: run the Firewall policies scan to draw the firewall openings" };
   const inv = (await store.getDoc(INVENTORY_KEY, tenant)) || {};
-  return openings.compute({ net: saved.net, fw: saved.fw, inv });
+  return openings.pack(openings.compute({ net: saved.net, fw: saved.fw, inv }));
 }
 
 async function inventory(keys) {

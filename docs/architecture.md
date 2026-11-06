@@ -123,7 +123,7 @@ out" as the error.
 
 On read (`GET /api/tools/<id>/findings`) the app merges the tenants the person may see, adds subscription and tenant
 names, and marks accepted or snoozed findings. Compliance tags are added in the browser (`public/compliance.js`), and so are the "How to fix" steps per kind
-(`public/fixes.js`) and the Architecture drawing's reading of which firewall openings a picked VM can use (`public/openings.js`). These
+(`public/fixes.js`) and the Architecture drawing's reading of which firewall openings name what is picked (`public/openings.js`). These
 three are plain scripts with a `module.exports` guard, so the tests and the docs generator load the same code the browser runs.
 
 ## 6. Customer tenants

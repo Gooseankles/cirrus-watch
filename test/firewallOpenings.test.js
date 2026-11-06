@@ -5,7 +5,7 @@ const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const env = require("./_env");
 after(env.cleanup);
-const { compute, _test } = require("../src/tools/firewallOpenings");
+const { compute, pack, _test } = require("../src/tools/firewallOpenings");
 const flows = require("../src/tools/trafficFlow");
 
 const SUB = "/subscriptions/00000000-0000-4000-8000-000000000001";
@@ -150,7 +150,7 @@ test("a named on-premises source makes a line into the gateway", () => {
   assert.equal(branch.dir, "in");
   assert.equal(branch.gateway, GW.toLowerCase());
   assert.deepEqual(branch.ports, ["TCP 3389"]);
-  assert.deepEqual(branch.from, [{ id: SPOKE.toLowerCase(), kind: "vnet" }], "the line ends at the VNet the rule's destination covers");
+  assert.deepEqual(branch.from, [{ id: SPOKE.toLowerCase(), kind: "vnet", own: true }], "the line ends at the VNet the rule's destination covers, by its own range");
 });
 
 test("a source range that also covers a VNet makes no inbound tile", () => {
@@ -161,9 +161,12 @@ test("a source range that also covers a VNet makes no inbound tile", () => {
   assert.equal(dc.dir, "out");
   assert.equal(dc.fromAny, false);
   assert.deepEqual(dc.from.map((f) => f.kind), ["vnet", "vnet"], "a source over a few whole VNets starts a line at each");
+  assert.ok(dc.from.every((f) => !f.own), "10.0.0.0/8 is a broader range over the VNets, not their own");
+  assert.equal(dc.fromWide, false);
   const many = { ...net, vnets: [...net.vnets, ...[1, 2, 3].map((i) => ({ id: `${HUB}-${i}`, prefixes: [`10.${30 + i}.0.0/16`], peers: [] }))] };
   const [far] = byLabel(compute({ net: many, fw: wide, inv }), "192.168.10.10");
-  assert.equal(far.fromAny, true, "over more than four VNets the line starts at the firewall");
+  assert.equal(far.fromWide, true, "over more than four VNets the line starts at the firewall");
+  assert.equal(far.fromAny, false, 'wide is not "*"');
   assert.deepEqual(far.from, []);
   assert.equal(far.rules[0].fromWide, true);
   assert.equal(far.rules[0].fromAny, false);
@@ -196,6 +199,7 @@ test("the Azure side of a rule names the VM, subnet or VNet its line starts at",
   assert.equal(dc.fromAny, false);
   const [dns] = byLabel(out, "8.8.8.8", "internet");
   assert.deepEqual(dns.from.map((f) => [f.kind, f.id]).sort(), [["vnet", HUB.toLowerCase()], ["vnet", SPOKE.toLowerCase()]].sort(), "a whole VNet, and a range in a VNet with no subnet drawn there, is the VNet");
+  assert.ok(dns.from.every((f) => f.own === true), "both entries lie inside their VNet: its own range");
   const [ntp] = byLabel(out, "9.9.9.9", "internet");
   assert.deepEqual(ntp.from, []);
   assert.equal(ntp.fromAny, true);
@@ -345,4 +349,57 @@ test("reachable gateways: the firewall's own VNet first, then peered VNets, then
   const spokeFw = { ...net.firewalls[0], subnet: `${SPOKE}/subnets/azurefirewallsubnet` };
   assert.deepEqual(_test.reachableGateways(e, spokeFw).map((g) => g.name), ["er-gw"], "through the peering");
   assert.deepEqual(_test.reachableGateways(e, { ...net.firewalls[0], subnet: "" }).map((g) => g.name), ["er-gw"], "no subnet known: every connected gateway");
+});
+
+test("a VNet's own range names it (own); a broader range over it does not, on the rule and on the tile's union", () => {
+  const rules = [
+    rule("spoke-to-ntp", { src: ["10.20.0.0/16"], dst: ["162.159.200.1"], ports: ["123"], protocols: ["UDP"] }),
+    rule("all-to-ntp", { src: ["10.0.0.0/8"], dst: ["162.159.200.1"], ports: ["123"], protocols: ["UDP"] }),
+    rule("all-to-dns", { src: ["10.0.0.0/8"], dst: ["9.9.9.9"], ports: ["53"], protocols: ["UDP"] }),
+    rule("mixed-to-dns", { src: ["10.0.0.0/8", "10.20.0.0/16"], dst: ["9.9.9.9"], ports: ["53"], protocols: ["UDP"] }),
+  ];
+  const own = { ...fw, policies: [{ ...fw.policies[0], view: [{ name: "g", priority: 100, collections: [{ name: "c", priority: 100, kind: "filter", action: "Allow", rules }] }] }] };
+  const out = compute({ net, fw: own, inv });
+  const [ntp] = byLabel(out, "162.159.200.1", "internet");
+  const spot = (x, id) => x.from.find((f) => f.id === id.toLowerCase());
+  assert.equal(spot(ntp.rules[0], SPOKE).own, true, "10.20.0.0/16 is the spoke's own range");
+  assert.equal("own" in spot(ntp.rules[1], SPOKE), false, "10.0.0.0/8 covers the spoke without naming it");
+  assert.equal("own" in spot(ntp.rules[1], HUB), false);
+  assert.equal(spot(ntp, SPOKE).own, true, "the tile's union keeps own when any rule names the VNet");
+  assert.equal("own" in spot(ntp, HUB), false);
+  const [dns] = byLabel(out, "9.9.9.9", "internet");
+  assert.equal("own" in spot(dns.rules[0], SPOKE), false);
+  assert.equal(spot(dns.rules[1], SPOKE).own, true, "one entry inside the VNet names it, whatever the other entries cover");
+  assert.equal("own" in spot(dns.rules[1], HUB), false);
+  assert.equal(spot(dns, SPOKE).own, true, "a later rule's own range reaches the union");
+  assert.equal(ntp.fromAny, false);
+  assert.equal(ntp.fromWide, false);
+});
+
+test("the API packs the result: each place id once, spots by index; the drawing's unpack gives the result back", () => {
+  const Openings = require("../public/openings.js");
+  const out = compute({ net, fw, inv });
+  const packed = pack(out);
+  assert.ok(packed.places.length > 0);
+  assert.equal(new Set(packed.places).size, packed.places.length, "no id twice");
+  for (const t of packed.targets) {
+    for (const f of t.from) assert.ok(!("id" in f) && Number.isInteger(f.p), "a tile spot carries an index");
+    for (const r of t.rules) {
+      for (const f of r.from || []) assert.ok(!("id" in f) && Number.isInteger(f.p), "a rule spot carries an index");
+      for (const v of r.wideVnets || []) assert.ok(Number.isInteger(v));
+    }
+  }
+  assert.ok(JSON.stringify(packed).length < JSON.stringify(out).length, "smaller on the wire");
+  assert.deepEqual(Openings.unpack(packed), out, "the round trip is exact");
+  // A wide rule's wideVnets (ids) go as indexes too.
+  const rules = [rule("all-to-dc", { src: ["10.0.0.0/8"], dst: ["192.168.10.10"], ports: ["443"], protocols: ["TCP"] })];
+  const wideFw = { ...fw, policies: [{ ...fw.policies[0], view: [{ name: "g", priority: 100, collections: [{ name: "c", priority: 100, kind: "filter", action: "Allow", rules }] }] }] };
+  const many = { ...net, vnets: [...net.vnets, ...[1, 2, 3].map((i) => ({ id: `${HUB}-${i}`, prefixes: [`10.${30 + i}.0.0/16`], peers: [] }))] };
+  const w = compute({ net: many, fw: wideFw, inv });
+  const pw = pack(w);
+  const [far] = pw.targets.filter((t) => t.label === "192.168.10.10");
+  assert.equal(far.rules[0].fromWide, true);
+  assert.ok(far.rules[0].wideVnets.length > 0 && far.rules[0].wideVnets.every(Number.isInteger), "wideVnets packed as indexes");
+  assert.ok(Openings.unpack(pw).targets.find((t) => t.label === "192.168.10.10").rules[0].wideVnets.every((v) => v.startsWith("/subscriptions/")), "unpack gives the VNet ids back");
+  assert.deepEqual(Openings.unpack(pw), w);
 });

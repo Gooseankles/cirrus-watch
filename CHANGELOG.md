@@ -68,7 +68,7 @@ Steps needed when moving past a version. Read this before you change the image t
 
 ### Fixed
 
-- Access lookup showed "Entra roles could not be read: Graph GET https://graph.microsoft.com/…" and no Entra roles,
+- Access lookup showed `Entra roles could not be read: Graph GET https://graph.microsoft.com/…` and no Entra roles,
   held or eligible: the note began with the Graph request address (a filter with fifteen ids) and was cut before
   the reason, and when Graph refused the batched read of the held roles the lookup gave up on the eligible ones too.
   Both reads now fall back to one call per principal when Graph refuses the batched shape with a 400, as the

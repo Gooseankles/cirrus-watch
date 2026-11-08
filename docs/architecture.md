@@ -109,7 +109,7 @@ older versions count as `<Area>.Read`.
 
 ## 5. A scan run
 
-Each scan tool has a cron schedule (for example MFA coverage daily at 05:50), and anyone who may see a scan can press **Run now**. One
+Each scan tool has a cron schedule (for example Accounts daily at 05:30), and anyone who may see a scan can press **Run now**. One
 run covers the home tenant and every enabled customer tenant, one after another.
 
 ![A scan run](diagrams/arch-scan-run.png)

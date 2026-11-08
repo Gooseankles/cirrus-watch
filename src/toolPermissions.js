@@ -45,12 +45,13 @@ const NEEDS = {
     graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "PrivilegedEligibilitySchedule.Read.AzureADGroup", "PrivilegedAssignmentSchedule.Read.AzureADGroup"],
     licence: "Entra ID P2",
   },
-  "stale-accounts": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (sign-in activity)" },
-  "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
-  "legacy-sign-ins": { graph: ["AuditLog.Read.All"], licence: "Entra ID P1 (sign-in logs)" },
+  // The risky users part is an extra Graph check (src/tools/extraChecks.js, id risky-users).
+  accounts: {
+    graph: ["User.Read.All", "AuditLog.Read.All", "IdentityRiskyUser.Read.All (the risky users part, an extra Graph check)"],
+    licence: "Entra ID P1 (sign-in activity, authentication methods report, sign-in log); P2 for the risky users part",
+  },
   "guest-owners": { graph: ["GroupMember.Read.All", "User.Read.All"] },
   // Extra Graph checks (on by default; Settings can turn them off): extra permissions, see src/tools/extraChecks.js.
-  "risky-users": { graph: ["IdentityRiskyUser.Read.All"], licence: "Entra ID P2" },
   "admin-units": { graph: ["AdministrativeUnit.Read.All", "RoleManagement.Read.Directory", "User.Read.All"] },
   "directory-sync": { graph: ["Organization.Read.All"] },
   "secure-score": { graph: ["SecurityEvents.Read.All"] },

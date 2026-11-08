@@ -37,12 +37,12 @@ part of Reader). Host pool registration tokens are not read, since that needs wr
 
 | Permission | Used for |
 | --- | --- |
-| `User.Read.All` | Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Guest owners and Administrative units: owners' and scoped admins' user type and account state |
+| `User.Read.All` | Accounts: every user with its type, state and sign-in activity; Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Guest owners and Administrative units: owners' and scoped admins' user type and account state |
 | `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; Conditional Access: members of role groups and excluded groups, for the admins excluded from policies; access packages: who is in each approver group; PIM: members and owners of groups that hold a role; Guest owners: every group's owners) |
 | `Application.Read.All` | App registration secret and certificate expiry, app owners, federated credentials (and their subjects), redirect URIs and supported account types; Architecture: which app registration signs people in to which web app; Enterprise apps: service principals (SAML signing certificates, credentials on the service principal, assignment required, owners) |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings and eligibility; access lookup: a person's or group's Entra roles; Conditional Access: which admins a policy leaves out |
-| `AuditLog.Read.All` | Stale accounts (last sign-in), MFA coverage and admins' MFA registration, Legacy sign-ins (the sign-in log); PIM: when each person last activated an Entra role (PIM activation events in the directory audit log; Microsoft offers PIM's own request list only with a ReadWrite permission, which the app does not ask for); all need Entra ID P1 or P2. Enterprise apps: last sign-in of other companies' apps (the beta `reports/servicePrincipalSignInActivities` report; that check is skipped when it is refused) |
+| `AuditLog.Read.All` | Accounts (last sign-in, the authentication methods report, the sign-in log for its legacy sign-ins part) and admins' MFA registration (Privileged roles); PIM: when each person last activated an Entra role (PIM activation events in the directory audit log; Microsoft offers PIM's own request list only with a ReadWrite permission, which the app does not ask for); all need Entra ID P1 or P2. Enterprise apps: last sign-in of other companies' apps (the beta `reports/servicePrincipalSignInActivities` report; that check is skipped when it is refused) |
 | `Policy.Read.All` | Conditional Access policies, security defaults and the user consent setting (Conditional Access needs P1); privileged roles: which Global Administrators the policies leave out (emergency access accounts); Entra tenant settings: the authorization, cross-tenant access (default and partners) and authentication methods policies |
 | `DelegatedPermissionGrant.Read.All` | App permissions: delegated consents given to apps |
 | `LicenseAssignment.Read.All` | Licence coverage: the licences the tenant owns |
@@ -61,15 +61,15 @@ tenant's value). While a permission is missing the scan reports one error entry 
 
 | Check (`extra_graph_checks` value) | Permission | Used for |
 | --- | --- | --- |
-| `risky-users` | `IdentityRiskyUser.Read.All` | Risky users: users at risk or confirmed compromised in Entra ID Protection. Needs Microsoft Entra ID P2; without it the scan writes an info line in the log and reports nothing |
+| `risky-users` | `IdentityRiskyUser.Read.All` | Accounts, the risky users part: users at risk or confirmed compromised in Entra ID Protection. Needs Microsoft Entra ID P2; without it the part writes an info line in the log and reports nothing |
 | `secure-score` | `SecurityEvents.Read.All` | Microsoft Secure Score: the daily score snapshots and the improvement actions |
 | `admin-units` | `AdministrativeUnit.Read.All` | Administrative units: the units and the members of restricted ones (scoped admins come through `RoleManagement.Read.Directory`) |
 | `directory-sync` | `Organization.Read.All` | Directory sync: whether the tenant syncs from on-premises and when it last did (with less, Graph returns the organization without those fields) |
 
 Guest owners needs no extra permission: listing groups with their owners works with `GroupMember.Read.All`.
 
-All of these only read. Without P1 the stale accounts and MFA coverage scans and the admin MFA check report that the licence is
-missing, and the legacy sign-ins scan notes it in the log and reports nothing; the other checks still run.
+All of these only read. Without P1 the Accounts scan and the admin MFA check report that the licence is missing (the
+legacy sign-ins part of Accounts only notes it in the log and reports nothing); the other checks still run.
 
 No Entra directory role is needed.
 

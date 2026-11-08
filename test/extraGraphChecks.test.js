@@ -22,7 +22,9 @@ graphClient.graphPost = async (url, body) => { calls.push(["POST", url, body]); 
 const settings = require("../src/settings");
 const { runIn } = require("../src/tenantContext");
 const extra = require("../src/tools/extraChecks");
-const riskyUsers = require("../src/tools/riskyUsers");
+// Risky users is a part of the Accounts scan (0.72.0.0); its run is reached through _test.
+const accounts = require("../src/tools/accounts");
+const riskyUsers = { id: "risky-users", run: accounts._test.risky.run, _test: accounts._test.risky };
 const secureScore = require("../src/tools/secureScore");
 const adminUnits = require("../src/tools/adminUnits");
 const directorySync = require("../src/tools/directorySync");
@@ -137,7 +139,7 @@ test("risky users: a 403 is one scan error naming the permission", async () => {
   const out = await riskyUsers.run();
   assert.equal(out.length, 1);
   assert.equal(out[0].kind, "scan-error");
-  assert.equal(out[0].id, "risky-users/scan-errors/permission");
+  assert.equal(out[0].id, "accounts/scan-errors/risky-users-permission", "reported by the Accounts scan, the check id in the key");
   assert.match(out[0].name, /IdentityRiskyUser\.Read\.All/);
   assert.match(out[0].detail, /extra_graph_checks/);
   assert.equal(logged[0].level, "warn");

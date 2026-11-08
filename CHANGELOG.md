@@ -17,6 +17,7 @@ Steps needed when moving past a version. Read this before you change the image t
   trend only. Not carried over, set them again where used: a tenant's scan switch (Settings, Scans) for an old scan
   id, and a per-tool identity override (`<TOOL_ID>_AZURE_CLIENT_ID` and friends) of an old id. The old files
   (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
+  Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`).
 
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
@@ -79,6 +80,15 @@ Steps needed when moving past a version. Read this before you change the image t
   per-run history (the newest 60 runs as openable snapshots) and accepted findings under the new id the first
   time it is used in a tenant, keeping each finding's age, so the first run of the merged scan reports only real
   changes. See Upgrading.
+- Stale accounts, MFA coverage, Legacy sign-ins and Risky users are one scan, **Accounts** (`accounts`, daily at
+  05:30), with one finding per account. Before, an account nobody used was listed twice: as stale and as having no
+  MFA (a tenant with 11,000 unused accounts also showed 11,000 accounts without MFA). Now an unused account is one
+  stale finding whose detail says when it also has no MFA, and MFA is judged only for accounts in use (a sign-in
+  inside the stale window; an account that never signed in has not registered a method yet). Expect the open count
+  to drop by about the number of unused accounts that had no MFA. Finding kinds and ids are unchanged, so accepted
+  findings carry over. The legacy sign-ins and risky users parts fail on their own (one scan-error finding each)
+  without losing the account findings; the extra Graph check keeps its id `risky-users`. Settings: the stale and MFA
+  fields are in one Accounts group; the Test lists the risky users permission as a part of Accounts.
 
 ## [0.71.5.0] - 2026-11-06
 

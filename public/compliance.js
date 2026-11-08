@@ -463,7 +463,6 @@ const TOOL_KINDS = {
   "orphaned-resources": ["unattached-disk", "orphaned-nic", "unused-public-ip", "empty-resource-group", "orphaned-snapshot", "empty-app-service-plan", "old-snapshot", "stopped-vm", "idle-nat-gateway", "empty-load-balancer", "idle-app-gateway", "idle-vnet-gateway", "disconnected-private-endpoint", "unlinked-private-dns-zone", "unused-nsg", "unused-route-table", "empty-availability-set", "empty-elastic-pool", "backup-vm-deleted", "advisor-cost", "storage-no-lifecycle", "workspace-no-cap"],
   "tag-compliance": ["missing-tags"],
   "access-review": ["stale-direct-assignment", "stale-group-assignment"],
-  "secret-expiry": ["app-credential-expiring", "app-no-owner", "app-secret-only", "app-secret-long-lived", "app-fic-broad-subject", "app-redirect-insecure"],
   "key-vault": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("kv-")),
   "access-packages": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("access-package-")),
   "role-assignments": ["orphaned-assignment", "privileged-direct-user", "guest-azure-admin", "guest-azure-role", "custom-role-broad"],
@@ -508,7 +507,8 @@ const TOOL_KINDS = {
   avd: Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("avd-")),
   "network-hygiene": ["waf-detection", "waf-disabled", "agw-no-waf", "dns-dangling-cname", "dns-alias-missing", "route-next-hop-missing", "subnet-no-nsg"],
   "app-permissions": ["app-takeover-permission", "app-broad-data-permission", "app-multitenant-privileged", "app-risky-delegated-consent", "user-consent-unrestricted"],
-  "enterprise-apps": Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("ent-")),
+  "applications": ["app-credential-expiring", "app-no-owner", "app-secret-only", "app-secret-long-lived", "app-fic-broad-subject", "app-redirect-insecure",
+    ...Object.keys(KIND_CONTROLS).filter((k) => k.startsWith("ent-"))],
 };
 // Controls the dashboard cannot see at all (people, paper and process); shown as "check by hand".
 const MANUAL = {

@@ -12,7 +12,7 @@ const tenant = require("../src/tools/tenantSettings")._test;
 const legacy = require("../src/tools/accounts")._test.legacy;
 const ca = require("../src/tools/conditionalAccess")._test;
 const roles = require("../src/tools/privilegedRoles")._test;
-const secrets = require("../src/tools/secretExpiry")._test;
+const secrets = require("../src/tools/applications")._test; // the app registration parts
 const perms = require("../src/tools/appPermissions")._test;
 
 after(env.cleanup);

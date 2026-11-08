@@ -8,7 +8,6 @@ const NEEDS = {
   "tag-compliance": { azure: READER },
   "cost-anomaly": { azure: ["Cost Management Reader"] },
   "access-review": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
-  "secret-expiry": { graph: ["Application.Read.All"] },
   // Key Vault Reader only with the item check on (Settings, Key Vault).
   get "key-vault"() {
     const on = !/^(off|no|false|0)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
@@ -58,7 +57,7 @@ const NEEDS = {
   "conditional-access": { graph: ["Policy.Read.All", "RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All"], licence: "Entra ID P1" },
   "app-permissions": { graph: ["Application.Read.All", "DelegatedPermissionGrant.Read.All", "Policy.Read.All"] },
   // AuditLog.Read.All and Reader are optional: without them the unused-app and disabled-app checks are skipped.
-  "enterprise-apps": { graph: ["Application.Read.All", "AuditLog.Read.All"], azure: ["Reader (optional: Azure roles held by disabled apps)"] },
+  "applications": { graph: ["Application.Read.All", "AuditLog.Read.All (optional: last sign-in of other companies' enterprise apps)"], azure: ["Reader (optional: Azure roles held by disabled apps)"] },
   "licence-coverage": {
     azure: READER,
     graph: [

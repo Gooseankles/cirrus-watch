@@ -18,7 +18,6 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Tag compliance](docs/tools.md#tag-compliance) | Daily | Resources missing the tags you require. |
 | [Cost anomalies](docs/tools.md#cost-anomalies) | Daily | Resource groups whose cost yesterday jumped against the day before. |
 | [Access review](docs/tools.md#access-review) | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups. |
-| [Expiring app credentials](docs/tools.md#expiring-app-credentials) | Daily | App secrets and certificates that expire soon, and app registrations with risky credentials or no owner. |
 | [Key Vault](docs/tools.md#key-vault) | Daily | Vault settings, expiring vault items and who can read secrets. |
 | [Access packages](docs/tools.md#access-packages) | Daily | Entra access packages that expire, wait for approval, go unused or cannot be approved. |
 | [Role assignments](docs/tools.md#role-assignments) | Daily | Assignments to deleted identities and subscriptions near the role assignment limit. |
@@ -45,7 +44,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Microsoft Secure Score](docs/tools.md#microsoft-secure-score) | Daily | The tenant's Microsoft Secure Score, a drop against last week, and the open actions worth the most points. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
-| [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |
+| [Applications](docs/tools.md#applications) | Daily | App registrations and enterprise apps: credentials that expire soon or are risky, SAML certificates, open sign-in, no owner or no use. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
 | [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations, Defender plans that are off, missing alert e-mails and open alerts. |
 | [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |

@@ -20,7 +20,6 @@ const AREA_LABELS = { identity: "Identity", platform: "Platform", security: "Sec
 const TOOL_AREAS = {
   "access-lookup": ["identity"],
   "access-review": ["identity"],
-  "secret-expiry": ["identity"],
   "access-packages": ["identity"],
   "role-assignments": ["identity"],
   pim: ["identity"],
@@ -28,7 +27,7 @@ const TOOL_AREAS = {
   "licence-coverage": ["identity"],
   "privileged-roles": ["identity", "security"],
   "app-permissions": ["identity", "security"],
-  "enterprise-apps": ["identity", "security"],
+  "applications": ["identity", "security"],
   "conditional-access": ["identity", "security"],
   accounts: ["identity", "security"],
   "directory-sync": ["identity"],

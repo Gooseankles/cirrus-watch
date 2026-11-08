@@ -30,12 +30,6 @@ Long-standing Owner, Contributor and User Access Administrator grants, direct an
 Group members are read from Graph beta, because v1.0 leaves service principals (apps) out of group members; if
 beta fails, v1.0 is used (apps are then missing). Access lookup's group view does the same.
 
-## Expiring app credentials
-
-App secrets and certificates that expire soon, and app registrations with risky credentials or no owner.
-
-App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default); federated credentials whose subject has a wildcard or accepts any GitHub pull request (the first 300 apps are checked); redirect URIs on plain `http://` (other than localhost) or with a wildcard.
-
 ## Key Vault
 
 Vault settings, expiring vault items and who can read secrets.
@@ -332,18 +326,24 @@ Apps with Graph permissions that could take over the tenant, and risky consents.
 
 Apps with Graph permissions that could take over the tenant or read everyone's data, apps registered here as multi-tenant that hold such a permission, risky delegated consents, users allowed to consent to any app.
 
-## Enterprise apps
+## Applications
 
-Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use.
+App registrations and enterprise apps: credentials that expire soon or are risky, SAML certificates, open sign-in, no owner or no use.
 
-Reads the service principals (enterprise apps), leaving out Microsoft's own apps and managed identities:
+App registrations: secrets and certificates that expire soon (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default); apps with no owner, with only client secrets, or with secrets valid longer than the set maximum (`APP_SECRET_MAX_DAYS`, 365 days by default); federated credentials whose subject has a wildcard or accepts any GitHub pull request (the first 300 apps are checked); redirect URIs on plain `http://` (other than localhost) or with a wildcard.
 
-- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the warning window of Expiring app credentials (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default). Older, inactive certificates are left alone.
-- **Credentials on the service principal itself**, which Expiring app credentials does not see (it reads app registrations): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
+Enterprise apps (service principals), leaving out Microsoft's own apps and managed identities:
+
+- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the same warning window (`SECRET_EXPIRY_WARN_DAYS`). Older, inactive certificates are left alone.
+- **Credentials on the service principal itself**, which the portal's Certificates & secrets page does not show (it lists the app registration's): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
 - **Anyone can sign in**: SAML apps, and other companies' OpenID Connect apps, with single sign-on set up and "Assignment required" off, so every account in the tenant can sign in (low).
 - **No owner**: enabled apps from this tenant with no owner on the enterprise app (low).
 - **Unused**: other companies' apps with no sign-in for 90 days (`ENTERPRISE_APP_UNUSED_DAYS`), from the sign-in activity report (Graph beta, `AuditLog.Read.All`; skipped with a log line when it cannot be read) (low).
 - **Disabled apps with Azure roles**: disabled service principals that still hold Azure role assignments, from Resource Graph (needs Reader; skipped with a log line otherwise).
+
+The three parts (expiring credentials, app registration hygiene, enterprise apps) each fail on their own as one scan-error finding.
+
+Replaces the Expiring app credentials and Enterprise apps scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Licence coverage
 

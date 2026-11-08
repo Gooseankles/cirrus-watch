@@ -1,10 +1,11 @@
-// The Enterprise apps scan: which service principals get which finding, from sample Graph payloads.
+// The enterprise apps part of the Applications scan: which service principals get which finding, from sample Graph
+// payloads.
 // Plain data in, no Azure and no network.
 const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 
 const env = require("./_env");
-const { classify, activeSigningCert, ownCredentials, signInTimes, disabledWithRoles } = require("../src/tools/enterpriseApps")._test;
+const { classify, activeSigningCert, ownCredentials, signInTimes, disabledWithRoles } = require("../src/tools/applications")._test;
 
 after(env.cleanup);
 

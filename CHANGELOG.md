@@ -19,7 +19,7 @@ Steps needed when moving past a version. Read this before you change the image t
   (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
   Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`); Guest owners and
   Administrative units → Privileged roles (`privileged-roles`); End of support and Service retirements → End of life
-  (`end-of-life`).
+  (`end-of-life`); Expiring app credentials and Enterprise apps → Applications (`applications`).
 
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
@@ -102,6 +102,13 @@ Steps needed when moving past a version. Read this before you change the image t
   systems, each failing on its own; it ran daily before and now runs weekly with the rest (Advisor's retirement
   dates are months ahead). Finding kinds and ids are unchanged, so accepted findings carry over. Settings: the three
   fields (`EOS_LIVE_DATES`, `EOS_WARN_DAYS`, `RETIREMENT_WARN_DAYS`) are in one End of life group.
+- Expiring app credentials and Enterprise apps are one scan, **Applications** (`applications`, daily at 05:20, under
+  Identity): app registrations (expiring secrets and certificates, no owner, secret-only sign-in, long-lived secrets,
+  broad federated credential subjects, insecure redirect URIs) and enterprise apps (SAML signing certificates,
+  credentials on the service principal, open sign-in, no owner, unused third-party apps, disabled apps with Azure
+  roles) in one place; the two shared the warning window already. Three parts, each failing on its own. Finding kinds
+  and ids are unchanged, so accepted findings carry over. Settings: `SECRET_EXPIRY_WARN_DAYS`, `APP_SECRET_MAX_DAYS`
+  and `ENTERPRISE_APP_UNUSED_DAYS` are in one Applications group.
 
 ## [0.71.5.0] - 2026-11-06
 

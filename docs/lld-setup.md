@@ -302,7 +302,7 @@ only drops its Settings changes.
   support, `www.cisa.gov` and `api.first.org` for Vulnerabilities (CVEs), which sends only CVE ids, and
   `www.microsoft.com` (`/releasecommunications/api/v2/azure` and `/m365`) for Azure news and Microsoft 365
   roadmap, which sends only dates and fixed filters. A blocked host means that scan uses its last kept copy; without
-  one, End of support uses its built-in dates, the CVE scan ranks by Defender's severity only and the two Upcoming
+  one, End of life uses its built-in dates, the CVE scan ranks by Defender's severity only and the two Upcoming
   pages stay empty. `CVE_FEEDS = off` makes neither CVE call; `RELEASE_FEEDS = off` makes neither Microsoft call.
 - The Certificates scan opens TLS connections to the websites it checks and to application gateway frontends,
   public and private IPs. A private frontend answers only when the app is VNet-integrated in a network that reaches

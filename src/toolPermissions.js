@@ -19,8 +19,7 @@ const NEEDS = {
   "role-assignments": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] },
   "policy-check": { azure: READER },
   "internet-exposure": { azure: READER },
-  "end-of-support": { azure: READER },
-  "service-retirements": { azure: READER },
+  "end-of-life": { azure: READER },
   // Microsoft's public release feeds: no Azure role and no Graph permission. Azure news marks "in use" from
   // the resource list the Architecture scan saved (that scan needs Reader), not from requests of its own.
   "azure-updates": { none: true, note: "No permission: Microsoft's public Azure Updates feed; in use comes from the Architecture scan's saved resource list" },

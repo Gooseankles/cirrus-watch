@@ -18,7 +18,8 @@ Steps needed when moving past a version. Read this before you change the image t
   id, and a per-tool identity override (`<TOOL_ID>_AZURE_CLIENT_ID` and friends) of an old id. The old files
   (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
   Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`); Guest owners and
-  Administrative units → Privileged roles (`privileged-roles`).
+  Administrative units → Privileged roles (`privileged-roles`); End of support and Service retirements → End of life
+  (`end-of-life`).
 
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
@@ -95,6 +96,12 @@ Steps needed when moving past a version. Read this before you change the image t
   each part fails on its own (one scan-error finding) without losing the role findings. Finding kinds and ids are
   unchanged, so accepted findings carry over; the extra Graph check keeps its id `admin-units`, and the Test lists
   `AdministrativeUnit.Read.All` as a part of Privileged roles.
+- End of support and Service retirements are one scan, **End of life** (`end-of-life`, weekly on Monday at 06:00):
+  software past or near end of support and Azure features being retired, in one place under Upcoming. The
+  retirement check is a fifth part beside AKS versions, App Service runtimes, TLS settings and VM operating
+  systems, each failing on its own; it ran daily before and now runs weekly with the rest (Advisor's retirement
+  dates are months ahead). Finding kinds and ids are unchanged, so accepted findings carry over. Settings: the three
+  fields (`EOS_LIVE_DATES`, `EOS_WARN_DAYS`, `RETIREMENT_WARN_DAYS`) are in one End of life group.
 
 ## [0.71.5.0] - 2026-11-06
 

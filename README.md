@@ -24,8 +24,7 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Role assignments](docs/tools.md#role-assignments) | Daily | Assignments to deleted identities and subscriptions near the role assignment limit. |
 | [Policy check](docs/tools.md#policy-check) | Daily | Whether Azure Policy actually blocks risky resources, and assignments that cannot work. |
 | [Internet exposure](docs/tools.md#internet-exposure) | Daily | NSG rules, VMs, storage and databases open to the internet. |
-| [End of support](docs/tools.md#end-of-support) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support. |
-| [Service retirements](docs/tools.md#service-retirements) | Daily | Azure features being retired that your resources still use, with the date. |
+| [End of life](docs/tools.md#end-of-life) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support, and Azure features being retired that your resources still use. |
 | [Azure news](docs/tools.md#azure-news) | Daily | What Microsoft announces for Azure: new features, previews and retirements, marked where your resources use them. |
 | [Microsoft 365 roadmap](docs/tools.md#microsoft-365-roadmap) | Daily | What Microsoft plans for Microsoft 365: features in development, rolling out, or launched in the last 60 days. |
 | [Certificates](docs/tools.md#certificates) | Daily | TLS certificates of App Service custom domains, application gateways and listed websites: expiry, name, trust and reachability. |

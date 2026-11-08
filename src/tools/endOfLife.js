@@ -1,14 +1,18 @@
-// Software that is out of support or soon will be: AKS Kubernetes versions,
-// App Service language runtimes, VM operating systems, and services that still
-// accept TLS 1.0/1.1. Reader is enough. Runtime and OS dates come from
-// endoflife.date when it can be reached (eolDates.js); the tables below are the
-// fallback and fill gaps.
+// What is reaching the end of its life: software that is out of support or
+// soon will be (AKS Kubernetes versions, App Service language runtimes, VM
+// operating systems, services that still accept TLS 1.0/1.1), and Azure
+// features and services being retired that resources here still use (Azure
+// Advisor's "Service upgrade and retirement" recommendations; the Service
+// retirements scan until 0.72.0.0). Reader is enough. Runtime and OS dates come
+// from endoflife.date when it can be reached (eolDates.js); the tables below
+// are the fallback and fill gaps. Each part fails on its own as one scan-error
+// finding.
 const { resourceGraphQuery, armGet } = require("../armClient");
-const { numberSetting, mapLimit, runChecks, itemErrors, scanError, daysUntil } = require("./util");
+const { numberSetting, mapLimit, runChecks, itemErrors, scanError, daysUntil, nameOf } = require("./util");
 const eolDates = require("../eolDates");
 const log = require("../log");
 
-const TOOL_ID = "end-of-support";
+const TOOL_ID = "end-of-life";
 const CONCURRENCY = 6;
 const MAX_SITES = 800;
 
@@ -238,6 +242,44 @@ async function vmFindings() {
   return findings;
 }
 
+/* Azure features and services being retired that resources here still use,
+   from Azure Advisor's "Service upgrade and retirement" recommendations. The
+   Advisor recommendation id is the finding id (as in the Service retirements
+   scan this part came from). rows -> findings; warn = days ahead that count as
+   soon, later ones are planned. Pure. */
+function retirementFindings(rows, warn) {
+  return rows.map((r) => {
+    const date = Date.parse(r.retirementDate) ? new Date(r.retirementDate).toISOString().slice(0, 10) : null;
+    const days = date ? daysUntil(date) : null;
+    const kind = days == null || days > warn ? "retirement-planned" : days < 0 ? "retirement-past" : "retirement-soon";
+    const what = r.feature || r.problem || "Retirement";
+    return {
+      kind,
+      id: r.id,
+      name: r.impacted || nameOf(r.resourceId) || what,
+      resourceGroup: r.resourceGroup || null,
+      subscriptionId: r.subscriptionId || null,
+      ...(date && { expires: date }),
+      detail: [what, r.solution && r.solution !== what ? r.solution : "", r.link || ""].filter(Boolean).join(". "),
+    };
+  });
+}
+
+async function retirementRun() {
+  const rows = await resourceGraphQuery(
+    `advisorresources
+    | where type =~ 'microsoft.advisor/recommendations'
+    | extend ep = properties.extendedProperties
+    | where tostring(ep.recommendationSubCategory) =~ 'ServiceUpgradeAndRetirement' or isnotempty(ep.retirementDate)
+    | project id, subscriptionId, resourceGroup,
+        resourceId = tostring(properties.resourceMetadata.resourceId), impacted = tostring(properties.impactedValue),
+        problem = tostring(properties.shortDescription.problem), solution = tostring(properties.shortDescription.solution),
+        retirementDate = tostring(ep.retirementDate), feature = tostring(ep.retirementFeatureName), link = tostring(properties.learnMoreLink)`,
+    { toolId: TOOL_ID }
+  );
+  return retirementFindings(rows, numberSetting("RETIREMENT_WARN_DAYS", 180, { min: 0, max: 3650 }));
+}
+
 async function run() {
   const dates = await eolDates.load();
   live = dates.tables;
@@ -247,13 +289,15 @@ async function run() {
     "App Service runtimes": appServiceFindings,
     "TLS settings": tlsFindings,
     "VM operating systems": vmFindings,
+    "Service retirements": retirementRun,
   });
 }
 
 module.exports = {
   id: TOOL_ID,
-  label: "End of support",
+  label: "End of life",
   schedule: "0 6 * * 1", // weekly, Monday 06:00
+  replaces: ["end-of-support", "service-retirements"],
   run,
-  _test: { runtimeOf, runtimeEol, osEol, setLive: (t) => (live = t || {}) },
+  _test: { runtimeOf, runtimeEol, osEol, retirementFindings, setLive: (t) => (live = t || {}) },
 };

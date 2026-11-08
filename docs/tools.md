@@ -66,17 +66,13 @@ NSG rules, VMs, storage and databases open to the internet.
 
 NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure.
 
-## End of support
+## End of life
 
-Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support.
+Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support, and Azure features being retired that your resources still use.
 
-AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily), services that still accept TLS 1.0/1.1.
+AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily; `EOS_WARN_DAYS` sets how far ahead counts as near), services that still accept TLS 1.0/1.1, and Azure features and services being retired that your resources still use (from Azure Advisor's service upgrade and retirement recommendations) with the retirement date: past, within `RETIREMENT_WARN_DAYS` days, or later (listed as planned). The five parts (AKS versions, App Service runtimes, TLS settings, VM operating systems, service retirements) each fail on their own as one scan-error finding.
 
-## Service retirements
-
-Azure features being retired that your resources still use, with the date.
-
-Azure features being retired that your resources still use (from Azure Advisor), with the date.
+Replaces the End of support and Service retirements scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Azure news
 
@@ -144,7 +140,7 @@ What one failure would take down: single VMs with no zone or availability set, A
 
 Risky settings on storage, SQL, web apps, registries, AKS, Redis and other services.
 
-Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Most findings link to their PSRule for Azure rule. Cross-tenant replication allowed (warning, only when explicitly on) has no such rule. The access keys finding also says, while keys still work, whether a SAS expiration policy is missing and whether the portal defaults to the key instead of Entra ID sign-in. SQL TLS versions and SQL servers open to the internet are covered by End of support and Internet exposure.
+Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Most findings link to their PSRule for Azure rule. Cross-tenant replication allowed (warning, only when explicitly on) has no such rule. The access keys finding also says, while keys still work, whether a SAS expiration policy is missing and whether the portal defaults to the key instead of Entra ID sign-in. SQL TLS versions and SQL servers open to the internet are covered by End of life and Internet exposure.
 
 ## Exposure paths
 

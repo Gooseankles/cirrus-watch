@@ -165,7 +165,7 @@ reached only with Entra tokens. Three optional layers:
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
 firewall to reach Docker Hub, ARM, Graph and `api.loganalytics.azure.com` (the Azure Monitor scan's heartbeat
 query). Four scans also fetch public data once a day (no tenant data is sent).
-The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
+The End of life scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
 last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call. The Azure

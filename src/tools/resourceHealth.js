@@ -3,7 +3,7 @@
 // when; VMs the user stopped or deallocated are left out), and Service Health
 // events that hit the scanned subscriptions: active service issues, active
 // health and security advisories, and planned maintenance that starts soon.
-// Retirement advisories are left to Service retirements; whether anyone gets
+// Retirement advisories are left to End of life; whether anyone gets
 // a Service Health alert is checked by Resilience. Resource Graph only
 // (HealthResources and ServiceHealthResources), so Reader is enough and it is
 // cheap enough to run every hour.

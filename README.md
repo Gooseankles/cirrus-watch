@@ -39,11 +39,9 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Architecture](docs/tools.md#architecture) | Daily | A drawing of VNets, subnets and resources, with the traffic each VM can send and the firewall openings to on-premises and the Internet (for information). |
 | [Firewall policies](docs/tools.md#firewall-policies) | Daily | Every firewall rule in the order it is checked, the rules that are wrong or redundant, and a reach map per VM or IP. |
 | [Change log](docs/tools.md#change-log) | Daily | What was created, changed or deleted in the last 24 hours (for information). |
-| [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected. |
+| [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected; also groups owned by guests and risky administrative unit admins. |
 | [PIM](docs/tools.md#pim) | Daily | Everyone who can activate a role, and PIM settings and assignments that are too loose. |
 | [Accounts](docs/tools.md#accounts) | Daily | One finding per user account: unused, never signed in, invitation never accepted, no or weak MFA; also legacy sign-ins and risky users. |
-| [Guest owners](docs/tools.md#guest-owners) | Daily | Groups that a guest owns, so someone outside the organisation decides who is in them. |
-| [Administrative units](docs/tools.md#administrative-units) | Daily | Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing. |
 | [Directory sync](docs/tools.md#directory-sync) | Hourly | Sync from on-premises Active Directory that has fallen behind or stopped. |
 | [Microsoft Secure Score](docs/tools.md#microsoft-secure-score) | Daily | The tenant's Microsoft Secure Score, a drop against last week, and the open actions worth the most points. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |

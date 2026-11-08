@@ -17,7 +17,8 @@ Steps needed when moving past a version. Read this before you change the image t
   trend only. Not carried over, set them again where used: a tenant's scan switch (Settings, Scans) for an old scan
   id, and a per-tool identity override (`<TOOL_ID>_AZURE_CLIENT_ID` and friends) of an old id. The old files
   (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
-  Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`).
+  Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`); Guest owners and
+  Administrative units → Privileged roles (`privileged-roles`).
 
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
@@ -89,6 +90,11 @@ Steps needed when moving past a version. Read this before you change the image t
   findings carry over. The legacy sign-ins and risky users parts fail on their own (one scan-error finding each)
   without losing the account findings; the extra Graph check keeps its id `risky-users`. Settings: the stale and MFA
   fields are in one Accounts group; the Test lists the risky users permission as a part of Accounts.
+- Guest owners and Administrative units are parts of **Privileged roles** (`privileged-roles`, daily at 05:00): groups
+  owned by guests and the risky parts of administrative units are judged in the same scan as the admin roles, and
+  each part fails on its own (one scan-error finding) without losing the role findings. Finding kinds and ids are
+  unchanged, so accepted findings carry over; the extra Graph check keeps its id `admin-units`, and the Test lists
+  `AdministrativeUnit.Read.All` as a part of Privileged roles.
 
 ## [0.71.5.0] - 2026-11-06
 

@@ -36,9 +36,11 @@ const NEEDS = {
   architecture: { azure: READER, graph: ["Application.Read.All"] },
   "firewall-policies": { azure: READER },
   "change-log": { azure: READER },
+  // The administrative units part is an extra Graph check (src/tools/extraChecks.js, id admin-units).
   "privileged-roles": {
-    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All", "Policy.Read.All"],
-    licence: "Entra ID P1 for the MFA and emergency access checks, P2 for PIM",
+    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All", "Policy.Read.All",
+      "AdministrativeUnit.Read.All (the administrative units part, an extra Graph check)"],
+    licence: "Entra ID P1 for the MFA and emergency access checks and for admins scoped to administrative units, P2 for PIM",
   },
   pim: {
     azure: READER,
@@ -50,9 +52,7 @@ const NEEDS = {
     graph: ["User.Read.All", "AuditLog.Read.All", "IdentityRiskyUser.Read.All (the risky users part, an extra Graph check)"],
     licence: "Entra ID P1 (sign-in activity, authentication methods report, sign-in log); P2 for the risky users part",
   },
-  "guest-owners": { graph: ["GroupMember.Read.All", "User.Read.All"] },
   // Extra Graph checks (on by default; Settings can turn them off): extra permissions, see src/tools/extraChecks.js.
-  "admin-units": { graph: ["AdministrativeUnit.Read.All", "RoleManagement.Read.Directory", "User.Read.All"] },
   "directory-sync": { graph: ["Organization.Read.All"] },
   "secure-score": { graph: ["SecurityEvents.Read.All"] },
   // RoleManagement.Read.Directory, User.Read.All and GroupMember.Read.All: admins excluded from policies.

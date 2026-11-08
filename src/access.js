@@ -31,8 +31,6 @@ const TOOL_AREAS = {
   "enterprise-apps": ["identity", "security"],
   "conditional-access": ["identity", "security"],
   accounts: ["identity", "security"],
-  "guest-owners": ["identity", "security"],
-  "admin-units": ["identity", "security"],
   "directory-sync": ["identity"],
   "secure-score": ["security", "identity"],
   defender: ["security", "platform"],

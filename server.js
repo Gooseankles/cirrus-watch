@@ -291,8 +291,6 @@ const registeredTools = [
   registerScanTool(app, require("./src/tools/privilegedRoles")),
   registerScanTool(app, require("./src/tools/pim")),
   registerScanTool(app, require("./src/tools/accounts")),
-  registerScanTool(app, require("./src/tools/guestOwners")),
-  registerScanTool(app, require("./src/tools/adminUnits")),
   registerScanTool(app, require("./src/tools/directorySync")),
   registerScanTool(app, require("./src/tools/secureScore")),
   registerScanTool(app, require("./src/tools/conditionalAccess")),

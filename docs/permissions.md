@@ -37,8 +37,8 @@ part of Reader). Host pool registration tokens are not read, since that needs wr
 
 | Permission | Used for |
 | --- | --- |
-| `User.Read.All` | Accounts: every user with its type, state and sign-in activity; Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Guest owners and Administrative units: owners' and scoped admins' user type and account state |
-| `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; Conditional Access: members of role groups and excluded groups, for the admins excluded from policies; access packages: who is in each approver group; PIM: members and owners of groups that hold a role; Guest owners: every group's owners) |
+| `User.Read.All` | Accounts: every user with its type, state and sign-in activity; Access lookup (search people by name and find them), names of role holders; PIM: names, guest and disabled state of everyone with PIM access; Privileged roles: group owners' and scoped admins' user type and account state (its guest owners and administrative units parts) |
+| `GroupMember.Read.All` | Group memberships and group search (access lookup, with the chain through nested groups; access review; privileged roles: members of groups that hold an admin role; Conditional Access: members of role groups and excluded groups, for the admins excluded from policies; access packages: who is in each approver group; PIM: members and owners of groups that hold a role; privileged roles, the guest owners part: every group's owners) |
 | `Application.Read.All` | App registration secret and certificate expiry, app owners, federated credentials (and their subjects), redirect URIs and supported account types; Architecture: which app registration signs people in to which web app; Enterprise apps: service principals (SAML signing certificates, credentials on the service principal, assignment required, owners) |
 | `EntitlementManagement.Read.All` | Access packages (only matters with Entra ID Governance / P2) |
 | `RoleManagement.Read.Directory` | Privileged roles: who holds Entra admin roles, PIM eligibility (PIM needs P2); PIM: role settings and eligibility; access lookup: a person's or group's Entra roles; Conditional Access: which admins a policy leaves out |
@@ -63,10 +63,10 @@ tenant's value). While a permission is missing the scan reports one error entry 
 | --- | --- | --- |
 | `risky-users` | `IdentityRiskyUser.Read.All` | Accounts, the risky users part: users at risk or confirmed compromised in Entra ID Protection. Needs Microsoft Entra ID P2; without it the part writes an info line in the log and reports nothing |
 | `secure-score` | `SecurityEvents.Read.All` | Microsoft Secure Score: the daily score snapshots and the improvement actions |
-| `admin-units` | `AdministrativeUnit.Read.All` | Administrative units: the units and the members of restricted ones (scoped admins come through `RoleManagement.Read.Directory`) |
+| `admin-units` | `AdministrativeUnit.Read.All` | Privileged roles, the administrative units part: the units and the members of restricted ones (scoped admins come through `RoleManagement.Read.Directory`) |
 | `directory-sync` | `Organization.Read.All` | Directory sync: whether the tenant syncs from on-premises and when it last did (with less, Graph returns the organization without those fields) |
 
-Guest owners needs no extra permission: listing groups with their owners works with `GroupMember.Read.All`.
+The guest owners part of Privileged roles needs no extra permission: listing groups with their owners works with `GroupMember.Read.All`.
 
 All of these only read. Without P1 the Accounts scan and the admin MFA check report that the licence is missing (the
 legacy sign-ins part of Accounts only notes it in the log and reports nothing); the other checks still run.

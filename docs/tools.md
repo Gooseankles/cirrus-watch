@@ -276,9 +276,16 @@ Every VNet's address space and subnets with how full they are, and which address
 
 ## Privileged roles
 
-Who holds the powerful Entra roles and whether they are protected.
+Who holds the powerful Entra roles and whether they are protected; also groups owned by guests and risky administrative unit admins.
 
 Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA, admin accounts synced from on-premises Active Directory (high for Global Administrators, medium for other roles), too few working emergency access accounts.
+
+Two smaller parts run beside the role check. Each fails on its own (one scan-error finding) without losing the role findings:
+
+- **Guest owners** (`guest-owner`, `guest-owner-role-group`): every Entra group with a guest among its owners, so someone outside the organisation decides who is in it. A warning, critical when the group is role-assignable (it can hold Entra admin roles); the detail says when no member of the organisation owns the group. Runs with the default permissions (`GroupMember.Read.All`, `User.Read.All`). Owners of groups synced from on-premises and of distribution or mail-enabled security groups made in Exchange are not in Graph and are not seen. A check for privileged groups and roles with no access review was left out: review scopes are free-form queries in several shapes, so it could not be told reliably without many false findings.
+- **Administrative units** (`au-scoped-admin-guest`, `au-scoped-admin-disabled`, `au-restricted-empty`): the extra Graph check `admin-units` (Settings, Extra Graph checks; Graph permission `AdministrativeUnit.Read.All`). Only findings that show risk: a guest with an admin role scoped to an administrative unit (critical), a disabled account that still holds one (warning), a restricted management administrative unit with no members (information). Plain units, their sizes and dynamic rules are not reported: they carry no risk on their own and would only be noise. Scoped admins that are groups or apps are left to the role check.
+
+Replaces the Guest owners and Administrative units scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Entra tenant settings
 
@@ -304,18 +311,6 @@ Two smaller parts run beside the account check. Each fails on its own (one scan-
 - **Risky users** (`risky-user-compromised`, `risky-user-high`, `risky-user-medium`): the extra Graph check `risky-users` (Settings, Extra Graph checks; Graph permission `IdentityRiskyUser.Read.All`, Microsoft Entra ID P2). Users confirmed compromised and users at risk with a high risk level are critical, medium risk is a warning; remediated, dismissed, confirmed-safe, low-risk and deleted users are left out. Worst and longest left alone first, at most 50 findings (`RISKY_USERS_MAX`; the log says when more were found). Without P2 the part writes an info line in the log and reports nothing.
 
 Replaces the Stale accounts, MFA coverage, Legacy sign-ins and Risky users scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
-
-## Guest owners
-
-Groups that a guest owns, so someone outside the organisation decides who is in them.
-
-Every Entra group with a guest among its owners: a warning, critical when the group is role-assignable (it can hold Entra admin roles). The detail says when no member of the organisation owns the group. Runs with the default permissions (`GroupMember.Read.All`, `User.Read.All`). Owners of groups synced from on-premises and of distribution or mail-enabled security groups made in Exchange are not in Graph and are not seen. A check for privileged groups and roles with no access review was left out: review scopes are free-form queries in several shapes, so it could not be told reliably without many false findings.
-
-## Administrative units
-
-Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing.
-
-Off until the tenant turns it on (Settings, Extra Graph checks: `admin-units`); needs the Graph permission `AdministrativeUnit.Read.All`. Only findings that show risk: a guest with an admin role scoped to an administrative unit (critical), a disabled account that still holds one (warning), a restricted management administrative unit with no members (information). Plain units, their sizes and dynamic rules are not reported: they carry no risk on their own and would only be noise. Scoped admins that are groups or apps are left to Privileged roles.
 
 ## Directory sync
 

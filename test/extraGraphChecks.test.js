@@ -26,9 +26,11 @@ const extra = require("../src/tools/extraChecks");
 const accounts = require("../src/tools/accounts");
 const riskyUsers = { id: "risky-users", run: accounts._test.risky.run, _test: accounts._test.risky };
 const secureScore = require("../src/tools/secureScore");
-const adminUnits = require("../src/tools/adminUnits");
 const directorySync = require("../src/tools/directorySync");
-const guestOwners = require("../src/tools/guestOwners");
+// Guest owners and administrative units are parts of the Privileged roles scan (0.72.0.0).
+const roles = require("../src/tools/privilegedRoles");
+const adminUnits = { id: "admin-units", run: roles._test.adminUnits.run, _test: roles._test.adminUnits };
+const guestOwners = { id: "guest-owners", run: roles._test.guestOwners.run, _test: roles._test.guestOwners };
 
 after(env.cleanup);
 beforeEach(() => {
@@ -263,6 +265,7 @@ test("admin units: a 403 on the list names AdministrativeUnit.Read.All", async (
   const out = await adminUnits.run();
   assert.equal(out.length, 1);
   assert.match(out[0].name, /AdministrativeUnit\.Read\.All/);
+  assert.equal(out[0].id, "privileged-roles/scan-errors/admin-units-permission", "reported by the scan that runs the part, naming the check");
 });
 
 // ---- directory sync ----
@@ -338,4 +341,19 @@ test("guest owners: runs without the extra checks, re-reads groups with 20 owner
 test("guest owners: a refusal names GroupMember.Read.All", async () => {
   answer = () => { throw graphError(403); };
   await assert.rejects(guestOwners.run(), /GroupMember\.Read\.All/);
+});
+
+test("privileged roles: the run carries the guest owners and administrative units parts; a failing part is one scan error", async () => {
+  process.env.EXTRA_GRAPH_CHECKS = "admin-units";
+  answer = (m, url) => {
+    if (url.startsWith("/groups?")) return [{ id: "g1", displayName: "Sales", owners: [{ id: "u1", userType: "Guest" }] }];
+    if (url.startsWith("/directory/administrativeUnits?")) throw graphError(500, "boom");
+    return [];
+  };
+  const out = await roles.run();
+  assert.ok(out.map((f) => f.id).includes("guest-owners/g1/u1"), "the guest owner finding keeps its old id prefix");
+  assert.ok(out.some((f) => f.kind === "too-few-global-admins"), "the role findings are there too");
+  const errors = out.filter((f) => f.kind === "scan-error");
+  assert.deepEqual(errors.map((f) => f.id), ["privileged-roles/scan-errors/Administrative units"]);
+  assert.match(errors[0].detail, /failed \(500\): boom/);
 });

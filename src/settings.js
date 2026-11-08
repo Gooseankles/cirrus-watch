@@ -67,7 +67,7 @@ const FIELDS = [
   // Checks that need extra Graph permissions, on by default (src/tools/extraChecks.js).
   // Like SCANS_OFF, a customer's list never falls back to the home tenant's, so
   // a customer is only scanned with what was granted in its own tenant.
-  { key: "EXTRA_GRAPH_CHECKS", label: "Extra Graph checks (need more permissions)", group: "Extra Graph checks", noInherit: true, hint: "Comma-separated: risky-users (the risky users part of Accounts; IdentityRiskyUser.Read.All, Entra ID P2), secure-score (SecurityEvents.Read.All), admin-units (AdministrativeUnit.Read.All), directory-sync (Organization.Read.All), all or none. Blank = all: each check reports a scan error until its permission is granted in this tenant (Terraform: extra_graph_checks). A customer tenant does not use the home tenant's value" },
+  { key: "EXTRA_GRAPH_CHECKS", label: "Extra Graph checks (need more permissions)", group: "Extra Graph checks", noInherit: true, hint: "Comma-separated: risky-users (the risky users part of Accounts; IdentityRiskyUser.Read.All, Entra ID P2), secure-score (SecurityEvents.Read.All), admin-units (the administrative units part of Privileged roles; AdministrativeUnit.Read.All), directory-sync (Organization.Read.All), all or none. Blank = all: each check reports a scan error until its permission is granted in this tenant (Terraform: extra_graph_checks). A customer tenant does not use the home tenant's value" },
   { key: "RISKY_USERS_MAX", label: "Most risky users to list", group: "Extra Graph checks", hint: "Compromised and high risk first, then the oldest; blank = 50" },
   { key: "SECURE_SCORE_DROP_POINTS", label: "Flag a Secure Score drop of (points) in a week", group: "Extra Graph checks", hint: "Percentage points against the score about 7 days earlier; blank = 5, 0 = off" },
   { key: "DIRECTORY_SYNC_MAX_HOURS", label: "Flag directory sync older than (hours)", group: "Extra Graph checks", hint: "Entra Connect syncs every 30 minutes; blank = 3 (critical after 24)" },
@@ -172,8 +172,6 @@ const TOOL_SPNS = [
   { id: "privileged-roles", label: "Privileged roles" },
   { id: "pim", label: "PIM" },
   { id: "accounts", label: "Accounts" },
-  { id: "guest-owners", label: "Guest owners" },
-  { id: "admin-units", label: "Administrative units" },
   { id: "directory-sync", label: "Directory sync" },
   { id: "secure-score", label: "Microsoft Secure Score" },
   { id: "conditional-access", label: "Conditional Access" },

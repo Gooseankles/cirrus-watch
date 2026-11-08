@@ -301,9 +301,108 @@ function stamp(k, findings) {
   return findings || [];
 }
 
+// Several indexes (one per tenant, or one per replaced tool) as one: at every
+// run time any of them has, each index counts with its last entry at or
+// before that time, so totals never dip when one of them did not run then.
+// added and resolved come only from the index that ran at that exact time.
+function mergeIndexes(indexes) {
+  const times = [...new Set(indexes.flat().map((e) => e.ranAt))].sort();
+  return times.map((ranAt) => {
+    const out = { ranAt, count: 0, added: 0, resolved: 0, byKind: {} };
+    for (const index of indexes) {
+      let e = null;
+      for (const x of index) if (x.ranAt <= ranAt && (!e || x.ranAt > e.ranAt)) e = x;
+      if (!e) continue;
+      out.count += e.count || 0;
+      for (const [kind, n] of Object.entries(e.byKind || {})) out.byKind[kind] = (out.byKind[kind] || 0) + n;
+      if (e.ranAt === ranAt) {
+        out.added += e.added || 0;
+        out.resolved += e.resolved || 0;
+      }
+    }
+    return out;
+  });
+}
+
+// --- Merged tools: taking over the data of the tools they replace ---
+//
+// A scan that replaced older scans (`replaces` in its module, registered by
+// toolRegistry) finds their stored results under the old ids. The first time
+// a tenant's store is touched under the new id (a scan, a page, a report) the
+// old data is adopted, once per tenant: the old latest results together become
+// the new latest (so firstSeen carries over and the first run does not report
+// everything as new), the old indexes become one (each old scan counted at its
+// last run at or before each time, as history() does across tenants) and a
+// merged snapshot is written for the newest ADOPTED_RUNS run times, so those
+// runs can still be opened; older runs stay in the trend but cannot be opened.
+// Finding ids and kinds are kept across a merge, so accepted findings
+// (suppressions.js) and ages match. The old files are left where they are and
+// can be deleted. Nothing happens once the new id has results of its own.
+const ADOPTED_RUNS = 60;
+const replaces = new Map(); // new tool id -> [old tool ids]
+const adopted = new Set(); // "<tool>|<tenant>" already checked in this process
+
+function registerReplaces(toolId, oldIds) {
+  replaces.set(toolId, [...oldIds]);
+}
+const replacesOf = (toolId) => replaces.get(toolId) || [];
+
+async function adopt(toolId, tenantKey) {
+  const olds = replaces.get(toolId);
+  if (!olds || !olds.length) return;
+  const id = `${toolId}|${tenantKey}`;
+  if (adopted.has(id)) return;
+  await withLock(id, async () => {
+    if (adopted.has(id)) return;
+    const store = backend(tenantKey);
+    if (await store.get(latestKey(toolId))) {
+      adopted.add(id);
+      return;
+    }
+    const latests = [];
+    const indexes = [];
+    for (const old of olds) {
+      const latest = await store.get(latestKey(old));
+      if (latest && latest.ranAt) latests.push(latest);
+      const index = (await store.get(indexKey(old))) || [];
+      if (index.length) indexes.push({ old, index });
+    }
+    if (!latests.length && !indexes.length) {
+      adopted.add(id);
+      return;
+    }
+    const merged = mergeIndexes(indexes.map((x) => x.index));
+    // Snapshots for the newest runs: at each time, every old scan's results as
+    // they stood then. Each old snapshot is read once.
+    const cursors = indexes.map(({ old, index }) => ({ old, index, at: -1, findings: [] }));
+    for (const ranAt of merged.map((e) => e.ranAt).slice(-ADOPTED_RUNS)) {
+      const findings = [];
+      for (const c of cursors) {
+        let next = c.at;
+        while (next + 1 < c.index.length && c.index[next + 1].ranAt <= ranAt) next++;
+        if (next !== c.at) {
+          c.at = next;
+          const run = await store.get(runKey(c.old, c.index[next].ranAt)).catch(() => null);
+          c.findings = (run && run.findings) || [];
+        }
+        findings.push(...c.findings);
+      }
+      await store.put(runKey(toolId, ranAt), { ranAt, findings });
+    }
+    if (merged.length) await store.put(indexKey(toolId), merged);
+    const ranAt = latests.map((l) => l.ranAt).sort().pop() || (merged.length ? merged[merged.length - 1].ranAt : null);
+    if (ranAt) {
+      const findings = latests.flatMap((l) => (l.findings || []).map((f) => ({ ...f, firstSeen: f.firstSeen || l.ranAt })));
+      await store.put(latestKey(toolId), { ranAt, findings });
+    }
+    adopted.add(id);
+  });
+}
+
 // --- Public API ---
 
 async function writeTenant(toolId, tenantKey, findings, ranAt) {
+  await adopt(toolId, tenantKey);
   return withLock(`${toolId}|${tenantKey}`, async () => {
     const store = backend(tenantKey);
     const previous = (await store.get(latestKey(toolId))) || { findings: [] };
@@ -336,6 +435,7 @@ async function writeTenant(toolId, tenantKey, findings, ranAt) {
 // until the next scan of that tenant succeeds.
 async function writeTenantError(toolId, tenantKey, at, message) {
   if (!exists(tenantKey)) return;
+  await adopt(toolId, tenantKey);
   return withLock(`${toolId}|${tenantKey}`, async () => {
     const store = backend(tenantKey);
     const latest = (await store.get(latestKey(toolId))) || { ranAt: null, findings: [] };
@@ -378,6 +478,7 @@ async function read(toolId, keys = [HOME]) {
   const parts = await Promise.all(
     keys.map(async (k) => {
       try {
+        await adopt(toolId, k);
         return [k, await backend(k).get(latestKey(toolId)), null];
       } catch (err) {
         return [k, null, err];
@@ -396,6 +497,7 @@ async function read(toolId, keys = [HOME]) {
 
 async function readIndex(toolId, k) {
   try {
+    await adopt(toolId, k);
     return (await backend(k).get(indexKey(toolId))) || [];
   } catch {
     return [];
@@ -408,22 +510,7 @@ async function readIndex(toolId, k) {
 async function history(toolId, keys = [HOME]) {
   const indexes = await Promise.all(keys.map((k) => readIndex(toolId, k)));
   if (indexes.length === 1) return indexes[0];
-  const times = [...new Set(indexes.flat().map((e) => e.ranAt))].sort();
-  return times.map((ranAt) => {
-    const out = { ranAt, count: 0, added: 0, resolved: 0, byKind: {} };
-    for (const index of indexes) {
-      let e = null;
-      for (const x of index) if (x.ranAt <= ranAt && (!e || x.ranAt > e.ranAt)) e = x;
-      if (!e) continue;
-      out.count += e.count || 0;
-      for (const [kind, n] of Object.entries(e.byKind || {})) out.byKind[kind] = (out.byKind[kind] || 0) + n;
-      if (e.ranAt === ranAt) {
-        out.added += e.added || 0;
-        out.resolved += e.resolved || 0;
-      }
-    }
-    return out;
-  });
+  return mergeIndexes(indexes);
 }
 
 // One past run over these tenants, with what was new and what had gone
@@ -507,5 +594,7 @@ module.exports = {
   getDoc,
   putDoc,
   STORAGE_TOOL_ID,
-  _test: { withRetry },
+  registerReplaces,
+  replacesOf,
+  _test: { withRetry, ADOPTED_RUNS },
 };

@@ -1,14 +1,21 @@
 // Who holds the powerful Entra roles: too many or too few Global
 // Administrators, guests, apps and disabled accounts in privileged roles,
-// standing (non-PIM) admin rights where PIM is in use, admins without MFA, and
+// standing (non-PIM) admin rights where PIM is in use, admins without MFA,
 // emergency access (break-glass) accounts, and admin accounts synced from
-// on-premises Active Directory. Graph: RoleManagement.Read.Directory
-// (roles), User.Read.All and Application.Read.All (names), GroupMember.Read.All
-// (role groups, policy exclusions), AuditLog.Read.All (MFA registration, P1),
-// Policy.Read.All (Conditional Access, for the emergency access check).
+// on-premises Active Directory. Two smaller parts run beside the role check
+// (0.72.0.0; they were the Guest owners and Administrative units scans):
+// groups owned by guests, and the risky parts of administrative units. Each
+// part fails on its own without losing the role findings.
+// Graph: RoleManagement.Read.Directory (roles, AU-scoped admins), User.Read.All
+// and Application.Read.All (names), GroupMember.Read.All (role groups, policy
+// exclusions, group owners), AuditLog.Read.All (MFA registration, P1),
+// Policy.Read.All (Conditional Access, for the emergency access check),
+// AdministrativeUnit.Read.All (the administrative units part, an extra Graph
+// check).
 const settings = require("../settings");
-const { graphGet, graphGetAll } = require("../graphClient");
+const { graphGet, graphGetAll, graphPost } = require("../graphClient");
 const { mapLimit, runChecks, scanError, itemErrors, graphHint } = require("./util");
+const { isOn, refused, permissionMissing } = require("./extraChecks");
 
 const TOOL_ID = "privileged-roles";
 const MAX_USERS = 500; // privileged users looked up for type and status
@@ -275,6 +282,176 @@ async function mfaFindings(privilegedUsers) {
   return findings;
 }
 
+// ---- Guest owners (was its own scan until 0.72.0.0) ----
+// Groups owned by guests. An owner can add anyone to the group and change it,
+// so a guest owner lets someone outside the organisation decide who gets what
+// the group grants (Teams, SharePoint, app access, Azure roles). Critical for
+// role-assignable groups (they can hold Entra admin roles), else a warning.
+// One pass over /groups with $expand=owners (GroupMember.Read.All lists groups
+// and owners, User.Read.All gives the owner's userType; both in the default
+// set). $expand returns at most 20 owners and no next link; a group showing 20
+// is read again in full. Owners of groups synced from on-premises, distribution
+// groups and mail-enabled security groups made in Exchange are not in Graph, so
+// those are not seen. Finding ids keep the guest-owners/ prefix of the old scan,
+// so accepted findings carry over.
+// A check for privileged groups and roles with no access review
+// (AccessReview.Read.All) is not built: review scopes are free-form queries in
+// several shapes (one group, all Microsoft 365 groups with guests, role
+// assignment instances, PIM groups), so "no review covers this" cannot be told
+// reliably without many false findings.
+const GUEST_OWNERS_ID = "guest-owners";
+const OWNER_FIELDS = "id,displayName,userPrincipalName,userType,accountEnabled";
+const EXPAND_LIMIT = 20;
+
+// userType only: a guest converted to Member keeps #EXT# in the UPN but is no longer a guest.
+const isGuest = (o) => o && o.userType === "Guest";
+const isUser = (o) => !o["@odata.type"] || o["@odata.type"] === "#microsoft.graph.user";
+
+// groups: [{ id, displayName, isAssignableToRole, owners: [...] }] -> findings. Pure.
+function guestOwnerFindings(groups) {
+  const out = [];
+  for (const g of groups || []) {
+    const owners = (g.owners || []).filter(isUser);
+    const guests = owners.filter(isGuest);
+    if (!guests.length) continue;
+    const onlyGuests = guests.length === owners.length;
+    for (const o of guests) {
+      out.push({
+        kind: g.isAssignableToRole ? "guest-owner-role-group" : "guest-owner",
+        id: `${GUEST_OWNERS_ID}/${g.id}/${o.id}`,
+        name: `${g.displayName || g.id}: ${o.userPrincipalName || o.displayName || o.id}`,
+        detail: `Guest ${o.displayName || o.userPrincipalName || o.id} owns the group ${g.displayName || g.id}${g.isAssignableToRole ? " (role-assignable: it can hold Entra admin roles)" : ""}${onlyGuests ? "; there is no member owner" : ""}. An owner can add anyone to the group; make a member of the organisation the owner and remove the guest`,
+        resourceGroup: null,
+        subscriptionId: null,
+        principalId: o.id,
+      });
+    }
+  }
+  return out;
+}
+
+// Every owner of a group with 20 or more in the expand: ids, then user details.
+async function allOwners(groupId) {
+  const owners = await graphGetAll(`/groups/${groupId}/owners`, TOOL_ID);
+  const ids = owners.filter(isUser).map((o) => o.id);
+  const users = [];
+  for (let i = 0; i < ids.length; i += 1000) {
+    const page = await graphPost(`/directoryObjects/getByIds?$select=${OWNER_FIELDS}`, { ids: ids.slice(i, i + 1000), types: ["user"] }, TOOL_ID);
+    users.push(...(page.value || []));
+  }
+  return users;
+}
+
+async function guestOwnerRun() {
+  let groups;
+  try {
+    groups = await graphGetAll(`/groups?$select=id,displayName,isAssignableToRole&$expand=owners($select=${OWNER_FIELDS})`, TOOL_ID);
+  } catch (err) {
+    throw new Error(graphHint(err, "GroupMember.Read.All"));
+  }
+  const full = groups.filter((g) => (g.owners || []).length >= EXPAND_LIMIT);
+  const failures = await mapLimit(full, 4, async (g) => {
+    g.owners = await allOwners(g.id);
+  });
+  return [...guestOwnerFindings(groups), ...itemErrors(TOOL_ID, "owners", "large groups' owner lists", failures, full.length)];
+}
+
+// ---- Administrative units (was its own scan until 0.72.0.0) ----
+// Only what shows risk in administrative units (AUs), not an inventory:
+//   - a guest holds an admin role scoped to an AU (an outsider who can reset
+//     passwords or change the users and groups in it)
+//   - a disabled account still holds an AU-scoped admin role (left behind; it
+//     works again the moment someone enables the account)
+//   - a restricted management AU has no members (it was made to shield
+//     sensitive accounts from tenant-wide admins, and shields nothing)
+// Plain AUs with no scoped admins, dynamic rules and AU sizes are not findings:
+// they carry no risk on their own and would be noise. Scoped admins that are
+// groups or apps are left to the role check above.
+// The extra Graph check admin-units (extraChecks.js): AdministrativeUnit.Read.All
+// for the AU list and members. scopedRoleMembers and directoryRoles use
+// RoleManagement.Read.Directory, user details User.Read.All (both in the
+// default set). Listing AUs works on Entra ID Free; each AU-scoped admin needs
+// Entra ID P1. Finding ids keep the admin-units/ prefix of the old scan.
+const ADMIN_UNITS_ID = "admin-units";
+const ADMIN_UNITS_LABEL = "Administrative units";
+const AU_CONCURRENCY = 4;
+
+// input: { aus, scoped: Map(auId -> scopedRoleMembership[]), memberCount:
+// Map(auId -> number, restricted AUs only), roleNames: Map(roleId -> name),
+// users: Map(userId -> { userType, accountEnabled, userPrincipalName }) }. Pure.
+function auFindings({ aus, scoped, memberCount, roleNames, users }) {
+  const out = [];
+  for (const au of aus || []) {
+    const auName = au.displayName || au.id;
+    if (au.isMemberManagementRestricted && memberCount.has(au.id) && memberCount.get(au.id) === 0) {
+      out.push({
+        kind: "au-restricted-empty",
+        id: `${ADMIN_UNITS_ID}/${au.id}/empty`,
+        name: auName,
+        detail: "Restricted management administrative unit with no members: it protects nothing. Add the accounts it is meant to shield, or delete it",
+        resourceGroup: null,
+        subscriptionId: null,
+      });
+    }
+    for (const m of scoped.get(au.id) || []) {
+      const info = m.roleMemberInfo || {};
+      const u = users.get(info.id);
+      if (!u) continue; // a group or an app, or gone
+      const role = roleNames.get(m.roleId) || "an admin role";
+      const who = u.userPrincipalName || info.userPrincipalName || info.displayName || info.id;
+      const base = { resourceGroup: null, subscriptionId: null, principalId: info.id };
+      if (u.userType === "Guest" || /#EXT#/i.test(u.userPrincipalName || "")) {
+        out.push({ ...base, kind: "au-scoped-admin-guest", id: `${ADMIN_UNITS_ID}/${au.id}/${info.id}/${m.roleId}/guest`, name: who, detail: `Guest account holds ${role} over the administrative unit ${auName}: someone outside the organisation can manage the users and groups in it. Remove the assignment or give it to a member account` });
+      } else if (u.accountEnabled === false) {
+        out.push({ ...base, kind: "au-scoped-admin-disabled", id: `${ADMIN_UNITS_ID}/${au.id}/${info.id}/${m.roleId}/disabled`, name: who, detail: `Disabled account still holds ${role} over the administrative unit ${auName}. Remove the assignment; it works again as soon as the account is enabled` });
+      }
+    }
+  }
+  return out;
+}
+
+async function lookupUsers(ids) {
+  const users = new Map();
+  const unique = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 1000) {
+    const page = await graphPost("/directoryObjects/getByIds?$select=id,userPrincipalName,userType,accountEnabled", { ids: unique.slice(i, i + 1000), types: ["user"] }, TOOL_ID);
+    for (const o of page.value || []) users.set(o.id, o);
+  }
+  return users;
+}
+
+async function adminUnitRun() {
+  if (!isOn(ADMIN_UNITS_ID)) return [];
+  let aus;
+  try {
+    aus = await graphGetAll("/directory/administrativeUnits?$select=id,displayName,isMemberManagementRestricted", TOOL_ID);
+  } catch (err) {
+    if (refused(err)) return permissionMissing(ADMIN_UNITS_ID, ADMIN_UNITS_LABEL, err, TOOL_ID);
+    throw err;
+  }
+  if (!aus.length) return [];
+  const scoped = new Map();
+  const memberCount = new Map();
+  const failures = await mapLimit(aus, AU_CONCURRENCY, async (au) => {
+    scoped.set(au.id, await graphGetAll(`/directory/administrativeUnits/${au.id}/scopedRoleMembers`, TOOL_ID));
+    if (au.isMemberManagementRestricted) {
+      const page = await graphGet(`/directory/administrativeUnits/${au.id}/members/$ref?$top=1`, TOOL_ID);
+      memberCount.set(au.id, (page.value || []).length);
+    }
+  });
+  const ids = [...scoped.values()].flat().map((m) => m.roleMemberInfo && m.roleMemberInfo.id);
+  const roleNames = new Map();
+  let users = new Map();
+  if (ids.length) {
+    const roles = await graphGetAll("/directoryRoles?$select=id,displayName", TOOL_ID);
+    for (const r of roles) roleNames.set(r.id, r.displayName);
+    users = await lookupUsers(ids);
+  }
+  return [...auFindings({ aus, scoped, memberCount, roleNames, users }), ...itemErrors(TOOL_ID, "units", "administrative units", failures, aus.length)];
+}
+
+// The role check is the scan: when it fails the run fails and the last results
+// stay. The parts around it each fail on their own (one scan-error finding).
 async function run() {
   let state;
   try {
@@ -282,15 +459,26 @@ async function run() {
   } catch (err) {
     throw new Error(graphHint(err, "RoleManagement.Read.Directory"));
   }
-  const extra = await runChecks(TOOL_ID, { MFA: () => mfaFindings(state.privilegedUsers), "Emergency access": () => emergencyFindings(state.standingGlobalAdmins) });
-  return [...state.findings, ...extra];
+  const parts = await runChecks(TOOL_ID, {
+    MFA: () => mfaFindings(state.privilegedUsers),
+    "Emergency access": () => emergencyFindings(state.standingGlobalAdmins),
+    "Guest owners": guestOwnerRun,
+    [ADMIN_UNITS_LABEL]: adminUnitRun,
+  });
+  return [...state.findings, ...parts];
 }
 
 module.exports = {
   id: TOOL_ID,
   label: "Privileged roles",
   schedule: "0 5 * * *", // daily at 05:00
+  replaces: [GUEST_OWNERS_ID, ADMIN_UNITS_ID],
   run,
-  _test: { judgeEmergencyAccess, judgeSynced },
+  _test: {
+    judgeEmergencyAccess,
+    judgeSynced,
+    guestOwners: { guestOwnerFindings, isGuest, run: guestOwnerRun },
+    adminUnits: { auFindings, run: adminUnitRun },
+  },
   PRIVILEGED_TEMPLATES,
 };

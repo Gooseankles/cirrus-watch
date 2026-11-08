@@ -2,7 +2,7 @@
 // new Node, Python or Ubuntu version is known without a code change. Fetched
 // at most once a day and kept in DATA_DIR/eol-dates.json; when the API cannot
 // be reached the last copy is used, and without one the built-in tables in
-// tools/endOfSupport.js. EOS_LIVE_DATES = off uses only the built-in tables.
+// tools/endOfLife.js. EOS_LIVE_DATES = off uses only the built-in tables.
 const fs = require("fs");
 const path = require("path");
 const settings = require("./settings");

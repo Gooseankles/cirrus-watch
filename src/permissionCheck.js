@@ -31,6 +31,7 @@ const GRAPH_COVERED_BY = {
   "Application.Read.All": ["Directory.Read.All", "Directory.ReadWrite.All", "Application.ReadWrite.All"],
 };
 
+// A NEEDS entry may carry a note in parentheses; the name is what is checked.
 const roleName = (s) => String(s).split(" (")[0];
 
 // What the given tools need together (all tools when toolIds is empty).
@@ -40,7 +41,7 @@ function required(toolIds) {
   const azure = new Set();
   for (const id of ids) {
     const n = NEEDS[id] || {};
-    (n.graph || []).forEach((p) => graph.add(p));
+    (n.graph || []).forEach((p) => graph.add(roleName(p)));
     (n.azure || []).forEach((r) => azure.add(roleName(r)));
   }
   return { graph: [...graph], azure: [...azure] };

@@ -18,14 +18,12 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Tag compliance](docs/tools.md#tag-compliance) | Daily | Resources missing the tags you require. |
 | [Cost anomalies](docs/tools.md#cost-anomalies) | Daily | Resource groups whose cost yesterday jumped against the day before. |
 | [Access review](docs/tools.md#access-review) | Weekly | Long-standing Owner, Contributor and User Access Administrator grants, direct and through groups. |
-| [Expiring app credentials](docs/tools.md#expiring-app-credentials) | Daily | App secrets and certificates that expire soon, and app registrations with risky credentials or no owner. |
 | [Key Vault](docs/tools.md#key-vault) | Daily | Vault settings, expiring vault items and who can read secrets. |
 | [Access packages](docs/tools.md#access-packages) | Daily | Entra access packages that expire, wait for approval, go unused or cannot be approved. |
 | [Role assignments](docs/tools.md#role-assignments) | Daily | Assignments to deleted identities and subscriptions near the role assignment limit. |
 | [Policy check](docs/tools.md#policy-check) | Daily | Whether Azure Policy actually blocks risky resources, and assignments that cannot work. |
 | [Internet exposure](docs/tools.md#internet-exposure) | Daily | NSG rules, VMs, storage and databases open to the internet. |
-| [End of support](docs/tools.md#end-of-support) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support. |
-| [Service retirements](docs/tools.md#service-retirements) | Daily | Azure features being retired that your resources still use, with the date. |
+| [End of life](docs/tools.md#end-of-life) | Weekly | Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support, and Azure features being retired that your resources still use. |
 | [Azure news](docs/tools.md#azure-news) | Daily | What Microsoft announces for Azure: new features, previews and retirements, marked where your resources use them. |
 | [Microsoft 365 roadmap](docs/tools.md#microsoft-365-roadmap) | Daily | What Microsoft plans for Microsoft 365: features in development, rolling out, or launched in the last 60 days. |
 | [Certificates](docs/tools.md#certificates) | Daily | TLS certificates of App Service custom domains, application gateways and listed websites: expiry, name, trust and reachability. |
@@ -39,19 +37,14 @@ Each tool in a line; [docs/tools.md](docs/tools.md) has what each one checks in 
 | [Architecture](docs/tools.md#architecture) | Daily | A drawing of VNets, subnets and resources, with the traffic each VM can send and the firewall openings to on-premises and the Internet (for information). |
 | [Firewall policies](docs/tools.md#firewall-policies) | Daily | Every firewall rule in the order it is checked, the rules that are wrong or redundant, and a reach map per VM or IP. |
 | [Change log](docs/tools.md#change-log) | Daily | What was created, changed or deleted in the last 24 hours (for information). |
-| [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected. |
+| [Privileged roles](docs/tools.md#privileged-roles) | Daily | Who holds the powerful Entra roles and whether they are protected; also groups owned by guests and risky administrative unit admins. |
 | [PIM](docs/tools.md#pim) | Daily | Everyone who can activate a role, and PIM settings and assignments that are too loose. |
-| [Stale accounts](docs/tools.md#stale-accounts) | Daily | Members and guests who have not signed in for a long time, or never. |
-| [MFA coverage](docs/tools.md#mfa-coverage) | Daily | Enabled members with no MFA method, or only phone and SMS. |
-| [Legacy sign-ins](docs/tools.md#legacy-sign-ins) | Daily | Successful sign-ins with legacy clients that cannot do MFA. |
-| [Guest owners](docs/tools.md#guest-owners) | Daily | Groups that a guest owns, so someone outside the organisation decides who is in them. |
-| [Risky users](docs/tools.md#risky-users) | Daily | Users Entra ID Protection marks as compromised or at high or medium risk, not yet dealt with. |
-| [Administrative units](docs/tools.md#administrative-units) | Daily | Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing. |
+| [Accounts](docs/tools.md#accounts) | Daily | One finding per user account: unused, never signed in, invitation never accepted, no or weak MFA; also legacy sign-ins and risky users. |
 | [Directory sync](docs/tools.md#directory-sync) | Hourly | Sync from on-premises Active Directory that has fallen behind or stopped. |
 | [Microsoft Secure Score](docs/tools.md#microsoft-secure-score) | Daily | The tenant's Microsoft Secure Score, a drop against last week, and the open actions worth the most points. |
 | [Conditional Access](docs/tools.md#conditional-access) | Daily | Gaps in Conditional Access policies. |
 | [App permissions](docs/tools.md#app-permissions) | Daily | Apps with Graph permissions that could take over the tenant, and risky consents. |
-| [Enterprise apps](docs/tools.md#enterprise-apps) | Daily | Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use. |
+| [Applications](docs/tools.md#applications) | Daily | App registrations and enterprise apps: credentials that expire soon or are risky, SAML certificates, open sign-in, no owner or no use. |
 | [Licence coverage](docs/tools.md#licence-coverage) | Daily | Entra ID licences needed for the features in use, against those you own. |
 | [Defender for Cloud](docs/tools.md#defender-for-cloud) | Daily | Low secure scores, unhealthy recommendations, Defender plans that are off, missing alert e-mails and open alerts. |
 | [Vulnerabilities (CVEs)](docs/tools.md#vulnerabilities-cves) | Daily | Known vulnerabilities on machines and container images from Defender for Cloud, ranked by real-world exploitation. |

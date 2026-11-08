@@ -30,12 +30,6 @@ Long-standing Owner, Contributor and User Access Administrator grants, direct an
 Group members are read from Graph beta, because v1.0 leaves service principals (apps) out of group members; if
 beta fails, v1.0 is used (apps are then missing). Access lookup's group view does the same.
 
-## Expiring app credentials
-
-App secrets and certificates that expire soon, and app registrations with risky credentials or no owner.
-
-App secrets and certificates that expire soon; app registrations with no owner, with only client secrets, or with secrets valid longer than the set maximum (365 days by default); federated credentials whose subject has a wildcard or accepts any GitHub pull request (the first 300 apps are checked); redirect URIs on plain `http://` (other than localhost) or with a wildcard.
-
 ## Key Vault
 
 Vault settings, expiring vault items and who can read secrets.
@@ -66,17 +60,13 @@ NSG rules, VMs, storage and databases open to the internet.
 
 NSG rules open to the whole internet (admin, database or all ports), VMs with a public IP, storage containers anyone can read, database firewalls open to everyone or to all of Azure.
 
-## End of support
+## End of life
 
-Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support.
+Kubernetes versions, runtimes, operating systems and TLS versions past or near end of support, and Azure features being retired that your resources still use.
 
-AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily), services that still accept TLS 1.0/1.1.
+AKS Kubernetes versions out of support, App Service runtimes and VM operating systems past or near end of support (dates from endoflife.date, refreshed daily; `EOS_WARN_DAYS` sets how far ahead counts as near), services that still accept TLS 1.0/1.1, and Azure features and services being retired that your resources still use (from Azure Advisor's service upgrade and retirement recommendations) with the retirement date: past, within `RETIREMENT_WARN_DAYS` days, or later (listed as planned). The five parts (AKS versions, App Service runtimes, TLS settings, VM operating systems, service retirements) each fail on their own as one scan-error finding.
 
-## Service retirements
-
-Azure features being retired that your resources still use, with the date.
-
-Azure features being retired that your resources still use (from Azure Advisor), with the date.
+Replaces the End of support and Service retirements scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Azure news
 
@@ -144,7 +134,7 @@ What one failure would take down: single VMs with no zone or availability set, A
 
 Risky settings on storage, SQL, web apps, registries, AKS, Redis and other services.
 
-Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Most findings link to their PSRule for Azure rule. Cross-tenant replication allowed (warning, only when explicitly on) has no such rule. The access keys finding also says, while keys still work, whether a SAS expiration policy is missing and whether the portal defaults to the key instead of Entra ID sign-in. SQL TLS versions and SQL servers open to the internet are covered by End of support and Internet exposure.
+Risky settings: storage that accepts HTTP, is open to all networks or still takes access keys; SQL servers with no Entra admin or with SQL logins; web apps on HTTP, with remote debugging or plain FTP; registries with the admin user or anonymous pull; AKS with local accounts, no Entra sign-in, an API open to any IP or no auto-upgrade; Redis on its non-TLS port; Cosmos DB, Service Bus, Event Hubs and App Configuration with keys on. Most findings link to their PSRule for Azure rule. Cross-tenant replication allowed (warning, only when explicitly on) has no such rule. The access keys finding also says, while keys still work, whether a SAS expiration policy is missing and whether the portal defaults to the key instead of Entra ID sign-in. SQL TLS versions and SQL servers open to the internet are covered by End of life and Internet exposure.
 
 ## Exposure paths
 
@@ -276,9 +266,16 @@ Every VNet's address space and subnets with how full they are, and which address
 
 ## Privileged roles
 
-Who holds the powerful Entra roles and whether they are protected.
+Who holds the powerful Entra roles and whether they are protected; also groups owned by guests and risky administrative unit admins.
 
 Too many or too few Global Administrators, guests, apps and disabled accounts in admin roles, permanent admin rights where PIM is used, admins with no MFA, admin accounts synced from on-premises Active Directory (high for Global Administrators, medium for other roles), too few working emergency access accounts.
+
+Two smaller parts run beside the role check. Each fails on its own (one scan-error finding) without losing the role findings:
+
+- **Guest owners** (`guest-owner`, `guest-owner-role-group`): every Entra group with a guest among its owners, so someone outside the organisation decides who is in it. A warning, critical when the group is role-assignable (it can hold Entra admin roles); the detail says when no member of the organisation owns the group. Runs with the default permissions (`GroupMember.Read.All`, `User.Read.All`). Owners of groups synced from on-premises and of distribution or mail-enabled security groups made in Exchange are not in Graph and are not seen. A check for privileged groups and roles with no access review was left out: review scopes are free-form queries in several shapes, so it could not be told reliably without many false findings.
+- **Administrative units** (`au-scoped-admin-guest`, `au-scoped-admin-disabled`, `au-restricted-empty`): the extra Graph check `admin-units` (Settings, Extra Graph checks; Graph permission `AdministrativeUnit.Read.All`). Only findings that show risk: a guest with an admin role scoped to an administrative unit (critical), a disabled account that still holds one (warning), a restricted management administrative unit with no members (information). Plain units, their sizes and dynamic rules are not reported: they carry no risk on their own and would only be noise. Scoped admins that are groups or apps are left to the role check.
+
+Replaces the Guest owners and Administrative units scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Entra tenant settings
 
@@ -292,41 +289,18 @@ Everyone who can activate a role, and PIM settings and assignments that are too 
 
 A PIM review: everyone who can activate an Entra or Azure role, directly or through a group (a group eligible for a role, or PIM for Groups membership of a group that holds one), with a CSV; the groups that give PIM access. Findings: PIM settings of privileged roles (activation without MFA, reason or approval, too long, permanent assignment allowed), guests and disabled accounts with PIM access, access that never ends, runs out soon or is never used, groups that are not role-assignable or have permanent members, permanent Azure Owners where PIM is used (needs Entra ID P2).
 
-## Stale accounts
+## Accounts
 
-Members and guests who have not signed in for a long time, or never.
+One finding per user account: unused, never signed in, invitation never accepted, no or weak MFA; also legacy sign-ins and risky users.
 
-Members and guests with no sign-in for 90 days, accounts that never signed in, guest invitations never accepted (needs Entra ID P1).
+The state of every enabled user account, one finding per account. Members and guests with no sign-in for 90 days (`STALE_ACCOUNT_DAYS`, `STALE_GUEST_DAYS`), accounts that never signed in, guest invitations never accepted; members in use with no MFA method registered, or only a phone call or text message (accounts newer than `MFA_NEW_USER_DAYS` days are left alone). An account nobody uses is one stale finding, and its detail says when it has no MFA either; MFA is judged only for accounts with a sign-in inside the stale window, since an account that never signed in has not registered a method yet. So the unused and no-MFA findings never list the same account twice. Admins' MFA is checked by Privileged roles, guests' MFA by their own organisation. Sign-in activity and the authentication methods report need Entra ID P1; without it the scan fails and keeps its last results.
 
-## MFA coverage
+Two smaller parts run beside the account check. Each fails on its own (one scan-error finding) without losing the account findings:
 
-Enabled members with no MFA method, or only phone and SMS.
+- **Legacy sign-ins** (`legacy-signin-used`): successful sign-ins in the last 7 days with legacy (basic authentication) clients: IMAP, POP, SMTP AUTH, Exchange ActiveSync, older Outlook protocols and "Other clients". One finding per user and client, with the count and the last time. Graph's sign-in list holds the interactive sign-ins, so legacy sign-ins Entra files as non-interactive are not seen and the counts are a floor; the client app field only takes an equals filter, so each client type is its own query, at most 3,000 sign-ins each (two at a time, since Entra allows five report requests per 10 seconds per tenant). Needs Entra ID P1 or P2 to read sign-in logs; without it the part notes that in the log and reports nothing.
+- **Risky users** (`risky-user-compromised`, `risky-user-high`, `risky-user-medium`): the extra Graph check `risky-users` (Settings, Extra Graph checks; Graph permission `IdentityRiskyUser.Read.All`, Microsoft Entra ID P2). Users confirmed compromised and users at risk with a high risk level are critical, medium risk is a warning; remediated, dismissed, confirmed-safe, low-risk and deleted users are left out. Worst and longest left alone first, at most 50 findings (`RISKY_USERS_MAX`; the log says when more were found). Without P2 the part writes an info line in the log and reports nothing.
 
-Enabled members with no MFA method registered, and accounts that can only use phone or SMS (needs Entra ID P1).
-
-## Legacy sign-ins
-
-Successful sign-ins with legacy clients that cannot do MFA.
-
-Successful sign-ins in the last 7 days with legacy (basic authentication) clients: IMAP, POP, SMTP AUTH, Exchange ActiveSync, older Outlook protocols and "Other clients". One finding per user and client, with the count and the last time. Graph's sign-in list holds the interactive sign-ins, so legacy sign-ins Entra files as non-interactive are not seen and the counts are a floor; the client app field only takes an equals filter, so each client type is its own query, at most 3,000 sign-ins each (two at a time, since Entra allows five report requests per 10 seconds per tenant). Needs Entra ID P1 or P2 to read sign-in logs; without it the scan notes that in the log and reports nothing.
-
-## Guest owners
-
-Groups that a guest owns, so someone outside the organisation decides who is in them.
-
-Every Entra group with a guest among its owners: a warning, critical when the group is role-assignable (it can hold Entra admin roles). The detail says when no member of the organisation owns the group. Runs with the default permissions (`GroupMember.Read.All`, `User.Read.All`). Owners of groups synced from on-premises and of distribution or mail-enabled security groups made in Exchange are not in Graph and are not seen. A check for privileged groups and roles with no access review was left out: review scopes are free-form queries in several shapes, so it could not be told reliably without many false findings.
-
-## Risky users
-
-Users Entra ID Protection marks as compromised or at high or medium risk, not yet dealt with.
-
-Off until the tenant turns it on (Settings, Extra Graph checks: `risky-users`); needs the Graph permission `IdentityRiskyUser.Read.All` and Microsoft Entra ID P2. Users confirmed compromised and users at risk with a high risk level are critical, medium risk is a warning; remediated, dismissed, confirmed-safe, low-risk and deleted users are left out. Worst and longest left alone first, at most 50 findings (`RISKY_USERS_MAX`; the log says when more were found). Without P2 the scan writes an info line in the log and reports nothing.
-
-## Administrative units
-
-Guests or disabled accounts holding admin roles over an administrative unit, and restricted units that protect nothing.
-
-Off until the tenant turns it on (Settings, Extra Graph checks: `admin-units`); needs the Graph permission `AdministrativeUnit.Read.All`. Only findings that show risk: a guest with an admin role scoped to an administrative unit (critical), a disabled account that still holds one (warning), a restricted management administrative unit with no members (information). Plain units, their sizes and dynamic rules are not reported: they carry no risk on their own and would only be noise. Scoped admins that are groups or apps are left to Privileged roles.
+Replaces the Stale accounts, MFA coverage, Legacy sign-ins and Risky users scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Directory sync
 
@@ -352,18 +326,24 @@ Apps with Graph permissions that could take over the tenant, and risky consents.
 
 Apps with Graph permissions that could take over the tenant or read everyone's data, apps registered here as multi-tenant that hold such a permission, risky delegated consents, users allowed to consent to any app.
 
-## Enterprise apps
+## Applications
 
-Enterprise apps with SAML certificates or service principal secrets that expire, open sign-in, no owner or no use.
+App registrations and enterprise apps: credentials that expire soon or are risky, SAML certificates, open sign-in, no owner or no use.
 
-Reads the service principals (enterprise apps), leaving out Microsoft's own apps and managed identities:
+App registrations: secrets and certificates that expire soon (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default); apps with no owner, with only client secrets, or with secrets valid longer than the set maximum (`APP_SECRET_MAX_DAYS`, 365 days by default); federated credentials whose subject has a wildcard or accepts any GitHub pull request (the first 300 apps are checked); redirect URIs on plain `http://` (other than localhost) or with a wildcard.
 
-- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the warning window of Expiring app credentials (`SECRET_EXPIRY_WARN_DAYS`, 30 days by default). Older, inactive certificates are left alone.
-- **Credentials on the service principal itself**, which Expiring app credentials does not see (it reads app registrations): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
+Enterprise apps (service principals), leaving out Microsoft's own apps and managed identities:
+
+- **SAML signing certificate** of apps with SAML single sign-on: the active one (the Sign key matching the app's preferred signing thumbprint) expired or expires within 14 days (critical) or within the same warning window (`SECRET_EXPIRY_WARN_DAYS`). Older, inactive certificates are left alone.
+- **Credentials on the service principal itself**, which the portal's Certificates & secrets page does not show (it lists the app registration's): secrets and certificates that expired or expire, banded the same way, and live client secrets on this tenant's own apps (low).
 - **Anyone can sign in**: SAML apps, and other companies' OpenID Connect apps, with single sign-on set up and "Assignment required" off, so every account in the tenant can sign in (low).
 - **No owner**: enabled apps from this tenant with no owner on the enterprise app (low).
 - **Unused**: other companies' apps with no sign-in for 90 days (`ENTERPRISE_APP_UNUSED_DAYS`), from the sign-in activity report (Graph beta, `AuditLog.Read.All`; skipped with a log line when it cannot be read) (low).
 - **Disabled apps with Azure roles**: disabled service principals that still hold Azure role assignments, from Resource Graph (needs Reader; skipped with a log line otherwise).
+
+The three parts (expiring credentials, app registration hygiene, enterprise apps) each fail on their own as one scan-error finding.
+
+Replaces the Expiring app credentials and Enterprise apps scans (0.72.0.0). Finding kinds and ids are unchanged, so accepted findings and ages carry over.
 
 ## Licence coverage
 

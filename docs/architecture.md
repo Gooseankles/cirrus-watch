@@ -109,7 +109,7 @@ older versions count as `<Area>.Read`.
 
 ## 5. A scan run
 
-Each scan tool has a cron schedule (for example MFA coverage daily at 05:50), and anyone who may see a scan can press **Run now**. One
+Each scan tool has a cron schedule (for example Accounts daily at 05:30), and anyone who may see a scan can press **Run now**. One
 run covers the home tenant and every enabled customer tenant, one after another.
 
 ![A scan run](diagrams/arch-scan-run.png)
@@ -165,7 +165,7 @@ reached only with Entra tokens. Three optional layers:
 With `vnet_route_all = true` all outbound traffic goes through the VNet, so that VNet needs a NAT gateway or a
 firewall to reach Docker Hub, ARM, Graph and `api.loganalytics.azure.com` (the Azure Monitor scan's heartbeat
 query). Four scans also fetch public data once a day (no tenant data is sent).
-The End of support scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
+The End of life scan fetches dates from `endoflife.date`; if it is blocked, the scan uses its last copy or the
 built-in dates. The Vulnerabilities (CVEs) scan fetches CISA's Known Exploited Vulnerabilities list from
 `www.cisa.gov` and EPSS scores from `api.first.org` (only CVE ids are sent); if they are blocked, the scan uses its
 last kept copy, otherwise it ranks by Defender's severity only. `CVE_FEEDS = off` makes neither call. The Azure
@@ -217,12 +217,19 @@ No build step: the server is plain Node.js (CommonJS), the front end is plain Ja
 
 | Kind | Exports | Registered with | Routes |
 |---|---|---|---|
-| Scan | `{ id, label, schedule, run() }`, `run()` returns findings; optional `deadlineMinutes` | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
+| Scan | `{ id, label, schedule, run() }`, `run()` returns findings; optional `deadlineMinutes`, `replaces` | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
 | Action | `{ id, label, registerRoutes(app) }` | `registerActionTool` | its own (Access lookup) |
 
 A finding is a plain object: `kind` (drives label, severity and compliance tags), `id` (stable across runs, used to
 diff), `name`, `detail`, and where it applies `subscriptionId`, `resourceGroup`, `principalId`. The store adds
 `firstSeen`, and `tenant` for customer findings.
+
+A scan that took over older scans lists their ids in `replaces`. The first time its id is used in a tenant (a scan, a
+page, a report) the store adopts the old data under the new id: the old latest results become one latest result
+(`firstSeen` kept, so the first run reports only real changes), the old per-run indexes become one trend, snapshots
+are written for the newest 60 run times (older runs stay in the trend but cannot be opened) and accepted findings
+carry over. Finding kinds and ids stay the same across a merge. The old files are left in place; a replaced id
+cannot be registered as a tool again.
 
 Each tenant's `run()` has a deadline: `deadlineMinutes` when the tool sets it, else `SCAN_DEADLINE_MINUTES` (45).
 Past it the registry stops waiting, records "scan timed out" for that tenant and frees it for the next run. ARM,

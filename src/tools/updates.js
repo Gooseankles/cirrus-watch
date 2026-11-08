@@ -7,7 +7,7 @@
 // Update Manager keeps assessments in Resource Graph for 7 days and
 // installations for 30, so a machine with no assessment row was not assessed
 // in the last 7 days (or never). Legacy agents, disconnected Arc servers and
-// operating systems out of support are left to Azure Monitor and End of support.
+// operating systems out of support are left to Azure Monitor and End of life.
 const { resourceGraphQuery } = require("../armClient");
 const { numberSetting, runChecks, scanError } = require("./util");
 

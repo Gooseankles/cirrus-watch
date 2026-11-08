@@ -112,11 +112,24 @@ function whoIs(req) {
   return u.upn || u.name || "unknown";
 }
 
+// Scan ids that a newer scan replaced (tool.replaces), by old id. A replaced
+// id must not be registered as well: both would read the same stored data.
+const replacedBy = new Map();
+
 // Mounts the generic routes a "scan" tool needs, and wires its optional
 // nightly cron schedule. A scan tool exports { id, label, schedule?, run() }
 // where run() returns an array of plain-object findings. The scan runs once
 // per tenant (home plus each customer tenant); customer findings get `tenant`.
+// A scan that took over older scans lists their ids in `replaces`: their
+// stored results, history and accepted findings are adopted the first time
+// the new id is used in a tenant (findingsStore.adopt, suppressions.adopt).
 function registerScanTool(app, tool) {
+  if (replacedBy.has(tool.id)) throw new Error(`tool ${tool.id} was replaced by ${replacedBy.get(tool.id)} and cannot be registered too`);
+  for (const old of tool.replaces || []) {
+    if (executors.has(old)) throw new Error(`tool ${tool.id} replaces ${old}, which is registered too`);
+    replacedBy.set(old, tool.id);
+  }
+  if (tool.replaces) findingsStore.registerReplaces(tool.id, tool.replaces);
   // only: tenant keys to scan (null = every enabled tenant). A tenant already
   // being scanned (Run now during the nightly run, or a double click) is
   // skipped, so two runs never race over the same results.

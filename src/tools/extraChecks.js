@@ -14,8 +14,10 @@ const settings = require("../settings");
 const log = require("../log");
 const { scanError, graphHint } = require("./util");
 
-// Tool id -> the application permissions it needs on top of the default set.
-// Keep in step with the module's local.extra_graph_permissions (entra.tf).
+// Check id -> the application permissions it needs on top of the default set.
+// Keep in step with the module's local.extra_graph_permissions (entra.tf). The
+// ids are what people put in EXTRA_GRAPH_CHECKS, so they stay when the scan
+// that runs the check is renamed (risky-users is a part of the Accounts scan).
 const EXTRA_CHECKS = {
   "risky-users": ["IdentityRiskyUser.Read.All"],
   "secure-score": ["SecurityEvents.Read.All"],
@@ -37,11 +39,14 @@ const noPremium = (err) => /RequestFromNonPremiumTenant|NonPremium|premium licen
 const refused = (err) => /\(403\)|Authorization_RequestDenied|Forbidden/i.test(String(err && err.message));
 
 // The finding (and one log line) for a check whose permission is missing.
-function permissionMissing(toolId, label, err) {
-  const permission = EXTRA_CHECKS[toolId].join(" and ");
+// checkId is the id above; toolId the scan that reports it, when the check is a
+// part of a wider scan (the risky-users part of Accounts).
+function permissionMissing(checkId, label, err, toolId = checkId) {
+  const permission = EXTRA_CHECKS[checkId].join(" and ");
   const hint = graphHint(err, permission);
   log.record({ tool: toolId, level: "warn", message: `${label} not checked: ${hint}` });
-  return [scanError(toolId, "permission", `${label} not checked: Graph permission ${permission} missing`, `${hint}. Grant it (Terraform: add "${toolId}" to extra_graph_checks; a customer tenant: add it to the app registration there and grant admin consent), or turn it off in Settings → Extra Graph checks (list only the checks you want, or none)`)];
+  const key = toolId === checkId ? "permission" : `${checkId}-permission`;
+  return [scanError(toolId, key, `${label} not checked: Graph permission ${permission} missing`, `${hint}. Grant it (Terraform: add "${checkId}" to extra_graph_checks; a customer tenant: add it to the app registration there and grant admin consent), or turn it off in Settings → Extra Graph checks (list only the checks you want, or none)`)];
 }
 
 module.exports = { EXTRA_CHECKS, enabledChecks, isOn, noPremium, refused, permissionMissing };

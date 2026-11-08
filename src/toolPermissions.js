@@ -8,7 +8,6 @@ const NEEDS = {
   "tag-compliance": { azure: READER },
   "cost-anomaly": { azure: ["Cost Management Reader"] },
   "access-review": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All"] },
-  "secret-expiry": { graph: ["Application.Read.All"] },
   // Key Vault Reader only with the item check on (Settings, Key Vault).
   get "key-vault"() {
     const on = !/^(off|no|false|0)$/i.test(String(require("./settings").get("KEYVAULT_ITEM_CHECK") || "").trim());
@@ -19,8 +18,7 @@ const NEEDS = {
   "role-assignments": { azure: READER, graph: ["User.Read.All", "GroupMember.Read.All", "Application.Read.All"] },
   "policy-check": { azure: READER },
   "internet-exposure": { azure: READER },
-  "end-of-support": { azure: READER },
-  "service-retirements": { azure: READER },
+  "end-of-life": { azure: READER },
   // Microsoft's public release feeds: no Azure role and no Graph permission. Azure news marks "in use" from
   // the resource list the Architecture scan saved (that scan needs Reader), not from requests of its own.
   "azure-updates": { none: true, note: "No permission: Microsoft's public Azure Updates feed; in use comes from the Architecture scan's saved resource list" },
@@ -36,29 +34,30 @@ const NEEDS = {
   architecture: { azure: READER, graph: ["Application.Read.All"] },
   "firewall-policies": { azure: READER },
   "change-log": { azure: READER },
+  // The administrative units part is an extra Graph check (src/tools/extraChecks.js, id admin-units).
   "privileged-roles": {
-    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All", "Policy.Read.All"],
-    licence: "Entra ID P1 for the MFA and emergency access checks, P2 for PIM",
+    graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "Application.Read.All", "AuditLog.Read.All", "Policy.Read.All",
+      "AdministrativeUnit.Read.All (the administrative units part, an extra Graph check)"],
+    licence: "Entra ID P1 for the MFA and emergency access checks and for admins scoped to administrative units, P2 for PIM",
   },
   pim: {
     azure: READER,
     graph: ["RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All", "PrivilegedEligibilitySchedule.Read.AzureADGroup", "PrivilegedAssignmentSchedule.Read.AzureADGroup"],
     licence: "Entra ID P2",
   },
-  "stale-accounts": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (sign-in activity)" },
-  "mfa-coverage": { graph: ["User.Read.All", "AuditLog.Read.All"], licence: "Entra ID P1 (authentication methods report)" },
-  "legacy-sign-ins": { graph: ["AuditLog.Read.All"], licence: "Entra ID P1 (sign-in logs)" },
-  "guest-owners": { graph: ["GroupMember.Read.All", "User.Read.All"] },
+  // The risky users part is an extra Graph check (src/tools/extraChecks.js, id risky-users).
+  accounts: {
+    graph: ["User.Read.All", "AuditLog.Read.All", "IdentityRiskyUser.Read.All (the risky users part, an extra Graph check)"],
+    licence: "Entra ID P1 (sign-in activity, authentication methods report, sign-in log); P2 for the risky users part",
+  },
   // Extra Graph checks (on by default; Settings can turn them off): extra permissions, see src/tools/extraChecks.js.
-  "risky-users": { graph: ["IdentityRiskyUser.Read.All"], licence: "Entra ID P2" },
-  "admin-units": { graph: ["AdministrativeUnit.Read.All", "RoleManagement.Read.Directory", "User.Read.All"] },
   "directory-sync": { graph: ["Organization.Read.All"] },
   "secure-score": { graph: ["SecurityEvents.Read.All"] },
   // RoleManagement.Read.Directory, User.Read.All and GroupMember.Read.All: admins excluded from policies.
   "conditional-access": { graph: ["Policy.Read.All", "RoleManagement.Read.Directory", "User.Read.All", "GroupMember.Read.All"], licence: "Entra ID P1" },
   "app-permissions": { graph: ["Application.Read.All", "DelegatedPermissionGrant.Read.All", "Policy.Read.All"] },
   // AuditLog.Read.All and Reader are optional: without them the unused-app and disabled-app checks are skipped.
-  "enterprise-apps": { graph: ["Application.Read.All", "AuditLog.Read.All"], azure: ["Reader (optional: Azure roles held by disabled apps)"] },
+  "applications": { graph: ["Application.Read.All", "AuditLog.Read.All (optional: last sign-in of other companies' enterprise apps)"], azure: ["Reader (optional: Azure roles held by disabled apps)"] },
   "licence-coverage": {
     azure: READER,
     graph: [

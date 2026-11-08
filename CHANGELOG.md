@@ -11,6 +11,16 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.72.0.0: several scans were merged.** Each merged scan takes over the stored results, trends and accepted
+  findings of the scans it replaced the first time it runs or is opened in a tenant, so nothing is reported as new
+  just because the id changed. The newest 60 runs of the old scans can still be opened; older ones stay in the
+  trend only. Not carried over, set them again where used: a tenant's scan switch (Settings, Scans) for an old scan
+  id, and a per-tool identity override (`<TOOL_ID>_AZURE_CLIENT_ID` and friends) of an old id. The old files
+  (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
+  Merged: Stale accounts, MFA coverage, Legacy sign-ins and Risky users → Accounts (`accounts`); Guest owners and
+  Administrative units → Privileged roles (`privileged-roles`); End of support and Service retirements → End of life
+  (`end-of-life`); Expiring app credentials and Enterprise apps → Applications (`applications`).
+
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
   reachable from the dashboard" and nothing is reported. The first scan may bring new findings from listeners that
@@ -63,6 +73,42 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.72.0.0] - 2026-11-08
+
+### Changed
+
+- A scan can replace older scans (`replaces` in its module): the store adopts the old scans' latest results,
+  per-run history (the newest 60 runs as openable snapshots) and accepted findings under the new id the first
+  time it is used in a tenant, keeping each finding's age, so the first run of the merged scan reports only real
+  changes. See Upgrading.
+- Stale accounts, MFA coverage, Legacy sign-ins and Risky users are one scan, **Accounts** (`accounts`, daily at
+  05:30), with one finding per account. Before, an account nobody used was listed twice: as stale and as having no
+  MFA (a tenant with 11,000 unused accounts also showed 11,000 accounts without MFA). Now an unused account is one
+  stale finding whose detail says when it also has no MFA, and MFA is judged only for accounts in use (a sign-in
+  inside the stale window; an account that never signed in has not registered a method yet). Expect the open count
+  to drop by about the number of unused accounts that had no MFA. Finding kinds and ids are unchanged, so accepted
+  findings carry over. The legacy sign-ins and risky users parts fail on their own (one scan-error finding each)
+  without losing the account findings; the extra Graph check keeps its id `risky-users`. Settings: the stale and MFA
+  fields are in one Accounts group; the Test lists the risky users permission as a part of Accounts.
+- Guest owners and Administrative units are parts of **Privileged roles** (`privileged-roles`, daily at 05:00): groups
+  owned by guests and the risky parts of administrative units are judged in the same scan as the admin roles, and
+  each part fails on its own (one scan-error finding) without losing the role findings. Finding kinds and ids are
+  unchanged, so accepted findings carry over; the extra Graph check keeps its id `admin-units`, and the Test lists
+  `AdministrativeUnit.Read.All` as a part of Privileged roles.
+- End of support and Service retirements are one scan, **End of life** (`end-of-life`, weekly on Monday at 06:00):
+  software past or near end of support and Azure features being retired, in one place under Upcoming. The
+  retirement check is a fifth part beside AKS versions, App Service runtimes, TLS settings and VM operating
+  systems, each failing on its own; it ran daily before and now runs weekly with the rest (Advisor's retirement
+  dates are months ahead). Finding kinds and ids are unchanged, so accepted findings carry over. Settings: the three
+  fields (`EOS_LIVE_DATES`, `EOS_WARN_DAYS`, `RETIREMENT_WARN_DAYS`) are in one End of life group.
+- Expiring app credentials and Enterprise apps are one scan, **Applications** (`applications`, daily at 05:20, under
+  Identity): app registrations (expiring secrets and certificates, no owner, secret-only sign-in, long-lived secrets,
+  broad federated credential subjects, insecure redirect URIs) and enterprise apps (SAML signing certificates,
+  credentials on the service principal, open sign-in, no owner, unused third-party apps, disabled apps with Azure
+  roles) in one place; the two shared the warning window already. Three parts, each failing on its own. Finding kinds
+  and ids are unchanged, so accepted findings carry over. Settings: `SECRET_EXPIRY_WARN_DAYS`, `APP_SECRET_MAX_DAYS`
+  and `ENTERPRISE_APP_UNUSED_DAYS` are in one Applications group.
 
 ## [0.71.5.0] - 2026-11-06
 

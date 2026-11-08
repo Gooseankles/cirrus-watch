@@ -10,9 +10,38 @@ const HOME = findingsStore.HOME;
 const docKey = (toolId) => `suppressions/${toolId}.json`;
 const isActive = (s, now = Date.now()) => Boolean(s) && (!s.until || Date.parse(s.until) > now);
 
-async function load(toolId, tenantKey) {
-  const doc = await findingsStore.getDoc(docKey(toolId), tenantKey || HOME).catch(() => null);
+async function readDoc(toolId, k) {
+  const doc = await findingsStore.getDoc(docKey(toolId), k).catch(() => null);
   return doc && typeof doc === "object" && !Array.isArray(doc) ? doc : {};
+}
+
+// A scan that replaced older scans (findingsStore.replacesOf) takes over what
+// was accepted or snoozed under the old ids: the first time its own document
+// is missing in a tenant, the old documents are read into one. Finding keys
+// stay the same across a merge, so the entries still match. Once per tenant
+// and process; the old documents are left in place.
+const adopted = new Set();
+async function adopt(toolId, k) {
+  const olds = findingsStore.replacesOf(toolId);
+  if (!olds.length) return;
+  const id = `${toolId}|${k}`;
+  if (adopted.has(id)) return;
+  await withLock(id, async () => {
+    if (adopted.has(id)) return;
+    const own = await findingsStore.getDoc(docKey(toolId), k);
+    if (!own) {
+      const doc = {};
+      for (const old of olds) Object.assign(doc, await readDoc(old, k));
+      if (Object.keys(doc).length) await findingsStore.putDoc(docKey(toolId), prune(doc), k);
+    }
+    adopted.add(id);
+  });
+}
+
+async function load(toolId, tenantKey) {
+  const k = tenantKey || HOME;
+  await adopt(toolId, k).catch(() => {});
+  return readDoc(toolId, k);
 }
 
 // Adds `key` to every finding and `accepted` to those with an active entry.
@@ -58,8 +87,9 @@ function prune(doc) {
 
 async function set(toolId, tenantKey, key, entry) {
   const k = tenantKey || HOME;
+  await adopt(toolId, k);
   return withLock(`${toolId}|${k}`, async () => {
-    const doc = prune(await load(toolId, k));
+    const doc = prune(await readDoc(toolId, k));
     doc[key] = entry;
     await findingsStore.putDoc(docKey(toolId), doc, k);
   });
@@ -67,8 +97,9 @@ async function set(toolId, tenantKey, key, entry) {
 
 async function remove(toolId, tenantKey, key) {
   const k = tenantKey || HOME;
+  await adopt(toolId, k);
   return withLock(`${toolId}|${k}`, async () => {
-    const doc = prune(await load(toolId, k));
+    const doc = prune(await readDoc(toolId, k));
     const had = doc[key] || null;
     delete doc[key];
     await findingsStore.putDoc(docKey(toolId), doc, k);

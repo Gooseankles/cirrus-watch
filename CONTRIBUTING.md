@@ -33,6 +33,12 @@ findings. An on-demand tool exports `{ id, label, registerRoutes(app) }` instead
 5. Run `npm run docs`. It writes the README tools table, the tool count and the tool ids in `.env.example`, and
    fails when the tool is missing from any of the lists above.
 
+When a new scan takes over older ones, keep the old finding kinds and ids, export `replaces: ["<old id>", ...]`
+and remove the old tools from every list above. Stored results, trends and accepted findings move to the new id by
+themselves the first time it is used in a tenant (see [architecture](docs/architecture.md#tool-contract)). Say in
+the changelog's Upgrading section that per-tenant scan switches and per-tool identity overrides of the old ids must
+be set again.
+
 ## What a change brings with it
 
 **Every change is documented in the same commit**: anything added, changed or removed, however small. If it changes

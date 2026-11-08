@@ -217,12 +217,19 @@ No build step: the server is plain Node.js (CommonJS), the front end is plain Ja
 
 | Kind | Exports | Registered with | Routes |
 |---|---|---|---|
-| Scan | `{ id, label, schedule, run() }`, `run()` returns findings; optional `deadlineMinutes` | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
+| Scan | `{ id, label, schedule, run() }`, `run()` returns findings; optional `deadlineMinutes`, `replaces` | `registerScanTool` | `POST /api/tools/<id>/run`, `/accept`, `/unaccept`; `GET /findings`, `/history`, `/history/<ranAt>` |
 | Action | `{ id, label, registerRoutes(app) }` | `registerActionTool` | its own (Access lookup) |
 
 A finding is a plain object: `kind` (drives label, severity and compliance tags), `id` (stable across runs, used to
 diff), `name`, `detail`, and where it applies `subscriptionId`, `resourceGroup`, `principalId`. The store adds
 `firstSeen`, and `tenant` for customer findings.
+
+A scan that took over older scans lists their ids in `replaces`. The first time its id is used in a tenant (a scan, a
+page, a report) the store adopts the old data under the new id: the old latest results become one latest result
+(`firstSeen` kept, so the first run reports only real changes), the old per-run indexes become one trend, snapshots
+are written for the newest 60 run times (older runs stay in the trend but cannot be opened) and accepted findings
+carry over. Finding kinds and ids stay the same across a merge. The old files are left in place; a replaced id
+cannot be registered as a tool again.
 
 Each tenant's `run()` has a deadline: `deadlineMinutes` when the tool sets it, else `SCAN_DEADLINE_MINUTES` (45).
 Past it the registry stops waiting, records "scan timed out" for that tenant and frees it for the next run. ARM,

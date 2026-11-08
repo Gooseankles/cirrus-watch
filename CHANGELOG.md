@@ -11,6 +11,13 @@ Versions before 0.47 are only in the git history.
 
 Steps needed when moving past a version. Read this before you change the image tag or the module version.
 
+- **0.72.0.0: several scans were merged.** Each merged scan takes over the stored results, trends and accepted
+  findings of the scans it replaced the first time it runs or is opened in a tenant, so nothing is reported as new
+  just because the id changed. The newest 60 runs of the old scans can still be opened; older ones stay in the
+  trend only. Not carried over, set them again where used: a tenant's scan switch (Settings, Scans) for an old scan
+  id, and a per-tool identity override (`<TOOL_ID>_AZURE_CLIENT_ID` and friends) of an old id. The old files
+  (`findings/<old id>.json`, `history/<old id>/`, `suppressions/<old id>.json`) can be deleted after a few days.
+
 - **0.70.0.0: the Certificates scan opens TLS connections to application gateway private frontend IPs too.** It
   only gets an answer where the app's network reaches them (VNet integration, peering); elsewhere the row says "Not
   reachable from the dashboard" and nothing is reported. The first scan may bring new findings from listeners that
@@ -63,6 +70,15 @@ Steps needed when moving past a version. Read this before you change the image t
   the API with an `Origin` header must use the dashboard's own address there; without the header it still works.
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
+
+## [0.72.0.0] - 2026-11-08
+
+### Changed
+
+- A scan can replace older scans (`replaces` in its module): the store adopts the old scans' latest results,
+  per-run history (the newest 60 runs as openable snapshots) and accepted findings under the new id the first
+  time it is used in a tenant, keeping each finding's age, so the first run of the merged scan reports only real
+  changes. See Upgrading.
 
 ## [0.71.5.0] - 2026-11-06
 

@@ -74,6 +74,15 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.72.0.1] - 2026-11-12
+
+### Changed
+
+- Dependabot sends the CodeQL actions (`init`, `analyze`, `upload-sarif`) as one pull request. Updated one at a
+  time, `init` and `analyze` had different versions and the CodeQL check failed, so the update could not merge.
+- Workflow actions updated: `github/codeql-action` 4.39.3, `sigstore/cosign-installer` 4.1.3,
+  `docker/login-action` 4.8.0.
+
 ## [0.72.0.0] - 2026-11-08
 
 ### Changed

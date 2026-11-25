@@ -7,6 +7,7 @@ const tenants = require("../tenants");
 const tenantContext = require("../tenantContext");
 const access = require("../access");
 const log = require("../log");
+const { groupReport } = require("./groupReport");
 
 const TOOL_ID = "access-lookup";
 // The tenant of the lookup under way, for its log entries (the page shows a tenant's entries).
@@ -515,6 +516,20 @@ function registerRoutes(app) {
       }
     });
   }
+  // The group report (Conditional Access, apps, nested members and the rest): read after the group page shows, so the
+  // page stays fast. Each section fails on its own with a note; only an unknown group or tenant fails the call.
+  app.get("/api/tools/access-lookup/group/:id/report", async (req, res) => {
+    if (!GUID.test(req.params.id)) return res.status(400).json({ error: "not a group ID" });
+    const keys = access.readScope(req, "access-lookup");
+    const wanted = typeof req.query.in === "string" && req.query.in ? req.query.in.toLowerCase() : null;
+    const target = tenants.scanTargets().find((t) => (wanted ? t.key === wanted : true) && access.inScope(keys, t.key));
+    if (!target) return res.status(404).json({ error: "tenant not found" });
+    try {
+      res.json(await tenantContext.runIn(target, () => groupReport(req.params.id)));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   app.get("/api/tools/access-lookup/group/:id", async (req, res) => {
     if (!GUID.test(req.params.id)) return res.status(400).json({ error: "not a group ID" });
     // ?in= names the group's tenant (the page adds ?tenant= for the open tab

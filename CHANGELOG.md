@@ -74,6 +74,25 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.73.0.0] - 2026-11-25
+
+### Added
+
+- Access lookup: a **group report** on every group, read after the group page shows. A summary line (users reached and
+  the strongest roles given), Conditional Access policies that include or exclude the group or a group it sits in,
+  enterprise app assignments, all members through any depth with a tree of nested groups (loops marked), Key Vault
+  access policies, who controls the group (owners, guest owners, Entra roles on the group or its administrative
+  units), how people get in (dynamic rule, access packages, PIM for Groups, access reviews), group licences and
+  licence errors, Intune assignments, and the group's mail address, Team and SharePoint site.
+- Each part is read on its own. A missing permission or licence shows "Could not get this info" and what is needed
+  in that part only; the rest of the report still shows. New optional permissions (not granted by the Terraform
+  module): `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `AccessReview.Read.All`,
+  `Sites.Read.All`. See docs/permissions.md.
+
+### Changed
+
+- The group page's member table is now called **Direct members**.
+
 ## [0.72.1.0] - 2026-11-25
 
 ### Fixed

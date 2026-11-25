@@ -343,6 +343,50 @@ test("guest owners: a refusal names GroupMember.Read.All", async () => {
   await assert.rejects(guestOwners.run(), /GroupMember\.Read\.All/);
 });
 
+test("guest owners: a refused $expand reads the owners group by group", async () => {
+  answer = (m, url) => {
+    if (url.includes("$expand")) throw graphError(403, "Authorization_RequestDenied");
+    if (url.startsWith("/groups?")) return [{ id: "g1", displayName: "Sales" }, { id: "g2", displayName: "Admins", isAssignableToRole: true }, { id: "gone" }];
+    if (url === "/groups/gone/owners") throw graphError(404);
+    if (url.endsWith("/owners")) return [{ id: "u1" }];
+    if (m === "POST") return { value: [{ id: "u1", userType: "Guest" }] };
+    return [];
+  };
+  const out = await guestOwners.run();
+  assert.deepEqual(out.map((f) => f.id).sort(), ["guest-owners/g1/u1", "guest-owners/g2/u1"]);
+  const lookups = calls.filter((c) => c[0] === "POST");
+  assert.equal(lookups.length, 1, "one batched user lookup");
+  assert.deepEqual(lookups[0][2].ids, ["u1"]);
+});
+
+test("guest owners: group by group, a cap is reported and role-assignable groups come first", async () => {
+  const many = Array.from({ length: 2001 }, (_, i) => ({ id: `g${i}` }));
+  many.push({ id: "role", isAssignableToRole: true });
+  answer = (m, url) => {
+    if (url.includes("$expand")) throw graphError(403);
+    if (url.startsWith("/groups?")) return many;
+    return [];
+  };
+  const out = await guestOwners.run();
+  assert.deepEqual(out.map((f) => f.id), ["privileged-roles/scan-errors/owner-groups"]);
+  assert.match(out[0].name, /^2 of 2002 /);
+  assert.ok(calls.some((c) => c[1] === "/groups/role/owners"));
+});
+
+test("guest owners: group by group, every owner list refused fails the part", async () => {
+  answer = (m, url) => {
+    if (url.startsWith("/groups?") && !url.includes("$expand")) return [{ id: "g1" }];
+    throw graphError(403);
+  };
+  await assert.rejects(guestOwners.run(), /GroupMember\.Read\.All/);
+});
+
+test("guest owners: an error that only contains 403 in an id is not taken for a refusal", async () => {
+  answer = () => { throw graphError(500, "request 4a403f"); };
+  await assert.rejects(guestOwners.run(), /failed \(500\)/);
+  assert.equal(calls.length, 1, "no group by group reading");
+});
+
 test("privileged roles: the run carries the guest owners and administrative units parts; a failing part is one scan error", async () => {
   process.env.EXTRA_GRAPH_CHECKS = "admin-units";
   answer = (m, url) => {

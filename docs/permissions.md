@@ -66,7 +66,7 @@ tenant's value). While a permission is missing the scan reports one error entry 
 | `admin-units` | `AdministrativeUnit.Read.All` | Privileged roles, the administrative units part: the units and the members of restricted ones (scoped admins come through `RoleManagement.Read.Directory`) |
 | `directory-sync` | `Organization.Read.All` | Directory sync: whether the tenant syncs from on-premises and when it last did (with less, Graph returns the organization without those fields) |
 
-The guest owners part of Privileged roles needs no extra permission: listing groups with their owners works with `GroupMember.Read.All`.
+The guest owners part of Privileged roles needs no extra permission beyond `GroupMember.Read.All` and `User.Read.All`. If Graph refuses reading all groups with their owners in one call, it reads them group by group.
 
 All of these only read. Without P1 the Accounts scan and the admin MFA check report that the licence is missing (the
 legacy sign-ins part of Accounts only notes it in the log and reports nothing); the other checks still run.

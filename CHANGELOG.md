@@ -74,6 +74,21 @@ Steps needed when moving past a version. Read this before you change the image t
 - **0.53.4.0: the image is built on Node.js 26.** Running from source needs Node.js 22 or newer; 26 is what is
   tested.
 
+## [0.72.1.0] - 2026-11-25
+
+### Fixed
+
+- Privileged roles no longer fails a tenant when expanding a group that holds a role answers 404. The members are
+  read again without the user filter and only the users are kept; a group that answers 404 again was deleted after
+  the assignments were listed, so it counts as having no members instead of being an error.
+- Guest owners works when Graph refuses listing all groups with their owners in one call (403): the owners are then
+  read group by group, for at most 2000 groups with role-assignable ones first, and the page says how many were left
+  out. A group deleted during the scan is skipped.
+
+### Changed
+
+- Dependencies: `@azure/msal-node` 7.2.2, `axios` 1.21.1, `dotenv` 18.0.10.
+
 ## [0.72.0.0] - 2026-11-08
 
 ### Changed

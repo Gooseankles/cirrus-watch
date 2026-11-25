@@ -103,8 +103,22 @@ async function enrichUsers(assignments) {
 async function groupMembers(assignments) {
   const ids = [...new Set(assignments.filter((a) => a.principal && kindOf(a.principal) === "group").map((a) => a.principal.id))];
   const members = new Map();
+  const fields = "id,displayName,userPrincipalName,userType,accountEnabled,onPremisesSyncEnabled";
   const failures = await mapLimit(ids.slice(0, MAX_GROUPS), 4, async (id) => {
-    members.set(id, await graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=id,displayName,userPrincipalName,userType,accountEnabled,onPremisesSyncEnabled&$top=999`, TOOL_ID));
+    try {
+      members.set(id, await graphGetAll(`/groups/${id}/transitiveMembers/microsoft.graph.user?$select=${fields}&$top=999`, TOOL_ID));
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+      // The typed path answered 404. Read the members untyped and keep the users; a group that answers 404 again no
+      // longer exists (deleted since the assignments were listed), so it has no members to count and is not an error.
+      try {
+        const all = await graphGetAll(`/groups/${id}/transitiveMembers?$select=${fields}&$top=999`, TOOL_ID);
+        members.set(id, all.filter(isUser));
+      } catch (err2) {
+        if (!isNotFound(err2)) throw err2;
+        members.set(id, []);
+      }
+    }
   });
   const errors = failures.length ? itemErrors(TOOL_ID, "group-members", "privileged groups expanded", failures, Math.min(ids.length, MAX_GROUPS)) : [];
   for (const e of errors) e.detail = graphHint({ message: e.detail }, "GroupMember.Read.All");
@@ -302,10 +316,13 @@ async function mfaFindings(privilegedUsers) {
 const GUEST_OWNERS_ID = "guest-owners";
 const OWNER_FIELDS = "id,displayName,userPrincipalName,userType,accountEnabled";
 const EXPAND_LIMIT = 20;
+const MAX_OWNER_GROUPS = 2000; // groups whose owners are read one by one when Graph refuses the $expand
 
 // userType only: a guest converted to Member keeps #EXT# in the UPN but is no longer a guest.
 const isGuest = (o) => o && o.userType === "Guest";
 const isUser = (o) => !o["@odata.type"] || o["@odata.type"] === "#microsoft.graph.user";
+const isRefused = (err) => /\(403\)|Authorization_RequestDenied/.test(String((err && err.message) || err));
+const isNotFound = (err) => /\(404\)|Request_ResourceNotFound/.test(String((err && err.message) || err));
 
 // groups: [{ id, displayName, isAssignableToRole, owners: [...] }] -> findings. Pure.
 function guestOwnerFindings(groups) {
@@ -330,10 +347,12 @@ function guestOwnerFindings(groups) {
   return out;
 }
 
-// Every owner of a group with 20 or more in the expand: ids, then user details.
-async function allOwners(groupId) {
+async function ownerIds(groupId) {
   const owners = await graphGetAll(`/groups/${groupId}/owners`, TOOL_ID);
-  const ids = owners.filter(isUser).map((o) => o.id);
+  return owners.filter(isUser).map((o) => o.id);
+}
+
+async function usersById(ids) {
   const users = [];
   for (let i = 0; i < ids.length; i += 1000) {
     const page = await graphPost(`/directoryObjects/getByIds?$select=${OWNER_FIELDS}`, { ids: ids.slice(i, i + 1000), types: ["user"] }, TOOL_ID);
@@ -342,11 +361,45 @@ async function allOwners(groupId) {
   return users;
 }
 
+// Every owner of a group with 20 or more in the expand: ids, then user details.
+const allOwners = async (groupId) => usersById(await ownerIds(groupId));
+
+// The way round a refused $expand: the groups without it, then each group's owners, then the users behind all of them
+// in one batched lookup. Role-assignable groups go first, so the cap never leaves out the critical ones.
+async function ownersOneByOne() {
+  let groups;
+  try {
+    groups = await graphGetAll("/groups?$select=id,displayName,isAssignableToRole&$top=999", TOOL_ID);
+  } catch (err) {
+    throw new Error(graphHint(err, "GroupMember.Read.All"));
+  }
+  const checked = [...groups].sort((a, b) => Number(!!b.isAssignableToRole) - Number(!!a.isAssignableToRole)).slice(0, MAX_OWNER_GROUPS);
+  const owned = new Map(); // group id -> owner user ids
+  const failures = await mapLimit(checked, 4, async (g) => {
+    try {
+      owned.set(g.id, await ownerIds(g.id));
+    } catch (err) {
+      if (!isNotFound(err)) throw err; // deleted since the list was read: nothing to check
+    }
+  });
+  // Nothing could be read: fail the part, so earlier findings are not taken as fixed.
+  if (checked.length && failures.length === checked.length) throw new Error(graphHint(failures[0], "GroupMember.Read.All"));
+  const users = new Map((await usersById([...new Set([...owned.values()].flat())])).map((u) => [u.id, u]));
+  for (const g of checked) g.owners = (owned.get(g.id) || []).map((id) => users.get(id)).filter(Boolean);
+  const findings = [...guestOwnerFindings(checked), ...itemErrors(TOOL_ID, "owners", "groups' owner lists", failures, checked.length)];
+  if (groups.length > checked.length) {
+    findings.push(scanError(TOOL_ID, "owner-groups", `${groups.length - checked.length} of ${groups.length} groups' owners not checked`,
+      `Graph refused reading all groups with their owners in one call, so the owners are read group by group, for at most ${MAX_OWNER_GROUPS} groups (role-assignable ones first)`));
+  }
+  return findings;
+}
+
 async function guestOwnerRun() {
   let groups;
   try {
     groups = await graphGetAll(`/groups?$select=id,displayName,isAssignableToRole&$expand=owners($select=${OWNER_FIELDS})`, TOOL_ID);
   } catch (err) {
+    if (isRefused(err)) return ownersOneByOne();
     throw new Error(graphHint(err, "GroupMember.Read.All"));
   }
   const full = groups.filter((g) => (g.owners || []).length >= EXPAND_LIMIT);
@@ -477,6 +530,7 @@ module.exports = {
   _test: {
     judgeEmergencyAccess,
     judgeSynced,
+    groupMembers,
     guestOwners: { guestOwnerFindings, isGuest, run: guestOwnerRun },
     adminUnits: { auFindings, run: adminUnitRun },
   },

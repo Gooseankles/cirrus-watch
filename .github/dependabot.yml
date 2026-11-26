@@ -20,7 +20,12 @@ updates:
       - dependency-name: node
         update-types: [version-update:semver-major]
 
+  # The CodeQL actions (init, analyze, upload-sarif) come in one pull request:
+  # init and analyze must be the same version, or the CodeQL run fails.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      codeql-action:
+        patterns: ["github/codeql-action*"]

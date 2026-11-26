@@ -85,7 +85,8 @@ pages (the content security policy blocks them).
 ## How the repository stays up to date
 
 - **Dependabot** (`.github/dependabot.yml`) opens weekly pull requests for npm packages (minor and patch grouped),
-  the Node base image (not majors) and GitHub Actions. Each PR body has the release notes, and the image build with
+  the Node base image (not majors) and GitHub Actions (the CodeQL actions grouped, because `init` and `analyze`
+  must be the same version). Each PR body has the release notes, and the image build with
   the Trivy gate runs on it before it is merged. Patch updates (and a new digest for the same Node image) merge by
   themselves once the build passes (`.github/workflows/dependabot-merge.yml`); minor and major updates wait for a
   person.

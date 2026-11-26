@@ -78,7 +78,11 @@ const NEEDS = {
   avd: { azure: READER },
   "access-lookup": {
     azure: READER,
-    graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup"],
+    // The group report also reads Conditional Access, apps, access packages and licences with these defaults; its
+    // optional parts (Intune, access reviews, the group's site, administrative units) say so when refused.
+    graph: ["User.Read.All", "GroupMember.Read.All", "RoleManagement.Read.Directory", "PrivilegedEligibilitySchedule.Read.AzureADGroup",
+      "Policy.Read.All (group report: Conditional Access)", "Application.Read.All (group report: apps)",
+      "EntitlementManagement.Read.All (group report: access packages)", "LicenseAssignment.Read.All (group report: licence names)"],
     licence: "Entra ID P2 to see who can activate roles with PIM (eligible Azure roles come from the PIM scan)",
   },
 };

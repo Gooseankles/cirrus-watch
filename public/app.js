@@ -1303,6 +1303,7 @@ async function openGroup(g) {
     setStatus(status, "");
     $("#lookup-result").innerHTML = groupHtml(r);
     window.scrollTo(0, 0);
+    loadGroupReport(g, r, seq);
   } catch (err) {
     if (seq === lookupState.seq) setStatus(status, err.message, "error");
   }
@@ -1472,11 +1473,13 @@ function groupHtml(r) {
       ${accessStats(r)}
       ${statTile({ label: "Members", value: `${fmt.int(members.length)}${r.moreMembers ? "+" : ""}`, delta: groupMembers ? `${fmt.int(groupMembers)} of them groups` : "direct members" })}
     </div>
+    <div id="group-summary"></div>
     ${azureRolesCard(r, "this group", "This group gives no Azure roles, directly or through the groups it sits in.")}
     ${entraRolesCard(r, "this group", "This group gives no Entra ID roles.")}
     ${membershipsCard(Array.isArray(r.groups) ? r.groups : [], "Member of", "This group is not inside any other group.", r.groupNotes)}
+    <div id="group-report"><div class="status-msg">Reading Conditional Access, apps, nested members, owners, licences and Intune…</div></div>
     <div class="card">
-      <div class="card-head"><h2>Members</h2><span class="meta">${fmt.int(members.length)}${r.moreMembers ? " (first 500)" : ""} · direct members; the members of a group listed here get the same roles</span></div>
+      <div class="card-head"><h2>Direct members</h2><span class="meta">${fmt.int(members.length)}${r.moreMembers ? " (first 500)" : ""} · direct members; the members of a group listed here get the same roles</span></div>
       ${
         members.length
           ? tableHtml(
@@ -1486,6 +1489,189 @@ function groupHtml(r) {
           : `<div class="empty-state">No members.</div>`
       }
     </div>`;
+}
+
+/* ---------- group report (read after the group page shows) ---------- */
+// Each section either has its data or a note saying why it could not be read; one missing permission never hides
+// the others.
+const yesNo = (v, good) => (v ? `<span class="tag ${good ? "good" : "bad"}">yes</span>` : '<span class="text-2">no</span>');
+const noteOf = (sec) => (sec && sec.note) || "Could not get this info.";
+function reportCard(title, meta, sec, body) {
+  const inner = !sec || !sec.ok ? `<div class="status-msg">${esc(noteOf(sec))}</div>` : `${notesHtml(sec.notes)}${body(sec)}`;
+  return `<div class="card"><div class="card-head"><h2>${esc(title)}</h2>${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</div>${inner}</div>`;
+}
+const viaText = (v) => (v === "This group" ? '<span class="text-2">this group</span>' : `<span class="text-2">${esc(v)}</span> <span class="tag">parent group</span>`);
+const listOrEmpty = (rows, empty, render) => (rows && rows.length ? render(rows) : `<div class="empty-state">${esc(empty)}</div>`);
+const effectTag = (e) => (e === "excluded" ? '<span class="tag bad">excluded</span>' : '<span class="tag">included</span>');
+
+// One line on top: how many people the group reaches and the strongest things it gives them.
+function groupSummaryHtml(r, rep) {
+  const m = rep.members && rep.members.ok ? rep.members : null;
+  const assignments = Array.isArray(r.assignments) ? r.assignments : [];
+  const strong = assignments.filter((a) => /^(Owner|User Access Administrator|Role Based Access Control Administrator)$/.test(a.role)).length;
+  const contrib = assignments.filter((a) => a.role === "Contributor").length;
+  const entra = Array.isArray(r.entraRoles) ? r.entraRoles.length : 0;
+  const ca = rep.conditionalAccess && rep.conditionalAccess.ok ? rep.conditionalAccess.policies.filter((p) => p.effect === "excluded" && p.state !== "disabled").length : 0;
+  const own = rep.owners && rep.owners.ok ? rep.owners : null;
+  const reach = m ? `${fmt.int(m.counts.users)}${m.truncated ? "+" : ""} users (${fmt.int(m.counts.guests)} guests)` : "";
+  const gives = [
+    strong ? `${strong} Owner or access-admin role(s) in Azure` : "",
+    contrib ? `${contrib} Contributor role(s)` : "",
+    entra ? `${entra} Entra role(s)` : "",
+    ca ? `excluded from ${ca} Conditional Access polic${ca === 1 ? "y" : "ies"}` : "",
+    own && own.noOwner ? "no owner" : "",
+    own && own.guestOwners ? `${own.guestOwners} guest owner(s)` : "",
+  ].filter(Boolean);
+  if (!reach && !gives.length) return "";
+  const text = [reach, gives.join(", ")].filter(Boolean).join(" → ");
+  return `<div class="status-msg${gives.length ? " error" : ""}">${esc(text)}</div>`;
+}
+
+function groupReportHtml(rep) {
+  const d = rep.details && rep.details.ok ? rep.details : null;
+  const out = [];
+  if (rep.parentsNote) out.push(`<div class="status-msg">${esc(rep.parentsNote)}</div>`);
+
+  out.push(
+    reportCard("Conditional Access", "Policies that name this group or a group it sits in; exclusions first", rep.conditionalAccess, (s) =>
+      `${s.allUsers ? `<div class="text-2">Also: ${fmt.int(s.allUsers)} enabled polic${s.allUsers === 1 ? "y targets" : "ies target"} all users without excluding this group.</div>` : ""}` +
+      listOrEmpty(s.policies, "No policy names this group or the groups it sits in.", (rows) =>
+        tableHtml(
+          [{ label: "Policy" }, { label: "State" }, { label: "Group is" }, { label: "Via" }, { label: "Apps" }, { label: "Requires" }],
+          rows.map((p) => [esc(p.policy), `<span class="text-2">${esc(p.state)}</span>`, effectTag(p.effect), viaText(p.via), `<span class="text-2">${esc(p.apps)}</span>`, `<span class="text-2">${esc(p.grant)}</span>`])
+        )
+      )
+    )
+  );
+
+  out.push(
+    reportCard("Enterprise apps", "Apps this group is assigned to (app assignment does not follow nested groups)", rep.apps, (s) =>
+      listOrEmpty(s.apps, "The group is not assigned to any app.", (rows) =>
+        tableHtml(
+          [{ label: "App" }, { label: "App role" }, { label: "Assignment required" }, { label: "Since" }],
+          rows.map((a) => [`${esc(a.app)}${a.disabled ? ' <span class="tag">disabled</span>' : ""}`, esc(a.role), a.assignmentRequired == null ? '<span class="text-2">unknown</span>' : yesNo(a.assignmentRequired, true), `<span class="text-2">${esc(fmt.date(a.since))}</span>`])
+        )
+      )
+    )
+  );
+
+  out.push(
+    reportCard("Nested members", "Everyone in the group through any depth, and the groups inside it", rep.members, (s) => {
+      const c = s.counts;
+      const tiles = [
+        statTile({ label: "Users", value: `${fmt.int(c.users)}${s.truncated ? "+" : ""}`, delta: `${fmt.int(c.guests)} guests · ${fmt.int(c.disabled)} disabled`, deltaCls: c.guests || c.disabled ? "bad" : "" }),
+        statTile({ label: "Nested groups", value: fmt.int(c.groups), delta: s.depth ? `${s.depth} level(s) deep${s.loops ? ` · ${s.loops} loop(s)` : ""}` : "none", deltaCls: s.loops ? "bad" : "" }),
+        statTile({ label: "Apps and devices", value: fmt.int(c.servicePrincipals + c.devices), delta: `${fmt.int(c.servicePrincipals)} service principals · ${fmt.int(c.devices)} devices` }),
+      ].join("");
+      const tree = (s.tree || [])
+        .map((n) => `<div class="text-2" style="padding-left:${(n.depth - 1) * 18}px">└ ${esc(n.name)}${n.loop ? ' <span class="tag bad">loop</span>' : ""}${n.repeated ? ' <span class="tag">also above</span>' : ""}</div>`)
+        .join("");
+      return `<div class="stat-row">${tiles}</div>${s.truncated ? `<div class="status-msg">Counted the first ${fmt.int(s.max)} members only.</div>` : ""}${s.treeCapped ? '<div class="status-msg">The tree stops after 300 groups.</div>' : ""}${tree ? `<div>${tree}</div>` : '<div class="empty-state">No groups inside this group.</div>'}`;
+    })
+  );
+
+  out.push(
+    reportCard("Key Vault access policies", "Vaults on access policies (not Azure roles) that name this group or a group it sits in", rep.keyVaults, (s) =>
+      listOrEmpty(s.vaults, "No vault access policy names this group.", (rows) =>
+        tableHtml(
+          [{ label: "Vault" }, { label: "Subscription" }, { label: "Via" }, { label: "Secrets" }, { label: "Keys" }, { label: "Certificates" }],
+          rows.map((v) => [nameCell({ name: v.vault, resourceGroup: v.resourceGroup }), subCell(v), viaText(v.via), ...[v.secrets, v.keys, v.certificates].map((p) => `<span class="text-2">${esc(p.join(", ") || "none")}</span>`)])
+        )
+      )
+    )
+  );
+
+  out.push(
+    reportCard("Who controls the group", "Owners, and Entra roles given on the group or an administrative unit it is in", rep.owners, (s) => {
+      const settings = d
+        ? `<div class="inline-list">${[
+            `Role-assignable: ${d.roleAssignable ? "yes" : "no"}`,
+            d.synced ? `Synced from on-premises${d.samAccountName ? ` (${d.samAccountName})` : ""}${d.lastSync ? `, last ${fmt.date(d.lastSync)}` : ""}` : "Cloud group",
+            d.created ? `Created ${fmt.date(d.created)}` : "",
+            d.expires ? `Expires ${fmt.date(d.expires)}` : "",
+            d.visibility ? `Visibility: ${d.visibility}` : "",
+            d.classification ? `Classification: ${d.classification}` : "",
+          ]
+            .filter(Boolean)
+            .map((t) => `<span class="tag">${esc(t)}</span>`)
+            .join("")}</div>`
+        : "";
+      const ownersHtml = listOrEmpty(s.owners, "No owners: only admins can change this group.", (rows) =>
+        tableHtml(
+          [{ label: "Owner" }, { label: "Type" }, { label: "Sign-in name" }],
+          rows.map((o) => [`${esc(o.name)}${o.guest ? ' <span class="tag bad">guest</span>' : ""}${o.disabled ? ' <span class="tag">disabled</span>' : ""}`, `<span class="text-2">${esc(o.type)}</span>`, `<span class="text-2">${esc(o.upn)}</span>`])
+        )
+      );
+      const c = rep.control;
+      const ctl =
+        !c || !c.ok
+          ? `<div class="status-msg">Admins scoped to this group: ${esc(noteOf(c).replace(/^Could not/, "could not"))}</div>`
+          : `${notesHtml(c.notes)}${c.units.length ? `<div class="text-2">In administrative unit(s): ${c.units.map((u) => `${esc(u.name)}${u.restricted ? ' <span class="tag">restricted</span>' : ""}`).join(", ")}</div>` : ""}${
+              c.admins.length
+                ? tableHtml([{ label: "Who" }, { label: "Role" }, { label: "Scope" }], c.admins.map((a) => [esc(a.who), esc(a.role), `<span class="text-2">${esc(a.scope)}</span>`]))
+                : '<div class="text-2">No Entra role is given on this group or its administrative units (tenant-wide admins can still change it).</div>'
+            }`;
+      return settings + ownersHtml + ctl;
+    })
+  );
+
+  const how = [];
+  if (d && d.dynamic) how.push(`<div><span class="tag">dynamic</span> <span class="text-2">${esc(d.ruleState || "")}</span><pre class="text-2">${esc(d.membershipRule)}</pre></div>`);
+  else if (d) how.push('<div class="text-2">Assigned membership: owners or admins add people by hand, or through the parts below.</div>');
+  const sub = (title, sec, empty, render) => `<h3>${esc(title)}</h3>${!sec || !sec.ok ? `<div class="status-msg">${esc(noteOf(sec))}</div>` : render(sec) || `<div class="empty-state">${esc(empty)}</div>`}`;
+  how.push(sub("Access packages", rep.accessPackages, "No access package hands out this group.", (s) => s.packages.length && tableHtml([{ label: "Access package" }, { label: "Gives" }], s.packages.map((p) => [esc(p.package), esc(p.role)]))));
+  how.push(sub("PIM for Groups", rep.pim, "Nobody is eligible for this group in PIM.", (s) => s.eligible.length && tableHtml([{ label: "Who" }, { label: "Can activate" }, { label: "Until" }], s.eligible.map((e) => [esc(e.name), esc(e.access), `<span class="text-2">${esc(e.end ? fmt.date(e.end) : "no end")}</span>`]))));
+  how.push(sub("Access reviews", rep.accessReviews, "No access review covers this group.", (s) => s.reviews.length && tableHtml([{ label: "Review" }, { label: "Status" }, { label: "Repeats" }], s.reviews.map((x) => [esc(x.name), `<span class="text-2">${esc(x.status)}</span>`, `<span class="text-2">${esc(x.recurrence)}</span>`]))));
+  out.push(`<div class="card"><div class="card-head"><h2>How people get in</h2><span class="meta">Membership type, access packages, PIM for Groups and access reviews</span></div>${how.join("")}</div>`);
+
+  out.push(
+    reportCard("Licences", "Licences given through this group, and members it could not license", rep.licences, (s) =>
+      `${listOrEmpty(s.licences, "This group gives no licences.", (rows) => tableHtml([{ label: "Licence" }, { label: "Plans turned off" }], rows.map((l) => [esc(l.sku), `<span class="text-2">${fmt.int(l.disabledPlans)}</span>`])))}${
+        s.errors.length ? `<div class="status-msg error">${fmt.int(s.errors.length)} member(s) with licence errors: ${esc(s.errors.slice(0, 10).map((u) => u.upn || u.name).join(", "))}${s.errors.length > 10 ? " …" : ""}</div>` : ""
+      }`
+    )
+  );
+
+  out.push(
+    reportCard("Intune", "Configuration, compliance and app assignments that target this group or a group it sits in", rep.intune, (s) =>
+      listOrEmpty(s.assignments, "No Intune assignment targets this group.", (rows) =>
+        tableHtml(
+          [{ label: "Type" }, { label: "Name" }, { label: "Group is" }, { label: "Via" }],
+          rows.map((a) => [`<span class="text-2">${esc(a.kind)}${a.intent ? ` (${esc(a.intent)})` : ""}</span>`, esc(a.name), effectTag(a.effect), viaText(a.via)])
+        )
+      )
+    )
+  );
+
+  const mail = d
+    ? d.mail.enabled
+      ? `<div class="inline-list"><span class="tag">${esc(d.kind)} group</span><span class="tag">${esc(d.mail.address)}</span>${d.mail.aliases.map((a) => `<span class="tag">${esc(a)}</span>`).join("")}</div>`
+      : `<div class="text-2">Not mail-enabled (${esc(d.kind)} group).</div>`
+    : `<div class="status-msg">${esc(noteOf(rep.details))}</div>`;
+  const siteHtml =
+    !rep.site || !rep.site.ok
+      ? `<div class="status-msg">SharePoint site: ${esc(noteOf(rep.site).replace(/^Could not/, "could not"))}</div>`
+      : rep.site.site
+        ? `<div>SharePoint site: <a href="${esc(rep.site.site.url)}" target="_blank" rel="noopener">${esc(rep.site.site.name || rep.site.site.url)}</a></div>`
+        : `<div class="text-2">${esc(rep.site.skipped || "No site.")}</div>`;
+  out.push(
+    `<div class="card"><div class="card-head"><h2>Mail, Teams and SharePoint</h2><span class="meta">The group's own mail address, Team and site</span></div>${mail}${d && d.unified ? `<div class="text-2">Team: ${d.team ? "yes" : "no"}</div>` : ""}${siteHtml}<div class="text-2 muted">Not checked: mailboxes this group has Full Access or Send As on (Exchange), and access it was given on other SharePoint sites. Both need APIs outside Microsoft Graph.</div></div>`
+  );
+  return out.join("");
+}
+
+async function loadGroupReport(g, r, seq) {
+  const box = $("#group-report");
+  if (!box) return;
+  try {
+    const rep = await apiJson(`/api/tools/access-lookup/group/${encodeURIComponent(g.id)}/report?in=${encodeURIComponent(r.tenant || g.tenant || "")}`);
+    if (seq !== lookupState.seq) return;
+    box.innerHTML = groupReportHtml(rep);
+    const sum = $("#group-summary");
+    if (sum) sum.innerHTML = groupSummaryHtml(r, rep);
+  } catch (err) {
+    if (seq === lookupState.seq) box.innerHTML = `<div class="status-msg">Could not get the group report (${esc(err.message)}).</div>`;
+  }
 }
 
 /* ---------- scan pages ---------- */
